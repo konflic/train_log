@@ -111,9 +111,17 @@ Core entities:
 - **Set**: a single set within an exercise (reps, weight, rpe, done). The meaning of
   `weight` depends on the catalog exercise's `load_type` (see Load Model below).
 - **ExerciseCatalog**: library of exercises (name, muscle group, equipment,
-  `load_type`, optional `bodyweight_fraction`).
+  `load_type`, optional `bodyweight_fraction`). Two scopes: **default**
+  exercises (seeded, `is_default=true`, no owner — visible to all users) and
+  **custom** exercises (`is_default=false`, `created_by=<user>` — visible
+  *only* to their owner). A user's effective catalog = defaults + own custom.
 - **BodyweightEntry**: track user's bodyweight over time — needed to compute
   effective load for bodyweight-based exercises.
+
+> **Last performance** is not an entity — it's a derived read: the most recent
+> *finished* workout that contained a given catalog exercise for the current
+> user, plus that exercise instance's sets. Used to prefill new exercise
+> instances and to show "vs last time" deltas.
 
 ### Entity Relationships
 
@@ -194,8 +202,12 @@ exercise_catalog
   load_type     TEXT NOT NULL  -- single_weight | split_weight | bodyweight
   bodyweight_fraction NUMERIC(4,3)  -- nullable; share of BW moved (e.g. 1.000, 0.650)
   side_count    SMALLINT DEFAULT 2   -- 1 unilateral, 2 bilateral (for split_weight)
-  is_default    BOOLEAN     -- seeded exercises
-  created_by    UUID NULL FK users(id)  -- user-created custom exercises
+  is_default    BOOLEAN DEFAULT FALSE
+  created_by    UUID NULL FK users(id)  -- NULL for defaults; =owner for custom (user-private)
+  -- uniqueness: name distinct within a user's visible catalog
+  --   (defaults unique globally; custom unique per created_by)
+  -- indexes: index_exercises_by_owner(created_by) WHERE created_by IS NOT NULL
+  --          index_exercises_visible -- none needed; union at query time
 
 workouts
   id            UUID PK
@@ -210,9 +222,11 @@ workouts
 exercises
   id            UUID PK
   workout_id    UUID FK workouts(id) ON DELETE CASCADE
-  catalog_id    UUID FK exercise_catalog(id)
+  catalog_id    UUID FK exercise_catalog(id) ON DELETE RESTRICT  -- protect history; block custom-exercise deletion if referenced
   order_index   INT
   notes         TEXT
+  -- index: (catalog_id, workout_id) for "last performance" lookups
+  -- (join workouts for started_at ordering; see Last Performance query)
 
 sets
   id            UUID PK
@@ -356,9 +370,18 @@ Base path: `/api/v1`
 
 | Method | Path                                          | Description          |
 |--------|-----------------------------------------------|----------------------|
-| POST   | /workouts/{wid}/exercises                     | Add exercise to workout |
+| POST   | /workouts/{wid}/exercises?prefill=true        | Add exercise to workout (optionally prefill sets from last session) |
+| GET    | /workouts/{wid}/exercises/{eid}/last          | Last session values for this exercise (for live comparison) |
 | PATCH  | /workouts/{wid}/exercises/{eid}               | Update exercise      |
 | DELETE | /workouts/{wid}/exercises/{eid}               | Remove exercise      |
+
+> **Prefill from last session** (`POST /workouts/{wid}/exercises?prefill=true`):
+> looks up the caller's most recent *finished* workout containing this
+> `catalog_id` (same as the Last Performance endpoint), creates the exercise
+> instance, and seeds it with the **same number of sets** as that last
+> instance, copying `reps`/`weight`/`rpe` per set index into new, editable
+> (not-done) sets. The user can then change weight, reps, add or remove sets.
+> If no prior session exists, the exercise is created with one empty set.
 
 ### Sets
 
@@ -372,10 +395,23 @@ Base path: `/api/v1`
 
 | Method | Path                       | Description                          |
 |--------|----------------------------|--------------------------------------|
-| GET    | /exercises                 | List catalog (search, filter muscle) |
-| POST   | /exercises                 | Create custom exercise (user-scoped)  |
-| PATCH  | /exercises/{id}            | Update custom exercise                |
-| DELETE | /exercises/{id}            | Delete custom exercise               |
+| GET    | /exercises                 | List visible catalog = defaults + own custom (search, filter muscle) |
+| GET    | /exercises/{id}            | Get one (must be visible to caller)  |
+| POST   | /exercises                 | Create custom exercise (owner = caller; user-private) |
+| PATCH  | /exercises/{id}            | Update own custom exercise (defaults immutable) |
+| DELETE | /exercises/{id}            | Delete own custom exercise; blocked (409) if referenced in any workout/template |
+
+> **Visibility rules**: every catalog endpoint enforces that custom
+> exercises are only readable/mutable by their owner (`created_by =
+> current_user`). Defaults (`is_default=true`) are readable by all and never
+> writable/deletable. `GET /exercises` returns the union of defaults and the
+> caller's custom exercises.
+
+### Last Performance
+
+| Method | Path                                        | Description                                              |
+|--------|---------------------------------------------|----------------------------------------------------------|
+| GET    | /exercises/{catalog_id}/last-performance    | Most recent finished workout containing this exercise + that exercise instance's sets (reps, weight, rpe, set_index), ordered by `started_at desc`. Returns 204/empty if none. Used to prefill new exercise instances and to show "vs last time". |
 
 ### Templates
 
@@ -417,6 +453,10 @@ Base path: `/api/v1`
 - **Personal records (PRs)**: max weight for reps, max estimated 1RM per exercise.
 - **Estimated 1RM**: Epley formula `1RM = w * (1 + reps/30)`.
 - **Progression**: weight@reps over time for a given exercise.
+- **vs last session**: for each exercise in the active/recent workout, compare
+  current set values (reps, weight, effective_load) and total exercise volume
+  against the previous session for the same `catalog_id` — surface per-set
+  deltas and a total-volume delta so the user sees progress vs last time.
 - **Bodyweight trend** (optional).
 
 ---
@@ -429,6 +469,12 @@ Base path: `/api/v1`
    - List of exercises with collapsible sets.
    - Big touch-friendly inputs for reps / weight.
    - "Add set", "Add exercise", "Finish workout".
+   - **Add exercise → prefill**: when adding an exercise previously done, the
+     app seeds the same number of sets as the last session with last-time
+     reps/weight (editable). Each set row also shows a faint "last: 80x8"
+     hint for comparison; the user edits weight/reps/set-count live.
+   - **Per-set + per-exercise "vs last time" delta** (volume, weight@reps) so
+     the user sees progress in-session.
    - Auto-rest-timer between sets (nice-to-have).
 4. **Workout History**: list by date, tap to view/edit.
 5. **Exercise Catalog / Picker**: search, filter by muscle group.
@@ -494,9 +540,13 @@ fit_track/
   Postgres-ready via `DATABASE_URL`. Seed catalog with example exercises per
   load type.
 - Auth: register, login, JWT, refresh.
-- Exercise catalog: seed default exercises, list, create custom.
-- Workouts CRUD: create, add exercises, add sets, finish, list, get, delete.
-- Frontend: auth, active workout flow, history list.
+- Exercise catalog: seed default exercises, list visible catalog (defaults +
+  own custom), create/edit/delete **user-private** custom exercises; block
+  deletion when referenced.
+- Workouts CRUD: create, add exercises (with **prefill from last session**),
+  add/edit/remove sets, finish, list, get, delete.
+- Frontend: auth, active workout flow (prefill + per-set "vs last time"
+  hints), history list.
 
 ### Phase 2 - Polish & Templates
 
