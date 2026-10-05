@@ -59,20 +59,25 @@ backend rework.
 
 ### Backend
 
-- **Language/Framework**: Python + FastAPI (async, auto OpenAPI docs, fast
-  iteration) — *alternative*: Node.js + Fastify/NestJS.
+- **Language/Framework**: Python + FastAPI, **synchronous** style (plain `def`
+  endpoints; FastAPI runs them in an AnyIO threadpool — first-class, documented
+  support). Auto OpenAPI docs, fast iteration. *Alternative*: Node.js +
+  Fastify/NestJS.
 - **Database**: **switchable** — **SQLite** for MVP/local dev (zero setup,
   file-based), **PostgreSQL** for production. Same app code targets both via a
-  thin async DB layer over `aiosqlite` / `asyncpg`. Selected by `DATABASE_URL`
-  (e.g. `sqlite+aiosqlite:///./fittrack.db` vs
-  `postgresql+asyncpg://...`). See *Database Portability* below.
+  thin **sync** DB layer over stdlib `sqlite3` / `psycopg` (v3, sync mode).
+  Selected by `DATABASE_URL` (e.g. `sqlite:///./fittrack.db` vs
+  `postgresql://user:pass@host/db`). See *Database Portability* below.
+  > `psycopg` v3 (not psycopg2) is chosen deliberately: it supports **both**
+  > sync and async, so if a future real-time feature ever needs async, the
+  > driver isn't a rewrite — it's an escape hatch.
 - **Data access**: **raw SQL** — no ORM. Hand-written SQL queries executed via
-  async drivers (`aiosqlite` for SQLite, `asyncpg` for Postgres) behind a small
-  in-house executor that normalizes parameter style (`?`/`:name` vs `$1`) and
-  returns rows mapped to Pydantic models. Schema lives as SQL files; migrations
-  via Alembic in raw-SQL mode (`op.execute("...")`). Rationale: shallow schema,
-  analytics-heavy reads, switchable-DB — an ORM's relationship/unit-of-work
-  machinery doesn't pay off and adds async footguns. See *Why no ORM*.
+  the sync drivers behind a small in-house executor that normalizes parameter
+  style (`?`/`:name` vs `%s`/`$1`) and returns rows mapped to Pydantic models.
+  Schema lives as SQL files; migrations via Alembic in raw-SQL mode
+  (`op.execute("...")`). Rationale: shallow schema, analytics-heavy reads,
+  switchable-DB — an ORM's relationship/unit-of-work machinery doesn't pay off.
+  See *Why no ORM*.
 - **Validation**: Pydantic v2 (comes with FastAPI); response/request schemas
   also double as row-shape mappers for query results.
 - **Auth**: JWT access + refresh tokens; bcrypt/argon2 password hashing.
@@ -80,6 +85,33 @@ backend rework.
 - **Containerization**: Docker + docker-compose. MVP backend can run without a
   DB container (SQLite file); compose includes an optional Postgres service
   + adminer for prod/dev-parity when needed.
+
+#### Concurrency model (sync)
+
+- **Request handling**: sync `def` endpoints run in FastAPI's AnyIO threadpool
+  (default 40 tokens, tunable via
+  `anyio.to_thread.current_default_thread_limiter().total_tokens`). Each
+  in-flight request holds one thread + one DB connection for its duration.
+- **Scaling**: concurrency ceiling per process ≈ threadpool size. Scale by
+  (a) raising the threadpool limit and (b) running multiple worker processes
+  (`uvicorn --workers N` or gunicorn+uvicorn workers) behind a load balancer.
+  Horizontal scaling is the primary lever — simpler to reason about than async
+  tuning.
+- **SQLite connections**: not thread-safe by default → use **connection-per-
+  request** (open in the sync dependency, `PRAGMA foreign_keys=ON`, `PRAGMA
+  journal_mode=WAL`, close after). Connections are cheap; WAL allows concurrent
+  readers while writes serialize (single-writer).
+- **Postgres connections**: `psycopg` v3 thread-safe connection pool sized to
+  workers × threadpool; front with **pgbouncer** in production to cap total
+  connections and reuse them.
+- **Transactions**: bulk-save is a single sync transaction on one thread —
+  no async context-switching mid-transaction. Keep transactions short.
+- **Why sync is fine here**: workload is short CRUD transactions + scoped
+  aggregate queries (DB-bound, not connection-juggling-bound); no
+  WebSockets/SSE/streaming; SQLite makes async fake anyway (aiosqlite =
+  sqlite3 in a thread). The threadpool ceiling is lower per process than async,
+  but you scale by processes/nodes, and the DB is the real constraint either
+  way. See *Decision Log*.
 
 ### Frontend
 
@@ -302,10 +334,11 @@ Notes:
 The schema and app code must run unchanged on both SQLite (MVP) and PostgreSQL
 (prod), with **no ORM** — we own the dialect quirks explicitly.
 
-- **Driver/URL**: single `DATABASE_URL` env var selecting the async driver:
-  `sqlite+aiosqlite:///./fittrack.db` or `postgresql+asyncpg://...`. A thin
-  in-house `db` module wraps the driver and normalizes parameter style
-  (rewrite `:name` ↔ `?` ↔ `$1` per dialect) so SQL strings are shared.
+- **Driver/URL**: single `DATABASE_URL` env var selecting the **sync** driver:
+  stdlib `sqlite3` (`sqlite:///./fittrack.db`) or `psycopg` v3 sync
+  (`postgresql://user:pass@host/db`). A thin in-house `db` module wraps the
+  driver and normalizes parameter style (rewrite `:name` ↔ `?` for sqlite3 ↔
+  `%(name)s` for psycopg3) so SQL strings are shared.
 - **Parameter style**: write SQL once with named params (e.g. `:user_id`);
   the executor translates to the driver's style. Never interpolate values.
 - **UUIDs**: generate `uuid.uuid4()` in the app; persist as **`TEXT`**
@@ -328,7 +361,7 @@ The schema and app code must run unchanged on both SQLite (MVP) and PostgreSQL
   SQLite and Postgres support them — and are used for catalog name uniqueness
   (see schema). Use portable `RETURNING *` only where both drivers support it
   — **pin SQLite >= 3.35** (RETURNING support) in deps/runtime; if the runtime
-  SQLite is older, fall back to insert-then-SELECT-by-id. asyncpg supports
+  SQLite is older, fall back to insert-then-SELECT-by-id. `psycopg` v3 supports
   RETURNING natively.
 - **Booleans/numerics**: `BOOLEAN` + `CHECK` / `NUMERIC` are portable (SQLite
   stores as 0/1 and TEXT). Keep NUMERIC precision explicit.
@@ -340,9 +373,12 @@ The schema and app code must run unchanged on both SQLite (MVP) and PostgreSQL
 - **Case sensitivity**: quote nothing; use lowercase snake_case identifiers
   consistently (Postgres folds to lowercase; SQLite is case-insensitive).
 - **Concurrency**: SQLite MVP = single-writer; fine for local dev / single
-  user. Postgres for multi-user prod. Keep transactions short; only use
-  `BEGIN IMMEDIATE`-style hints on SQLite (guarded by dialect check) where
-  needed.
+  user / small self-hosted. Use **WAL mode** (concurrent readers, serialized
+  writer) and **connection-per-request** (sqlite3 connections aren't thread-safe
+  by default; the sync threadpool needs one connection per in-flight request —
+  see *Concurrency model*). Postgres for multi-user prod (psycopg3 pool +
+  pgbouncer). Keep transactions short; on SQLite use `BEGIN IMMEDIATE` for
+  write transactions to avoid `database is locked` under contention.
 - **Testing against both**: unit tests run on a temp SQLite file; CI runs the
   suite again against a throwaway Postgres container to catch dialect drift.
 - **Backups**: SQLite = copy the file; Postgres = `pg_dump`. Documented per
@@ -356,8 +392,10 @@ Chosen deliberately (see decision log). Reasons:
   unit-of-work machinery don't pay off.
 - Analytics path is aggregate SQL (volume, PRs, 1RM, frequency) — clearer and
   faster to write as raw SQL than ORM query DSL.
-- Async ORM footguns (N+1, `MissingGreenlet` on lazy access) sit exactly on
-  the hot path (workout → exercises → sets).
+- ORM lazy-loading N+1 risk sits exactly on the hot path (workout → exercises
+  → sets); with raw SQL you write one explicit fetch/JOIN and see the query
+  that runs. (Going sync also sidesteps async-ORM footguns like
+  `MissingGreenlet` entirely — a bonus, not the main reason.)
 - Switchable SQLite↔Postgres: a dialect-aware executor + portable storage
   rules cover the few quirks; no need for a full ORM's dialect layer.
 - One representation per shape: SQL table ↔ Pydantic schema (mapper is a
@@ -575,7 +613,7 @@ fit_track/
       main.py
       api/v1/            # route handlers
       core/              # config, security (JWT, hashing)
-      db/                # thin async executor: driver, param-style normalize, row->Pydantic mappers
+      db/                # thin sync executor: driver, param-style normalize, row->Pydantic mappers
       sql/               # *.sql query files (one per resource/feature)
       schemas/           # Pydantic request/response + row mappers
       services/          # business logic (workouts, stats, load model)
@@ -610,9 +648,9 @@ fit_track/
 Goal: a user can register, pick exercises, run an active workout that survives
 a refresh, save it in one shot, and repeat their last session. Ship this first.
 
-- Backend: project scaffolding, FastAPI + raw SQL (aiosqlite/asyncpg) + thin
-  executor + Alembic raw-SQL migrations; **SQLite** (local) as default DB,
-  Postgres-ready via `DATABASE_URL`. Pin SQLite >= 3.35.
+- Backend: project scaffolding, FastAPI (sync `def` endpoints) + raw SQL
+  (sqlite3 / psycopg3) + thin executor + Alembic raw-SQL migrations; **SQLite**
+  (local) as default DB, Postgres-ready via `DATABASE_URL`. Pin SQLite >= 3.35.
 - Auth: register, login, JWT access + refresh (refresh-token storage strategy
   decided — see Cross-Cutting). Profile includes `bodyweight_default` and
   `preferred_unit` (so bodyweight load is computable from day one).
@@ -710,10 +748,22 @@ Key decisions and their rationale (living record — update as decisions change)
 - **Switchable DB: SQLite (MVP) → PostgreSQL (prod)** via a single
   `DATABASE_URL`; one schema, portable storage rules (TEXT UUIDs/timestamps,
   CHECK enums). Avoids a prod-only DB during local dev; CI tests both.
+- **Synchronous backend** (plain `def` FastAPI endpoints in a threadpool; sync
+  `sqlite3` / `psycopg3`): the workload is short CRUD transactions + scoped
+  aggregate queries — DB-bound, not connection-juggling-bound — and there are
+  no WebSockets/SSE/streaming needs. SQLite makes async fake anyway (aiosqlite
+  = sqlite3 in a thread) and is single-writer regardless. Sync removes async
+  coloring from the whole codebase (simpler to read, debug, test). Trade-off:
+  lower per-process concurrency ceiling than async, mitigated by tunable
+  threadpool size + horizontal scaling (more workers/nodes); the DB is the real
+  constraint either way. `psycopg3` (sync+async capable) keeps async as an
+  escape hatch if a future real-time feature ever needs it. See *Concurrency
+  model*.
 - **Raw SQL, no ORM** (§Why no ORM): shallow schema, analytics-heavy reads,
-  switchable-DB. An ORM's relationship/unit-of-work machinery doesn't pay off
-  and adds async footguns (N+1, `MissingGreenlet`) on the hot path. We accept
-  hand-written SQL + raw-SQL Alembic migrations.
+  switchable-DB. An ORM's relationship/unit-of-work machinery doesn't pay off,
+  and lazy-loading N+1 risk sits on the hot path (workout → exercises → sets);
+  raw SQL writes one explicit fetch. We accept hand-written SQL + raw-SQL
+  Alembic migrations.
 - **Bulk-save (`PUT /workouts/{id}`) is the primary active-workout write path**
   — one request for the whole exercise+set graph instead of per-set
   round-trips. Critical for mobile UX and offline sync (the bulk-save is the
