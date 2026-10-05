@@ -1,8 +1,8 @@
-# FitTrack - Fitness Training Tracker
+# BaseFit - Fitness Training Tracker
 
 ## 1. Overview
 
-FitTrack is a fitness training tracker that lets users log their workouts
+BaseFit is a fitness training tracker that lets users log their workouts
 (exercises, sets, reps, weights) and view statistics derived from their
 training history. The application is built **mobile-first** as a web app now,
 but designed API-first so a native mobile app can be added later with no
@@ -66,7 +66,7 @@ backend rework.
 - **Database**: **switchable** — **SQLite** for MVP/local dev (zero setup,
   file-based), **PostgreSQL** for production. Same app code targets both via a
   thin **sync** DB layer over stdlib `sqlite3` / `psycopg` (v3, sync mode).
-  Selected by `DATABASE_URL` (e.g. `sqlite:///./fittrack.db` vs
+  Selected by `DATABASE_URL` (e.g. `sqlite:///./basefit.db` vs
   `postgresql://user:pass@host/db`). See *Database Portability* below.
   > `psycopg` v3 (not psycopg2) is chosen deliberately: it supports **both**
   > sync and async, so if a future real-time feature ever needs async, the
@@ -115,22 +115,49 @@ backend rework.
 
 ### Frontend
 
-- **Framework**: React + Vite (TypeScript). Mobile-first.
-- **UI approach**: Tailwind CSS + headless components (e.g. Radix/Headless UI).
-  *Alternative*: React Native Web if we want maximum code reuse with the
-  future native app.
-- **State/Data**: TanStack Query for server state; lightweight local state
-  (Zustand) if needed.
-- **Routing**: React Router (or TanStack Router).
-- **Forms**: React Hook Form + Zod (shares schemas with backend later).
-- **PWA**: service worker + manifest for installable, offline-capable web app.
-- **Testing**: Vitest + Playwright (E2E).
+- **Framework**: **Svelte 5 (SPA mode)** + Vite + TypeScript. Mobile-first.
+  Chosen over React for lower ceremony: compiler-based (no runtime framework
+  shipped, no virtual DOM, no hooks/re-render mental model), built-in two-way
+  binding (`bind:`) and keyed list rendering (`{#each ... (id)}`) handle the
+  reactive Active Workout editor with minimal code and the fewest focus/cursor
+  edge cases. Small API surface. See *Decision Log*.
+- **UI approach**: Tailwind CSS + accessible headless primitives via
+  **bits-ui / shadcn-svelte** (Svelte's answer to Radix/shadcn); custom
+  mobile-first components built on top.
+- **State/Data**: **Svelte stores** (built-in, no dep) for UI/local state.
+  Server reads go through a thin data layer over the **shared TS api client**;
+  `@tanstack/svelte-query` is optional if read-caching needs grow
+  (history/stats). The Active Workout is **local-first**: state lives in
+  IndexedDB (`idb`) and syncs via debounced bulk-save (see Frontend Screens).
+- **Routing**: `svelte-spa-router` (hash-based, tiny, PWA-friendly — no server
+  rewrite rules). *Alternative*: SvelteKit in SPA mode (adapter-static,
+  `ssr=false`) if we later want file-based routing + `load` functions;
+  deferred to keep the SPA minimal.
+- **Forms**: native Svelte `bind:` + **Zod** (schemas shared with backend via
+  the shared TS package). Optionally `felte` for complex form state.
+- **PWA**: `vite-plugin-pwa` (Workbox) for service worker + manifest; `idb`
+  for IndexedDB (active-workout persistence + offline mutation queue).
+- **Charts**: Chart.js (or uPlot for lighter weight) — framework-agnostic,
+  used directly in Svelte components.
+- **Testing**: Vitest + `@testing-library/svelte` (component) + Playwright (E2E).
+
+### Shared TS package (web ↔ mobile)
+
+- `frontend/src/shared/` (extractable to a root `packages/shared` workspace
+  when the native app arrives): **API client + types + Zod schemas**,
+  framework-agnostic. Consumed by the Svelte web app now and by the future
+  native app if it's TS-based (React Native). This is the real reuse asset —
+  it decouples "future mobile reuse" from the web UI framework choice. If
+  native goes Flutter/Dart, the client is re-implemented there and types are
+  generated from the OpenAPI spec.
 
 ### Future Mobile App
 
 - Same REST API, JWT auth.
-- Candidate: React Native (reuse TS skills + some logic) or Flutter.
-- Offline sync layer needed (queue mutations while offline).
+- Candidate: React Native (reuses the shared TS package) or Flutter
+  (re-implements the client; generate types from OpenAPI).
+- Offline sync layer needed (queue mutations while offline) — mirrors the web
+  app's IndexedDB + bulk-save pattern.
 
 ---
 
@@ -335,7 +362,7 @@ The schema and app code must run unchanged on both SQLite (MVP) and PostgreSQL
 (prod), with **no ORM** — we own the dialect quirks explicitly.
 
 - **Driver/URL**: single `DATABASE_URL` env var selecting the **sync** driver:
-  stdlib `sqlite3` (`sqlite:///./fittrack.db`) or `psycopg` v3 sync
+  stdlib `sqlite3` (`sqlite:///./basefit.db`) or `psycopg` v3 sync
   (`postgresql://user:pass@host/db`). A thin in-house `db` module wraps the
   driver and normalizes parameter style (rewrite `:name` ↔ `?` for sqlite3 ↔
   `%(name)s` for psycopg3) so SQL strings are shared.
@@ -605,7 +632,7 @@ Base path: `/api/v1`
 ## 9. Project Structure
 
 ```
-fit_track/
+basefit/
   PLAN.md
   README.md
   backend/                 # FastAPI service
@@ -622,19 +649,24 @@ fit_track/
     alembic/             # raw-SQL migrations (op.execute)
     pyproject.toml
     Dockerfile
-  frontend/                # React + Vite
+  frontend/                # Svelte 5 (SPA) + Vite
     src/
-      main.tsx
-      App.tsx
-      pages/
-      components/
-      features/            # workout, stats, catalog, ...
-      api/                 # API client + types
-      hooks/
+      main.ts              # app bootstrap
+      App.svelte
+      routes/              # svelte-spa-router route definitions
       lib/
+        components/        # UI components (.svelte)
+        features/          # workout, stats, catalog, ...
+        stores/            # Svelte stores (UI/local state)
+        db/                # idb (IndexedDB) persistence + offline mutation queue
+        charts/            # Chart.js/uPlot wrappers
+      shared/              # API client + types + Zod (shared with future mobile;
+                           # extractable to root packages/shared workspace later)
     public/                # PWA manifest, icons
     package.json
     vite.config.ts
+    svelte.config.js
+    tsconfig.json
     Dockerfile
   docker-compose.yml
 ```
@@ -790,3 +822,22 @@ Key decisions and their rationale (living record — update as decisions change)
 - **Active-workout local persistence (IndexedDB)**: a refresh/crash/network
   drop must never lose an in-progress session; local draft reconciles with
   server on reconnect.
+- **Svelte (SPA) over React for the web frontend**: the only genuinely reactive
+  screen is the Active Workout editor (dynamic exercise/set lists, live
+  two-way editing, computed deltas, IndexedDB persistence). Svelte's compiler
+  handles exactly that — keyed `{#each}` preserves row identity (no
+  focus/cursor jumps), `bind:` gives two-way binding for free, granular DOM
+  updates without a virtual DOM — with a far smaller API surface and no
+  runtime framework shipped. React's ecosystem maturity (Radix/shadcn, Recharts,
+  testing-library) doesn't proportionally help this goal, and its complexity
+  (hooks rules, re-render behavior, state-management choices, ~45KB+ runtime)
+  is the cost we're avoiding. The mobile-reuse argument doesn't require React:
+  the reusable asset is the **shared TS package** (api client + types + Zod),
+  which any web framework consumes and React Native can reuse directly.
+  Vanilla TS + lit-html + nanostores was considered (fewest deps) but moves
+  render/reactivity/focus-management glue into our codebase — more total code
+  and more edge-case bugs on the workout editor, which cuts against
+  "lightweight" in practice. Trade-off accepted: younger ecosystem than React
+  (bits-ui/shadcn-svelte are newer than Radix), and Svelte needs a build step
+  (its compiler) — but it compiles away, so lock-in is low and output is plain
+  DOM code.
