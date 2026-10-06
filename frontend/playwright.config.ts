@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,9 +12,10 @@ const FRONTEND_PORT = Number(process.env.E2E_FRONTEND_PORT ?? 4173);
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const FRONTEND_ORIGIN = `http://127.0.0.1:${FRONTEND_PORT}`;
 
-// Isolated per-run data directory; each E2E run starts with a clean database
-// location and Playwright tears both servers down afterwards.
+// Isolated per-run data directory; normal process exit cleans it after
+// Playwright tears both servers down.
 const dataDir = mkdtempSync(join(tmpdir(), 'basefit-e2e-'));
+process.once('exit', () => rmSync(dataDir, { recursive: true, force: true }));
 
 function processEnv(): Record<string, string> {
   const cleaned: Record<string, string> = {};

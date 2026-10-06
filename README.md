@@ -13,8 +13,8 @@ frontend/   Svelte 5 + Vite + TypeScript SPA
 
 ## Prerequisites
 
-- Python 3.12+ (`python3`)
-- Node.js 22+ (CI uses 24) and npm
+- Python 3.12.3 (`python3`)
+- Node.js 24.19.0 and npm
 - Chromium for Playwright E2E: `cd frontend && npx playwright install chromium`
 
 ## Backend setup
@@ -22,9 +22,11 @@ frontend/   Svelte 5 + Vite + TypeScript SPA
 ```bash
 cd backend
 python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -e '.[dev]'
+.venv/bin/pip install -c constraints.txt -e '.[dev]'
 ```
+
+`backend/constraints.txt` pins the complete resolved Python environment; update
+it deliberately whenever a dependency changes.
 
 Run the API for local development (listens on port 8000; the frontend dev and
 preview servers proxy `/api` there):
