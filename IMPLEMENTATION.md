@@ -7,6 +7,15 @@ so every step is small, testable, and verifiable before the next one starts.
 Scope = `PLAN.md` §10 **"Phase 1 - Reliable, usable core"** and its **14
 acceptance checks**. Phases 2-3 are out of scope here.
 
+## Implementation status
+
+- **Completed:** Stage 0 was merged to `master` in
+  [PR #1](https://github.com/konflic/train_log/pull/1) on 2026-10-06 (`75065b4`).
+  Gate G0 passed locally and in GitHub CI: backend lint, format,
+  typecheck, and tests; frontend check, lint, unit tests, and production build;
+  and Playwright browser smoke tests.
+- **Next:** Stage 1 - Database foundation and migrations.
+
 ---
 
 ## Ground rules
@@ -20,6 +29,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
   automated checks pass locally **and** in CI, any required manual verification
   has recorded evidence, and **no earlier gate regressed** (CI runs the whole
   suite every time).
+- Update this file's implementation status within the stage branch. Completion
+  evidence and the next-stage marker must be included in that stage's PR before
+  merge, not deferred to a separate follow-up PR.
 - **Backend stages (1-8) verify with `pytest`/API tests only** - no frontend
   required. **Frontend stages (9-13)** build against a running backend.
   **Stage 14** ties everything together end-to-end.
