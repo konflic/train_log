@@ -64,7 +64,7 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: `npm run build && npm run preview -- --port ${FRONTEND_PORT} --strictPort`,
+      command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort`,
       cwd: configDir,
       env: {
         ...processEnv(),
@@ -72,6 +72,7 @@ export default defineConfig({
       },
       url: `${FRONTEND_ORIGIN}/`,
       reuseExistingServer: !process.env.CI,
+      stdout: 'pipe',
       timeout: 120_000,
     },
   ],
