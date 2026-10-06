@@ -186,8 +186,8 @@ size limits), auth throttling.
 - Cookie: HttpOnly, Secure, SameSite=Strict, `Path=/api/v1`; non-Secure only for
   configured local HTTP dev. Never log/persist the raw token.
 - Endpoints: `POST /auth/register|login|logout`, `GET /auth/me`,
-  `PATCH /auth/me` (display_name, bodyweight_default_kg, timezone via
-  `zoneinfo`). Email normalization before store.
+   `PATCH /auth/me` (display_name, bodyweight_default_kg, utc_offset_minutes
+   bounded to -720..840). Email normalization before store.
 - CSRF: mutating browser requests require JSON + exact allowed `Origin`; GET
   side-effect-free; reject mismatch. Bounded login throttling; generic errors;
   request/body size limits. No secrets in any output.
@@ -325,8 +325,9 @@ prev-perf in `GET /workouts/{id}`, `app/api/export.py`.
 - `GET /stats/summary`: only **finished workouts + `done=true` sets**; volume
   summed with `unknown_load_set_count` + completeness flag (all-unknown → null;
   no eligible → 0); frequency (finished w/ ≥1 completed set) and muscle-group
-  frequency; tz day/week grouping (`zoneinfo`, Monday start, half-open ranges);
-  weekly streaks (current week may be ongoing). Floor all averages/percentages.
+   frequency; day/week grouping via the user's fixed UTC offset (Monday start,
+   half-open ranges); weekly streaks (current week may be ongoing). Floor all
+   averages/percentages.
 - Inline previous performance in workout GET: most recent strictly-earlier
   finished session per catalog id, all instances in workout order, pair by order
   then completed sets by **side + ordinal**; compare only compatible load
@@ -338,7 +339,7 @@ prev-perf in `GET /workouts/{id}`, `app/api/export.py`.
 **Verification:** `pytest` for eligibility; mixed known/unknown loads return the
 known sum with `unknown_load_set_count > 0` and an incomplete flag; all-unknown
 eligible loads return null; no eligible sets return known 0;
-tz grouping + streak edge cases; prev-perf pairing incl. left/right not paired,
+offset grouping + streak edge cases; prev-perf pairing incl. left/right not paired,
 negative-delta floor, changed catalog → no fake progress; profile/catalog edits
 don't rewrite existing totals; export excludes secrets; 1RM rules.
 **Gate G8:** stats/prev-perf/export correct. **Covers checks 8 (server half),
@@ -498,8 +499,9 @@ historical totals; unavailable/changed catalog entries are handled visibly.
 **Purpose:** review + preferences + data recovery. (`PLAN.md` §8)
 **Scope:** `features/history`, `features/settings`, export/download.
 **Tasks:** History/detail with previous-session comparison (deltas from S8);
-Settings (dark/light switch, display name, default bodyweight, timezone, JSON
-export, logout); expose saved-data export and local-draft recovery as distinct
+Settings (dark/light switch, display name, default bodyweight, UTC offset
+picker, JSON export, logout); expose saved-data export and local-draft recovery
+as distinct
 actions. Logout offers **sync/export/discard** pending changes and clears that
 account's local data only after the chosen action succeeds (or explicit discard);
 failed/cancelled actions retain drafts. Never upload an old account's draft under
@@ -527,16 +529,16 @@ production startup/serving configuration, README run/backup/restore docs.
   fill gaps without postponing earlier gates or duplicating every backend test
   as E2E. CI exercises real SQLite concurrency and migration/backup-restore.
 - Serve the **built SPA and `/api/v1` under one origin**, using one API process
-  and a persistent local-disk database. Configure explicit pre-start migrations,
-  production cookie settings, and installed IANA timezone data. Containers
-  remain optional. Document the concrete production startup procedure.
+   and a persistent local-disk database. Configure explicit pre-start migrations
+   and production cookie settings. Containers
+   remain optional. Document the concrete production startup procedure.
 - Run a deployment smoke with production build/configuration: load the SPA,
   register/login through the same origin, verify Secure/HttpOnly/SameSite cookie
   behavior over HTTPS, create/save/finish a workout, restart the application,
   and verify the workout remains readable. Keep TLS verification enabled.
 - Restore a backup to an isolated database and read its graph; verify an upgrade
-  from the previous migration preserves data/indexes/FKs. Confirm a non-UTC
-  timezone works in the deployment environment.
+   from the previous migration preserves data/indexes/FKs. Confirm a non-zero
+   user UTC offset groups statistics and displays times as expected.
 **Verification:** all automated acceptance checks pass in CI from a fresh clone;
 record production smoke results and a mobile/keyboard/light-dark visual check.
 Automated assertions supplement rather than replace a legibility review.
@@ -567,7 +569,7 @@ production run, backup, and restore. No PWA app-shell cache is required.
 
 Additional Phase 1 deliverables beyond the numbered checks: versioned local
 draft export is proved in 11a/11b and exposed in 12a/13; production same-origin
-serving, persistent storage across restart, and timezone availability are proved
+serving, persistent storage across restart, and UTC-offset handling are proved
 in 14. Keep those gates even though they do not have separate acceptance numbers.
 
 ## Risk notes (where stages most often slip)
@@ -576,6 +578,6 @@ in 14. Keep those gates even though they do not have separate acceptance numbers
   test time here; a direct occupied swap is a known trap (§5).
 - **S11 draft/sync protocol:** offline, two-tab, and lost-response ordering are
   subtle; test the coordinator explicitly, not just via UI.
-- **S8 tz grouping/streaks + prev-perf pairing:** Monday-start half-open ranges
+- **S8 offset grouping/streaks + prev-perf pairing:** Monday-start half-open ranges
   and left/right non-pairing are easy to get wrong; cover with fixtures.
 - If any stage's gate is red, **split it** rather than pushing forward.
