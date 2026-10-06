@@ -17,20 +17,22 @@ acceptance checks**. Phases 2-3 are out of scope here.
 - **Completed on this branch (PR pending):** Stage 1 - Database foundation and
   migrations. Gate G1 passed locally on 2026-10-06; CI re-runs it on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
-    and `pytest -q` (50 tests) all green.
+    and `pytest -q` (60 tests) all green.
   - Isolated temporary database: `python migrate.py` applied `0001` + `0002`;
     a second run reported no pending migrations; `python -m app.backup backup`
     then `verify` (integrity_check + foreign_key_check + workout-graph read)
     passed; no WAL sidecars next to the backup file.
   - Tests cover: migrate-from-empty (all tables STRICT, WAL on, seed present,
     `foreign_key_check` clean); re-run no-op; failed migration rolls back
-    DDL/data/version record and resumes after fix; unknown recorded version
-    refused; STRICT rejects fractional/non-convertible integers and BLOBs in
-    TEXT (lossless `1.0`/`"12"`/bool coercion documented for Stage 2); FK
-    cascade/restrict; partial unique catalog-name indexes per scope; previous
-    → current migration preserves data/indexes/FKs; backup while WAL holds
-    committed data → restore → verify + direct graph reads; held write lock
-    past busy timeout → retryable `DatabaseBusyError`, retry succeeds.
+    DDL/data/version record and resumes after fix; migration transaction/PRAGMA
+    escape attempts are rejected atomically; unknown recorded version refused;
+    STRICT rejects fractional/non-convertible integers, BLOBs in TEXT, and
+    impossible/non-canonical timestamps (lossless `1.0`/`"12"`/bool coercion
+    documented for Stage 2); FK cascade/restrict; partial unique catalog-name
+    indexes per scope; previous → current migration preserves data/indexes/FKs;
+    backup while WAL holds committed data → restore → verify + direct graph
+    reads; missing/corrupt backup sources fail without leaving an output; held
+    write lock past busy timeout → retryable `DatabaseBusyError`, retry succeeds.
   - No earlier gate regressed: frontend `check`/`lint`/`test:unit`/`build` and
     both Playwright smoke tests green locally.
 - **Next:** Stage 2 - Integer-only contract.

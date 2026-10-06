@@ -75,6 +75,28 @@ def test_backup_refuses_to_overwrite(tmp_path: Path, migrated_db: Path) -> None:
         create_backup(migrated_db, destination)
 
 
+def test_backup_rejects_missing_source_without_creating_files(tmp_path: Path) -> None:
+    source = tmp_path / "missing.db"
+    destination = tmp_path / "backup.db"
+
+    with pytest.raises(FileNotFoundError, match="backup source"):
+        create_backup(source, destination)
+
+    assert not source.exists()
+    assert not destination.exists()
+
+
+def test_failed_backup_removes_incomplete_destination(tmp_path: Path) -> None:
+    source = tmp_path / "corrupt.db"
+    destination = tmp_path / "backup.db"
+    source.write_bytes(b"this is not a sqlite database")
+
+    with pytest.raises(BackupError, match="cannot back up"):
+        create_backup(source, destination)
+
+    assert not destination.exists()
+
+
 def test_verify_rejects_non_database_file(tmp_path: Path) -> None:
     junk = tmp_path / "junk.db"
     junk.write_bytes(b"this is definitely not a sqlite database file" * 10)

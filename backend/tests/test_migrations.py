@@ -165,6 +165,32 @@ def test_failed_migration_rolls_back_completely(tmp_path: Path) -> None:
         assert "bad_table" in names
 
 
+@pytest.mark.parametrize("forbidden", ["COMMIT", "ROLLBACK", "PRAGMA user_version = 7"])
+def test_migration_cannot_escape_runner_transaction(tmp_path: Path, forbidden: str) -> None:
+    migrations_dir = tmp_path / "migrations"
+    _write(
+        migrations_dir,
+        "0001_forbidden.sql",
+        f"CREATE TABLE partial_state (id INTEGER NOT NULL PRIMARY KEY) STRICT;\n{forbidden};",
+    )
+    database_path = tmp_path / "basefit.db"
+
+    with pytest.raises(MigrationError, match="0001_forbidden"):
+        migrate.migrate(database_path, migrations_dir=migrations_dir)
+
+    with connect(database_path) as conn:
+        partial_state = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'partial_state'"
+        ).fetchone()
+        assert partial_state is not None
+        assert int(partial_state[0]) == 0
+        versions = conn.execute("SELECT version FROM schema_migrations").fetchall()
+        assert versions == []
+        user_version = conn.execute("PRAGMA user_version").fetchone()
+        assert user_version is not None
+        assert int(user_version[0]) == 0
+
+
 def test_unknown_recorded_version_is_refused(tmp_path: Path) -> None:
     migrations_dir = tmp_path / "migrations"
     _write(

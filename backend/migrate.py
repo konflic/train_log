@@ -35,8 +35,13 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
     applied_at TEXT NOT NULL
-        CHECK (applied_at GLOB
-               '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z')
+        CHECK (
+            applied_at GLOB
+                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+            AND CAST(substr(applied_at, 1, 4) AS INTEGER) >= 1
+            AND CAST(substr(applied_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+            AND strftime('%Y-%m-%dT%H:%M:%SZ', applied_at) IS applied_at
+        )
 ) STRICT
 """
 
@@ -51,6 +56,21 @@ class Migration:
     name: str
     path: Path
     sql: str
+
+
+def _migration_authorizer(
+    action: int,
+    argument_one: str | None,
+    _argument_two: str | None,
+    _database: str | None,
+    _trigger: str | None,
+) -> int:
+    """Keep migration scripts inside the transaction owned by the runner."""
+    if action == sqlite3.SQLITE_TRANSACTION and argument_one != "BEGIN":
+        return sqlite3.SQLITE_DENY
+    if action in (sqlite3.SQLITE_PRAGMA, sqlite3.SQLITE_SAVEPOINT):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
 
 
 def utc_now_timestamp() -> str:
@@ -121,7 +141,13 @@ def _apply_one(conn: sqlite3.Connection, migration: Migration) -> None:
     no partial DDL/data and no version record.
     """
     try:
-        conn.executescript(f"BEGIN IMMEDIATE;\n{migration.sql}")
+        conn.set_authorizer(_migration_authorizer)
+        try:
+            conn.executescript(f"BEGIN IMMEDIATE;\n{migration.sql}")
+        finally:
+            # The runner's version insert, commit, and error rollback must not
+            # be subject to restrictions intended for migration file content.
+            conn.set_authorizer(None)
         conn.execute(
             "INSERT INTO schema_migrations (version, name, applied_at) "
             "VALUES (:version, :name, :applied_at)",
