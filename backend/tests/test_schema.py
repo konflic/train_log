@@ -92,7 +92,16 @@ def test_text_columns_reject_blobs(migrated_db: Path) -> None:
 
 @pytest.mark.parametrize(
     "created_at",
-    ["2026-01-01 00:00:00Z", "2026-01-01T00:00:00", "2026-01-01T00:00:00+00:00"],
+    [
+        "2026-01-01 00:00:00Z",
+        "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00+00:00",
+        "2026-99-99T99:99:99Z",
+        "2026-02-30T00:00:00Z",
+        "2025-02-29T00:00:00Z",
+        "2026-01-01T24:00:00Z",
+        "0000-01-01T00:00:00Z",
+    ],
 )
 def test_timestamps_must_be_canonical_utc(migrated_db: Path, created_at: str) -> None:
     with (

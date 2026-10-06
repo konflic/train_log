@@ -32,16 +32,34 @@ def create_backup(source_path: str | Path, backup_path: str | Path) -> None:
     Produces a single self-contained file (no WAL sidecars) and refuses to
     overwrite an existing file.
     """
+    source_file = Path(source_path)
+    if not source_file.is_file():
+        raise FileNotFoundError(f"backup source does not exist or is not a file: {source_file}")
+
     destination = Path(backup_path)
-    if destination.exists():
-        raise FileExistsError(f"backup destination already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with connect(source_path) as source:
-        target = sqlite3.connect(destination)
+
+    try:
+        source = sqlite3.connect(f"{source_file.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise BackupError(f"cannot open backup source {source_file}: {exc}") from exc
+
+    try:
+        # Reserve the name atomically so a concurrent process cannot be
+        # overwritten between an existence check and sqlite3.connect().
+        with destination.open("xb"):
+            pass
         try:
-            source.backup(target)
-        finally:
-            target.close()
+            target = sqlite3.connect(destination)
+            try:
+                source.backup(target)
+            finally:
+                target.close()
+        except sqlite3.Error as exc:
+            destination.unlink(missing_ok=True)
+            raise BackupError(f"cannot back up {source_file}: {exc}") from exc
+    finally:
+        source.close()
 
 
 def verify_database(database_path: str | Path) -> None:

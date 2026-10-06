@@ -22,9 +22,15 @@ CREATE TABLE users (
     utc_offset_minutes INTEGER NOT NULL DEFAULT 0
         CHECK (utc_offset_minutes >= -720 AND utc_offset_minutes <= 840),
     created_at TEXT NOT NULL
-        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(created_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(created_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', created_at) IS created_at),
     updated_at TEXT NOT NULL
-        CHECK (updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z')
+        CHECK (updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(updated_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(updated_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', updated_at) IS updated_at)
 ) STRICT;
 
 CREATE TABLE sessions (
@@ -33,9 +39,15 @@ CREATE TABLE sessions (
     token_hash TEXT NOT NULL PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL
-        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(created_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(created_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', created_at) IS created_at),
     expires_at TEXT NOT NULL
-        CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(expires_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(expires_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', expires_at) IS expires_at),
     CHECK (expires_at > created_at)
 ) STRICT;
 
@@ -82,12 +94,18 @@ CREATE TABLE workouts (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT,
     started_at TEXT NOT NULL
-        CHECK (started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(started_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(started_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', started_at) IS started_at),
     -- NULL means active; a finished workout is read-only except delete and
     -- exact finish retry (PLAN.md §6).
     ended_at TEXT
         CHECK (ended_at IS NULL
-               OR ended_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+               OR (ended_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+                   AND CAST(substr(ended_at, 1, 4) AS INTEGER) >= 1
+                   AND CAST(substr(ended_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+                   AND strftime('%Y-%m-%dT%H:%M:%SZ', ended_at) IS ended_at)),
     notes TEXT,
     -- Recorded input copied from the profile at creation (or explicitly
     -- corrected via bulk-save); never a live profile lookup.
@@ -101,9 +119,15 @@ CREATE TABLE workouts (
     last_save_id TEXT,
     last_save_hash TEXT,
     created_at TEXT NOT NULL
-        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(created_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(created_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', created_at) IS created_at),
     updated_at TEXT NOT NULL
-        CHECK (updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+        CHECK (updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'
+               AND CAST(substr(updated_at, 1, 4) AS INTEGER) >= 1
+               AND CAST(substr(updated_at, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+               AND strftime('%Y-%m-%dT%H:%M:%SZ', updated_at) IS updated_at),
     CHECK (ended_at IS NULL OR ended_at >= started_at),
     CHECK ((last_save_id IS NULL) = (last_save_hash IS NULL))
 ) STRICT;
