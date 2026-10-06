@@ -4,6 +4,14 @@ These rules apply to all code, tests, tooling, and documentation in this
 repository. `PLAN.md` defines the product contract and `IMPLEMENTATION.md`
 defines the staged delivery and verification workflow.
 
+## Project workflow
+
+- Update the implementation status in `IMPLEMENTATION.md` within each stage
+  branch. The completion evidence and next-stage marker must be part of the same
+  stage PR before it is merged, not a separate follow-up bookkeeping PR.
+- Never record work performed in this repository in `week-summary` or another
+  personal weekly-work log.
+
 ## 1. Keep dependencies clean
 
 - Every direct dependency must provide functionality that the project currently

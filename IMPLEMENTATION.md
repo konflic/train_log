@@ -29,6 +29,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
   automated checks pass locally **and** in CI, any required manual verification
   has recorded evidence, and **no earlier gate regressed** (CI runs the whole
   suite every time).
+- Update this file's implementation status within the stage branch. Completion
+  evidence and the next-stage marker must be included in that stage's PR before
+  merge, not deferred to a separate follow-up PR.
 - **Backend stages (1-8) verify with `pytest`/API tests only** - no frontend
   required. **Frontend stages (9-13)** build against a running backend.
   **Stage 14** ties everything together end-to-end.
