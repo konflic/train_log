@@ -2,842 +2,718 @@
 
 ## 1. Overview
 
-BaseFit is a fitness training tracker that lets users log their workouts
-(exercises, sets, reps, weights) and view statistics derived from their
-training history. The application is built **mobile-first** as a web app now,
-but designed API-first so a native mobile app can be added later with no
-backend rework.
+BaseFit is a mobile-first web app for logging resistance workouts: exercises,
+sets, reps, and weights. The priority is quick logging, reliable recovery of
+in-progress work, and useful comparisons with previous sessions.
+
+The backend exposes a versioned REST API so a native client can be added later.
+Implement the web app first; extract shared packages or add infrastructure only
+when a second client or a measured deployment need justifies them.
 
 ### Primary Goals
 
-- Let users create and manage training logs quickly (mobile UX is critical).
-- Track exercises with sets, reps, and weight per set.
-- Provide insightful statistics (volume, frequency, PRs, progression).
-- Keep a clean separation between backend (API) and frontend (UI) so a
-  future mobile client can consume the same API.
+- Log a workout quickly on a phone.
+- Preserve a local draft through refreshes and temporary network loss.
+- Save and finish a workout without losing edits or duplicating sets.
+- Repeat the last workout and see basic progress before building elaborate charts.
+- Keep implementation explicit: synchronous functions, direct SQL, and few dependencies.
 
-### Non-Goals (for MVP)
+### Non-Goals for the MVP
 
-- Social features, leaderboards, sharing.
-- Nutrition / calorie tracking.
-- Real-time coaching or video.
-- Paid subscriptions / billing.
-- Email verification / password reset (deferred; acceptable for a
-  single-user/small MVP — revisit before any public multi-user launch).
-
----
-
-## 2. High-Level Architecture
-
-```
-+-------------------+        +------------------+        +-------------------+
-|   Web Frontend    |        |   Backend API    |        |     Database      |
-|  (mobile-first)  | <----> |   (REST / JSON)  | <----> | SQLite (MVP) /    |
-+-------------------+        +------------------+        | PostgreSQL (prod) |
-        |                            |                    +-------------------+
-        |                            +---> Auth (JWT)
-        |                            +---> Object Storage (optional, later)
-        |
-   Future: Native mobile app (same API)
-```
-
-### Principles
-
-- **API-first**: Every feature is exposed via a versioned REST API
-  (`/api/v1/...`). The web frontend is just one client.
-- **Stateless backend**: Horizontal scaling friendly.
-- **Backend / frontend split**: Separate directories/packages, independent
-  deploy pipelines.
-- **Mobile-first UI**: Touch targets, bottom navigation, offline-tolerant
-  forms (PWA-ready).
+- Social features, sharing, nutrition, coaching, billing, and media storage.
+- Fractional weights, fractional RPE, pounds, and unit conversion. Weights are
+  **whole kilograms**; fractional plate increments cannot be represented.
+  If finer precision becomes necessary later, reconsider integer grams rather
+  than introducing decimal or floating-point domain values.
+- Timed holds, distance/cardio, assisted movements, and arbitrary exercise metrics.
+- PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
+- Automatic conflict merging, background sync, and starting new workouts offline.
+- Templates, a native app, and advanced charts.
+- Email verification and password recovery for the initial private/small
+  deployment; resolve account recovery before a public multi-user launch.
 
 ---
 
-## 3. Proposed Tech Stack
+## 2. Architecture and Stack
 
-> Recommendations; can be adjusted before implementation starts.
+```text
+Mobile-first Svelte SPA --> /api/v1 (FastAPI) --> SQLite file
+       |                       |
+       +--> IndexedDB draft    +--> Database-backed sessions
+
+One web origin serves the SPA and API. A future native app uses the same API.
+```
 
 ### Backend
 
-- **Language/Framework**: Python + FastAPI, **synchronous** style (plain `def`
-  endpoints; FastAPI runs them in an AnyIO threadpool — first-class, documented
-  support). Auto OpenAPI docs, fast iteration. *Alternative*: Node.js +
-  Fastify/NestJS.
-- **Database**: **switchable** — **SQLite** for MVP/local dev (zero setup,
-  file-based), **PostgreSQL** for production. Same app code targets both via a
-  thin **sync** DB layer over stdlib `sqlite3` / `psycopg` (v3, sync mode).
-  Selected by `DATABASE_URL` (e.g. `sqlite:///./basefit.db` vs
-  `postgresql://user:pass@host/db`). See *Database Portability* below.
-  > `psycopg` v3 (not psycopg2) is chosen deliberately: it supports **both**
-  > sync and async, so if a future real-time feature ever needs async, the
-  > driver isn't a rewrite — it's an escape hatch.
-- **Data access**: **raw SQL** — no ORM. Hand-written SQL queries executed via
-  the sync drivers behind a small in-house executor that normalizes parameter
-  style (`?`/`:name` vs `%s`/`$1`) and returns rows mapped to Pydantic models.
-  Schema lives as SQL files; migrations via Alembic in raw-SQL mode
-  (`op.execute("...")`). Rationale: shallow schema, analytics-heavy reads,
-  switchable-DB — an ORM's relationship/unit-of-work machinery doesn't pay off.
-  See *Why no ORM*.
-- **Validation**: Pydantic v2 (comes with FastAPI); response/request schemas
-  also double as row-shape mappers for query results.
-- **Auth**: JWT access + refresh tokens; bcrypt/argon2 password hashing.
-- **Testing**: pytest (with a temporary SQLite DB per test, or test Postgres in CI).
-- **Containerization**: Docker + docker-compose. MVP backend can run without a
-  DB container (SQLite file); compose includes an optional Postgres service
-  + adminer for prod/dev-parity when needed.
-
-#### Concurrency model (sync)
-
-- **Request handling**: sync `def` endpoints run in FastAPI's AnyIO threadpool
-  (default 40 tokens, tunable via
-  `anyio.to_thread.current_default_thread_limiter().total_tokens`). Each
-  in-flight request holds one thread + one DB connection for its duration.
-- **Scaling**: concurrency ceiling per process ≈ threadpool size. Scale by
-  (a) raising the threadpool limit and (b) running multiple worker processes
-  (`uvicorn --workers N` or gunicorn+uvicorn workers) behind a load balancer.
-  Horizontal scaling is the primary lever — simpler to reason about than async
-  tuning.
-- **SQLite connections**: not thread-safe by default → use **connection-per-
-  request** (open in the sync dependency, `PRAGMA foreign_keys=ON`, `PRAGMA
-  journal_mode=WAL`, close after). Connections are cheap; WAL allows concurrent
-  readers while writes serialize (single-writer).
-- **Postgres connections**: `psycopg` v3 thread-safe connection pool sized to
-  workers × threadpool; front with **pgbouncer** in production to cap total
-  connections and reuse them.
-- **Transactions**: bulk-save is a single sync transaction on one thread —
-  no async context-switching mid-transaction. Keep transactions short.
-- **Why sync is fine here**: workload is short CRUD transactions + scoped
-  aggregate queries (DB-bound, not connection-juggling-bound); no
-  WebSockets/SSE/streaming; SQLite makes async fake anyway (aiosqlite =
-  sqlite3 in a thread). The threadpool ceiling is lower per process than async,
-  but you scale by processes/nodes, and the DB is the real constraint either
-  way. See *Decision Log*.
+- **Python + FastAPI**, synchronous `def` endpoints and service functions.
+- **SQLite + stdlib `sqlite3`**, with explicit parameterized SQL. Use a small
+  connection/transaction helper, not a generic executor or repository framework.
+- **Pydantic v2** for authoritative request validation and explicit response
+  schemas. Keep input, database rows, and public output distinct where their
+  fields differ; server-controlled fields are never generic writable row fields.
+- **Opaque server-side sessions** using `secrets` for random tokens and
+  `hashlib` for token hashes. Use a maintained **Argon2id** password-hashing
+  library; do not implement password hashing ourselves.
+- **Numbered SQL migrations** and a small stdlib migration command. No ORM,
+  SQLAlchemy, Alembic, dialect adapter, or dual-database test suite in the MVP.
+- **pytest** with temporary SQLite files for backend tests.
 
 ### Frontend
 
-- **Framework**: **Svelte 5 (SPA mode)** + Vite + TypeScript. Mobile-first.
-  Chosen over React for lower ceremony: compiler-based (no runtime framework
-  shipped, no virtual DOM, no hooks/re-render mental model), built-in two-way
-  binding (`bind:`) and keyed list rendering (`{#each ... (id)}`) handle the
-  reactive Active Workout editor with minimal code and the fewest focus/cursor
-  edge cases. Small API surface. See *Decision Log*.
-- **UI approach**: Tailwind CSS + accessible headless primitives via
-  **bits-ui / shadcn-svelte** (Svelte's answer to Radix/shadcn); custom
-  mobile-first components built on top.
-- **State/Data**: **Svelte stores** (built-in, no dep) for UI/local state.
-  Server reads go through a thin data layer over the **shared TS api client**;
-  `@tanstack/svelte-query` is optional if read-caching needs grow
-  (history/stats). The Active Workout is **local-first**: state lives in
-  IndexedDB (`idb`) and syncs via debounced bulk-save (see Frontend Screens).
-- **Routing**: `svelte-spa-router` (hash-based, tiny, PWA-friendly — no server
-  rewrite rules). *Alternative*: SvelteKit in SPA mode (adapter-static,
-  `ssr=false`) if we later want file-based routing + `load` functions;
-  deferred to keep the SPA minimal.
-- **Forms**: native Svelte `bind:` + **Zod** (schemas shared with backend via
-  the shared TS package). Optionally `felte` for complex form state.
-- **PWA**: `vite-plugin-pwa` (Workbox) for service worker + manifest; `idb`
-  for IndexedDB (active-workout persistence + offline mutation queue).
-- **Charts**: Chart.js (or uPlot for lighter weight) — framework-agnostic,
-  used directly in Svelte components.
-- **Testing**: Vitest + `@testing-library/svelte` (component) + Playwright (E2E).
+- **Svelte 5 + Vite + TypeScript**, using Svelte's built-in reactivity, keyed
+  lists, and `bind:` for the workout editor. Svelte compiles components and ships
+  runtime support; it is not a zero-runtime framework.
+- **Tailwind CSS** for styling, semantic HTML for simple controls. Add an
+  accessible headless component dependency only for controls that need it.
+- **`svelte-spa-router`** for small hash-based routing without rewrite rules.
+- A local **`api.ts`** over browser `fetch` and ordinary TypeScript types.
+  No separate shared package, generated-client pipeline, or read-cache library
+  until a concrete need appears. OpenAPI remains the backend contract.
+- **Handwritten form checks** for immediate feedback; backend validation is
+  authoritative. No Zod, form framework, or supposed Python/TS schema sharing.
+- **IndexedDB with `idb`** for drafts and pending saves. This small dependency
+  avoids handwritten IndexedDB transaction/event plumbing.
+- **Vitest + Svelte Testing Library + Playwright** for targeted frontend and
+  end-to-end checks. Add a chart or PWA dependency only in its later phase.
 
-### Shared TS package (web ↔ mobile)
+### Deployment and concurrency
 
-- `frontend/src/shared/` (extractable to a root `packages/shared` workspace
-  when the native app arrives): **API client + types + Zod schemas**,
-  framework-agnostic. Consumed by the Svelte web app now and by the future
-  native app if it's TS-based (React Native). This is the real reuse asset —
-  it decouples "future mobile reuse" from the web UI framework choice. If
-  native goes Flutter/Dart, the client is re-implemented there and types are
-  generated from the OpenAPI spec.
-
-### Future Mobile App
-
-- Same REST API, JWT auth.
-- Candidate: React Native (reuses the shared TS package) or Flutter
-  (re-implements the client; generate types from OpenAPI).
-- Offline sync layer needed (queue mutations while offline) — mirrors the web
-  app's IndexedDB + bulk-save pattern.
+- Start with one API process and a persistent SQLite file on local disk. Serve
+  the SPA and API under one origin; Vite proxies `/api` during development.
+  Containers are optional packaging, not a requirement for local development.
+- A synchronous service call opens, uses, and closes its connection on the
+  **same thread**. Do not open a connection in a FastAPI dependency and assume
+  the endpoint and dependency cleanup run on that same thread.
+- Keep `check_same_thread=True`; never share a connection between requests.
+- Enable WAL once during database initialization. Set `foreign_keys=ON` and a
+  bounded busy timeout on every connection. WAL permits concurrent readers but
+  still has one writer; more threads do not remove that limit.
+- Use short `BEGIN IMMEDIATE` write transactions. A timeout returns a retryable
+  service error; it must not discard the client's local draft. WAL and
+  `BEGIN IMMEDIATE` do not eliminate all lock contention.
+- Add PostgreSQL only when required. That work includes migrations, connection
+  budgets, SQL differences, and verification; changing one URL is not a promised
+  zero-work database migration.
 
 ---
 
-## 4. Domain Model
+## 3. Integer-Only Numeric Contract
 
-Core entities:
+All numeric domain inputs, stored measurements, and reported calculations are
+integers. Text, timestamps, booleans, and `null` retain their natural API types.
 
-- **User**: account owning workouts.
-- **WorkoutTemplate** (optional, for routines): a reusable plan of exercises.
-- **Workout**: a single training session (date, duration, notes).
-- **Exercise**: an exercise entry within a workout (links to an ExerciseCatalog item).
-- **Set**: a single set within an exercise (reps, weight, rpe, done). The meaning of
-  `weight` depends on the catalog exercise's `load_type` (see Load Model below).
-- **ExerciseCatalog**: library of exercises (name, muscle group, equipment,
-  `load_type`, optional `bodyweight_fraction`). Two scopes: **default**
-  exercises (seeded, `is_default=true`, no owner — visible to all users) and
-  **custom** exercises (`is_default=false`, `created_by=<user>` — visible
-  *only* to their owner). A user's effective catalog = defaults + own custom.
-- **BodyweightEntry**: track user's bodyweight over time — needed to compute
-  effective load for bodyweight-based exercises.
+| Value | Representation |
+|-------|----------------|
+| External weight and bodyweight | Whole kg, integer |
+| Reps | Integer |
+| RPE | Integer from 1 through 10, or `null` |
+| Bodyweight contribution | Integer percentage from 1 through 100, or `null` when not applicable |
+| Effective load and volume | Integer kg and kg-reps respectively, or `null` when unknown |
+| Estimated 1RM, averages, percentage changes | Integers, always rounded down |
+| Duration | Integer seconds |
 
-> **Last performance** is not an entity — it's a derived read: the most recent
-> *finished* workout that contained a given catalog exercise for the current
-> user, plus that exercise instance's sets. Used to prefill new exercise
-> instances and to show "vs last time" deltas.
+- Reject fractional numeric inputs, numeric strings, and booleans in integer
+  fields. Use strict integer validation; do not silently truncate input.
+- Store numbers in SQLite `INTEGER` columns with appropriate checks. SQLite
+  numeric affinity alone does not enforce exact decimal precision. Use SQLite
+  **STRICT tables** (runtime version at least 3.37); validate the actual linked
+  SQLite runtime at startup rather than assuming a Python package pins it.
+- **Every division floors its result.** Never use nearest rounding, a floating
+  intermediate, or truncation toward zero. Python uses `//`; TypeScript uses
+  built-in `BigInt` arithmetic with a remainder-based correction for negative
+  results (native BigInt division truncates toward zero). This needs only a
+  small arithmetic helper, not a numeric dependency. Convert results back to
+  JSON numbers only after checking the safe integer range.
+- Keep operands and intermediate integer results within JavaScript's safe
+  integer range and SQLite's integer range. Validate bounds; do not emit an
+  imprecise JSON number or silently overflow.
+- State calculation order explicitly and use the same examples in backend and
+  frontend checks. Do not round independently at different stages on each side.
+- `null` means unknown; `0` means a known zero. They are not interchangeable.
 
-### Entity Relationships
+### Calculation order
 
+Use the workout's recorded bodyweight and the exercise instance's recorded
+load settings. For a complete weighted-bodyweight set with known bodyweight:
+
+```python
+# Compute this only when a bodyweight percentage applies and bodyweight is known.
+bodyweight_load = bodyweight_kg * bodyweight_percent // 100
+
+# multiplier is 1 for single_weight and side_count for split_weight.
+external_load = weight_kg * multiplier
+effective_load = external_load + bodyweight_load
+set_volume = reps * effective_load
 ```
-User 1--* Workout 1--* Exercise 1--* Set
-User 1--* WorkoutTemplate 1--* TemplateExercise 1--* TemplateSet
-ExerciseCatalog 1--* Exercise
-User 1--* BodyweightEntry
-```
 
-### Load Model
+For pure-bodyweight exercises, external load is zero and the null weight field
+is not multiplied. If no bodyweight percentage applies, its contribution is zero
+without requiring a bodyweight measurement. If a percentage applies but bodyweight
+is unknown, effective load and volume are `null`, even when the external load is known.
 
-Every catalog exercise has a **`load_type`** that determines how the effective
-load of a set is computed (and which set fields are meaningful). Bodyweight
-participation is captured by an optional **`bodyweight_fraction`** (the share
-of bodyweight being moved, e.g. pull-up ~1.0, push-up ~0.65, feet-elevated
-push-up ~0.75). This fraction is set on **both** pure-bodyweight exercises and
-**weighted-bodyweight** exercises (weighted pull-up, weighted dip), because in
-both cases the user's bodyweight contributes to the resistance.
-
-| load_type        | weight field meaning      | Effective load (per rep)                          |
-|------------------|---------------------------|---------------------------------------------------|
-| `single_weight`  | total external weight     | `weight` (+ `bw * fraction` if fraction set)      |
-| `split_weight`   | weight per side (dumbbell) | `weight * side_count` (+ `bw * fraction` if set)   |
-| `bodyweight`     | unused (null)             | `bw * fraction`                                   |
-
-Where:
-- `weight` = the value logged on the set.
-- `bw` = user's bodyweight at the time of the workout: most recent
-  `bodyweight_entry` on/before `workout.started_at`, falling back to
-  `users.bodyweight_default`. **If both are null, `bw` is unknown** →
-  `effective_load` and `set_volume` for bodyweight/weighted-bodyweight sets
-  are reported as `null` (excluded from volume sums, never treated as 0), and
-  the UI prompts the user to set a bodyweight. Weighted-only sets
-  (`single_weight`/`split_weight` with no fraction) still compute normally.
-- `fraction` = `COALESCE(set.bw_fraction_override, catalog.bodyweight_fraction)`
-  — the per-set override (e.g. feet-elevated push-up logged on a "Push-up"
-  entry) wins over the catalog default. Nullable; if null, no bodyweight term.
-- `side_count` = catalog field, `1` for unilateral (e.g. single-arm DB row),
-  `2` for bilateral (default).
-
-#### Unilateral logging convention (`split_weight`, `side_count=1`)
-
-For one-sided exercises (single-arm DB row, single-leg press), **one set = one
-side**. `reps` and `weight` are per side; `effective_load = weight * 1`. If the
-user trains both sides, they log two sets (left + right) — the app may offer a
-"mirror to other side" quick action. This keeps volume honest (no hidden 2x)
-and avoids ambiguity about whether `reps` is per-side or total. Bilateral
-exercises (`side_count=2`) log one set covering both sides; `effective_load =
-weight * 2`.
-
-#### Categories (summary)
-
-- **Weighted — single weight** (barbell squat, bench press, **weighted pull-up**,
-  weighted dip): one external weight value. Weighted pull-up/dip additionally
-  carry a `bodyweight_fraction`, so total load = `bw*fraction + weight`.
-- **Weighted — split weight** (dumbbell curl, dumbbell press): weight is per
-  side; total = `weight * side_count`.
-- **Bodyweight** (push-up, pull-up with no added load, air squat): no weight
-  field; load = `bw * fraction`. Variations that change leverage are separate
-  catalog entries (e.g. "Push-up", "Push-up (feet elevated)").
-
-#### Set volume
-
-`set_volume = reps * effective_load`
-
-Total volume rolls up by workout / exercise / muscle group / week.
+Examples: 81 kg at 65% gives `81 * 65 // 100 = 52` kg; 10 reps then give
+`10 * 52 = 520` kg-reps. Two 12 kg dumbbells for 8 bilateral reps give
+`12 * 2 * 8 = 192` kg-reps. For a signed percentage change, `-100 // 3 = -34`;
+zero denominators produce `null`, not an exception or fabricated percentage.
 
 ---
 
-## 5. Database Schema (Draft)
+## 4. Domain Model and History
 
-> Logical draft. Physical types follow the **Database Portability** rules
-> below: UUIDs and timestamps are stored as `TEXT` (ISO-8601 UTC) on both
-> SQLite and Postgres; `load_type` is `TEXT + CHECK`; NUMERIC for weights;
-> FKs with `ON DELETE CASCADE` and `PRAGMA foreign_keys=ON` on SQLite.
-> IDs and timestamps are set in the app, not via DB defaults.
+- **User**: owns workouts and custom exercises; has an optional current
+  bodyweight default and an IANA timezone for calendar-based statistics.
+- **Session**: an expiring, revocable login stored in the database.
+- **Workout**: session metadata, a recorded bodyweight, an integer revision,
+  and an ordered graph of exercises and sets. `ended_at=null` means active.
+- **ExerciseCatalog**: global default exercises plus owner-private custom ones.
+- **Exercise**: a workout entry referencing a catalog ID and storing its load
+  settings as a snapshot.
+- **Set**: reps, weight, optional RPE, side, optional bodyweight percentage
+  override, and whether it was actually completed.
+- Later: **BodyweightEntry**, **WorkoutTemplate**, **TemplateExercise**, and
+  **TemplateSet**. Do not create their tables or endpoints in Phase 1.
 
-```sql
+### Load types
+
+| Load type | Meaning of `weight_kg` | External load |
+|-----------|------------------------|---------------|
+| `single_weight` | Total external weight | `weight_kg` |
+| `split_weight` | Weight per dumbbell/side | `weight_kg * side_count` |
+| `bodyweight` | Must be `null` | 0 |
+
+An optional `bodyweight_percent` adds the floored bodyweight contribution for
+pure-bodyweight and weighted-bodyweight exercises. Pure-bodyweight exercises
+require a percentage. A set's integer `bw_percent_override`, when allowed,
+replaces the exercise snapshot's percentage. Allow it only on exercises that
+already have a bodyweight contribution.
+
+For `split_weight`, `side_count=1` means one set represents one side, with
+`side=left` or `right`. Logging both sides requires two sets. With
+`side_count=2`, one set covers both sides and `side=bilateral`. Other load types
+use `side_count=1` and `side=bilateral` in the MVP. Side-aware comparisons must
+not pair a left set with a right set.
+
+### Preserve historical inputs
+
+- At workout creation, copy the user's current default into
+  `workouts.bodyweight_kg`; keep `null` if unknown. A user can explicitly correct
+  that workout's recorded bodyweight through bulk-save.
+- When first persisting an exercise instance, copy `load_type`,
+  `bodyweight_percent`, and `side_count` from its visible catalog entry. The
+  client displays catalog-based provisional calculations until acknowledged.
+- Existing exercise snapshots are read-only through normal bulk-save, and an
+  existing exercise ID cannot be reassigned to a different catalog entry.
+  Catalog edits apply to new instances, not to recorded history.
+- Derive effective load and totals on read from these recorded inputs. Changing
+  today's profile bodyweight or a catalog default must not rewrite old totals.
+- When bodyweight history is added, resolve the latest measurement on/before a
+  new workout's start, with profile default as fallback, then record the result.
+  Later measurement edits do not automatically recalculate existing workouts.
+- A small seed catalog is sufficient. Label bodyweight percentages as estimates;
+  include provenance where available. Exhaustive biomechanics research is not
+  a launch dependency, and these estimates are not universal physical constants.
+
+### Validation and ownership
+
+- Every workout lookup and write is scoped to its owner. UUIDs do not replace
+  authorization. Return 404 for another user's resource.
+- Submitted exercise and set IDs must belong to the specified parent or be new,
+  globally unused IDs. Never move another parent's rows through an upsert.
+- Catalog references must be global defaults or the caller's own custom entries.
+- Draft sets may have missing reps/weight. A completed set requires positive
+  reps and, for weighted exercises, nonnegative weight. Pure-bodyweight sets
+  require `weight_kg=null`; missing bodyweight is allowed but yields unknown load.
+- Present bodyweight must be positive. RPE is 1 through 10. Percentages are
+  1 through 100, indexes are nonnegative, and `ended_at >= started_at`.
+- Bound text lengths, graph sizes, page sizes, and numeric inputs. Reject
+  duplicate IDs/indexes and unknown or server-controlled request fields.
+- Default catalog entries have no owner; custom entries require one. Defaults
+  are not user-editable. Referenced catalog entries cannot be deleted (409).
+- Names are unique within the default scope and within each user's custom scope.
+  A custom name may match a default name; distinguish them by ID and a custom
+  label rather than adding cross-scope uniqueness machinery.
+
+---
+
+## 5. Database Schema and Operations
+
+Logical schema below; expand into explicit SQLite DDL during implementation.
+Use `TEXT` UUIDs and canonical UTC timestamps (`YYYY-MM-DDTHH:MM:SSZ`),
+`INTEGER` numbers, and checked 0/1 integers for stored booleans. Required fields
+are `NOT NULL`, including primary keys. All tables are STRICT.
+
+```text
 users
-  id            UUID PK
-  email         TEXT UNIQUE NOT NULL
+  id TEXT PK
+  email TEXT UNIQUE NOT NULL           # documented normalization before storage
   password_hash TEXT NOT NULL
-  display_name  TEXT
-  bodyweight_default NUMERIC(10,2)  -- fallback bw for load calc (kg)
-  preferred_unit TEXT NOT NULL DEFAULT 'kg'
-                 -- CHECK (preferred_unit IN ('kg','lb')); stored kg, converted in UI
-  created_at    TIMESTAMPTZ
-  updated_at    TIMESTAMPTZ
+  display_name TEXT
+  bodyweight_default_kg INTEGER        # null or > 0
+  timezone TEXT NOT NULL               # validated IANA name; default UTC
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+
+sessions
+  token_hash TEXT PK                   # SHA-256 of a random high-entropy token
+  user_id TEXT NOT NULL FK users(id) ON DELETE CASCADE
+  created_at TEXT NOT NULL
+  expires_at TEXT NOT NULL
+  # index: expires_at; logout deletes the row
 
 exercise_catalog
-  id            UUID PK
-  name          TEXT NOT NULL
-  muscle_group  TEXT NOT NULL
-                 -- CHECK enum: chest|back|legs|shoulders|arms|core|full_body|other
-  equipment     TEXT NOT NULL
-                 -- CHECK enum: barbell|dumbbell|kettlebell|machine|cable|
-                 --             bodyweight|band|other
-  load_type     TEXT NOT NULL  -- single_weight | split_weight | bodyweight
-  bodyweight_fraction NUMERIC(4,3)  -- nullable; share of BW moved (e.g. 1.000, 0.650)
-  side_count    SMALLINT DEFAULT 2   -- 1 unilateral, 2 bilateral (for split_weight)
-  is_default    BOOLEAN DEFAULT FALSE
-  created_by    UUID NULL FK users(id)  -- NULL for defaults; =owner for custom (user-private)
-  -- uniqueness: name distinct within a user's visible catalog
-  --   (defaults unique globally; custom unique per created_by)
-  --   UNIQUE(name) WHERE is_default; UNIQUE(created_by, name) WHERE created_by IS NOT NULL
-  -- indexes: index_exercises_by_owner(created_by) WHERE created_by IS NOT NULL
+  id TEXT PK
+  name TEXT NOT NULL
+  muscle_group TEXT NOT NULL           # chest|back|legs|shoulders|arms|core|full_body|other
+  equipment TEXT NOT NULL              # barbell|dumbbell|kettlebell|machine|cable|bodyweight|band|other
+  load_type TEXT NOT NULL              # single_weight|split_weight|bodyweight
+  bodyweight_percent INTEGER          # null or 1..100; required for bodyweight
+  side_count INTEGER NOT NULL          # 1 or 2 for split_weight; otherwise 1
+  is_default INTEGER NOT NULL          # 0 or 1
+  created_by TEXT FK users(id)
+  # CHECK: default with null owner OR custom with non-null owner
+  # unique indexes: name WHERE is_default=1; (created_by, name) WHERE is_default=0
 
 workouts
-  id            UUID PK
-  user_id       UUID FK users(id)
-  name          TEXT
-  started_at    TIMESTAMPTZ NOT NULL
-  ended_at      TIMESTAMPTZ
-  notes         TEXT
-  created_at    TIMESTAMPTZ
-  updated_at    TIMESTAMPTZ
+  id TEXT PK                          # client-generated UUID
+  user_id TEXT NOT NULL FK users(id) ON DELETE CASCADE
+  name TEXT
+  started_at TEXT NOT NULL
+  ended_at TEXT
+  notes TEXT
+  bodyweight_kg INTEGER                # recorded input, not a live profile lookup
+  revision INTEGER NOT NULL            # starts at 0, increments per accepted save
+  create_request_hash TEXT NOT NULL    # immutable fingerprint for create retries
+  last_save_id TEXT                    # last accepted save UUID
+  last_save_hash TEXT                  # fingerprint of that validated request
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+  # index: (user_id, started_at, id)
 
 exercises
-  id            UUID PK
-  workout_id    UUID FK workouts(id) ON DELETE CASCADE
-  catalog_id    UUID FK exercise_catalog(id) ON DELETE RESTRICT  -- protect history; block custom-exercise deletion if referenced
-  order_index   INT NOT NULL
-  notes         TEXT
-  -- UNIQUE(workout_id, order_index); app reindexes on add/remove to keep dense 0..n
-  -- index: (catalog_id, workout_id) for "last performance" lookups
-  -- (join workouts for started_at ordering; see Last Performance query)
+  id TEXT PK                          # client-generated UUID
+  workout_id TEXT NOT NULL FK workouts(id) ON DELETE CASCADE
+  catalog_id TEXT NOT NULL FK exercise_catalog(id) ON DELETE RESTRICT
+  order_index INTEGER NOT NULL
+  notes TEXT
+  load_type TEXT NOT NULL              # snapshot, same rules as catalog
+  bodyweight_percent INTEGER          # snapshot
+  side_count INTEGER NOT NULL          # snapshot
+  # UNIQUE(workout_id, order_index); index: (catalog_id, workout_id)
 
 sets
-  id            UUID PK
-  exercise_id   UUID FK exercises(id) ON DELETE CASCADE
-  set_index     INT NOT NULL
-  reps          INT
-  weight        NUMERIC(10,2)   -- kg; meaning depends on load_type (per-side for split)
-  bw_fraction_override NUMERIC(4,3) NULL  -- per-set override of catalog fraction (position change)
-  rpe           NUMERIC(3,1)    -- rate of perceived exertion, optional
-  done          BOOLEAN DEFAULT FALSE
-  created_at    TIMESTAMPTZ
-  -- UNIQUE(exercise_id, set_index); app reindexes on add/remove
-
-workout_templates
-  id            UUID PK
-  user_id       UUID FK users(id)
-  name          TEXT
-
-template_exercises
-  id            UUID PK
-  template_id   UUID FK workout_templates(id) ON DELETE CASCADE
-  catalog_id    UUID FK exercise_catalog(id)
-  order_index   INT
-
-template_sets
-  id            UUID PK
-  template_exercise_id UUID FK template_exercises(id) ON DELETE CASCADE
-  set_index     INT
-  target_reps   INT
-  target_weight NUMERIC(10,2)
-
-bodyweight_entries
-  id            UUID PK
-  user_id       UUID FK users(id)
-  weight        NUMERIC(10,2)
-  measured_at   TIMESTAMPTZ
+  id TEXT PK                          # client-generated UUID
+  exercise_id TEXT NOT NULL FK exercises(id) ON DELETE CASCADE
+  set_index INTEGER NOT NULL
+  reps INTEGER
+  weight_kg INTEGER
+  bw_percent_override INTEGER
+  rpe INTEGER
+  side TEXT NOT NULL                   # left|right|bilateral
+  done INTEGER NOT NULL                # 0 or 1; default 0
+  # UNIQUE(exercise_id, set_index)
 ```
 
-Notes:
-- All money/weight use NUMERIC to avoid float drift.
-- UUIDs for IDs (safe to expose, no enumeration); stored as TEXT.
-- Timestamps stored as TEXT (ISO-8601 UTC).
-- `effective_load` (and thus volume) is computed at read time from
-  `load_type` + `bodyweight_fraction` + `bodyweight` — never stored, so
-  catalog/fraction corrections retroactively fix historical stats.
+### Direct SQL and transactions
 
-### Database Portability (SQLite ↔ PostgreSQL)
+- Use `sqlite3` named parameters directly. Never interpolate values into SQL.
+  Keep resource-specific queries with their service; move a long query to a
+  `.sql` file only when that improves readability.
+- Fetch a workout graph with a small, fixed number of queries, not one query
+  per set. Use `sqlite3.Row` and explicit response construction.
+- Full-graph saves validate ownership and IDs before mutating any child row.
+  Revision check, upserts, deletions, ordering, and finish are one transaction.
+- To reorder under unique indexes, delete omitted rows, move retained rows to
+  distinct temporary indexes above both the old and new ranges, then apply final
+  dense indexes and insert new rows. Keep every step within the same transaction.
+  A direct swap of two occupied unique positions is not safe.
 
-The schema and app code must run unchanged on both SQLite (MVP) and PostgreSQL
-(prod), with **no ORM** — we own the dialect quirks explicitly.
+### Migrations, backups, and deployment
 
-- **Driver/URL**: single `DATABASE_URL` env var selecting the **sync** driver:
-  stdlib `sqlite3` (`sqlite:///./basefit.db`) or `psycopg` v3 sync
-  (`postgresql://user:pass@host/db`). A thin in-house `db` module wraps the
-  driver and normalizes parameter style (rewrite `:name` ↔ `?` for sqlite3 ↔
-  `%(name)s` for psycopg3) so SQL strings are shared.
-- **Parameter style**: write SQL once with named params (e.g. `:user_id`);
-  the executor translates to the driver's style. Never interpolate values.
-- **UUIDs**: generate `uuid.uuid4()` in the app; persist as **`TEXT`**
-  (CHAR(36)) on both engines (Postgres has native UUID, but TEXT keeps one
-  storage rule and avoids cast drift). Read back into `uuid.UUID` in mappers.
-  No `gen_random_uuid()` / `DEFAULT` in DDL — set IDs in app.
-- **Timestamps**: store as **`TEXT` ISO-8601 UTC** (`YYYY-MM-DDTHH:MM:SSZ`)
-  on both (SQLite has no native type; keeping TEXT on Postgres too avoids a
-  second storage rule). Mappers parse to timezone-aware `datetime`. No
-  DB-side `NOW()` defaults — set timestamps in app on insert/update.
-- **Enums** (`load_type`): `TEXT` + `CHECK` constraint in DDL; validated by
-  Pydantic `Enum` in app. No native Postgres `ENUM` (migration pain, absent
-  in SQLite).
-- **Foreign keys / cascades**: declared in DDL (`REFERENCES ... ON DELETE
-  CASCADE`). SQLite needs `PRAGMA foreign_keys=ON` per connection (set in the
-  executor's connect hook). Works on both.
-- **No Postgres-only types/features**: avoid `ARRAY`, `JSONB` (use `TEXT`
-  holding JSON if ever needed), `INTERVAL`, or generated columns. Partial
-  unique indexes (`CREATE UNIQUE INDEX ... WHERE ...`) ARE portable — both
-  SQLite and Postgres support them — and are used for catalog name uniqueness
-  (see schema). Use portable `RETURNING *` only where both drivers support it
-  — **pin SQLite >= 3.35** (RETURNING support) in deps/runtime; if the runtime
-  SQLite is older, fall back to insert-then-SELECT-by-id. `psycopg` v3 supports
-  RETURNING natively.
-- **Booleans/numerics**: `BOOLEAN` + `CHECK` / `NUMERIC` are portable (SQLite
-  stores as 0/1 and TEXT). Keep NUMERIC precision explicit.
-- **Migrations**: Alembic in **raw-SQL mode** — each migration is
-  `op.execute("""...SQL...""")` applied to both engines. No model autogenerate.
-  For SQLite's limited `ALTER TABLE`, migrate via the standard
-  table-rebuild pattern (create new, copy, drop, rename) — works on both and
-  avoids dialect-specific ops.
-- **Case sensitivity**: quote nothing; use lowercase snake_case identifiers
-  consistently (Postgres folds to lowercase; SQLite is case-insensitive).
-- **Concurrency**: SQLite MVP = single-writer; fine for local dev / single
-  user / small self-hosted. Use **WAL mode** (concurrent readers, serialized
-  writer) and **connection-per-request** (sqlite3 connections aren't thread-safe
-  by default; the sync threadpool needs one connection per in-flight request —
-  see *Concurrency model*). Postgres for multi-user prod (psycopg3 pool +
-  pgbouncer). Keep transactions short; on SQLite use `BEGIN IMMEDIATE` for
-  write transactions to avoid `database is locked` under contention.
-- **Testing against both**: unit tests run on a temp SQLite file; CI runs the
-  suite again against a throwaway Postgres container to catch dialect drift.
-- **Backups**: SQLite = copy the file; Postgres = `pg_dump`. Documented per
-  environment.
-
-### Why no ORM
-
-Chosen deliberately (see decision log). Reasons:
-
-- Schema is shallow (~8 tables, flat FK graph) — ORM relationship loading and
-  unit-of-work machinery don't pay off.
-- Analytics path is aggregate SQL (volume, PRs, 1RM, frequency) — clearer and
-  faster to write as raw SQL than ORM query DSL.
-- ORM lazy-loading N+1 risk sits exactly on the hot path (workout → exercises
-  → sets); with raw SQL you write one explicit fetch/JOIN and see the query
-  that runs. (Going sync also sidesteps async-ORM footguns like
-  `MissingGreenlet` entirely — a bonus, not the main reason.)
-- Switchable SQLite↔Postgres: a dialect-aware executor + portable storage
-  rules cover the few quirks; no need for a full ORM's dialect layer.
-- One representation per shape: SQL table ↔ Pydantic schema (mapper is a
-  one-liner), instead of SQL + ORM model + Pydantic.
-
-Trade-off we accept: we hand-write SQL and migrations (no autogenerate). For
-this schema size and change rate that's cheap, and the SQL we write is the SQL
-that runs.
+- Run numbered SQL migrations explicitly before serving requests; record
+  applied versions in `schema_migrations`. Apply each supported migration
+  transactionally and stop on failure. Do not run migrations from every worker.
+- SQLite table rebuilds must preserve data, indexes, and foreign keys. Test
+  upgrades from the previous schema and run `PRAGMA foreign_key_check`.
+  Handle any required foreign-key PRAGMA changes outside the transaction.
+- Back up a running database with `sqlite3.Connection.backup()` or
+  `VACUUM INTO`, not an ordinary copy of the main file while WAL is active.
+- Verify a restored backup with integrity/foreign-key checks and representative
+  workout reads. Back up before destructive schema migrations.
+- Persist the database outside an ephemeral container filesystem. Keep database
+  files, WAL files, backups, tokens, and environment secrets out of Git.
 
 ---
 
-## 6. API Design (REST, v1)
+## 6. API and Save Protocol
 
-Base path: `/api/v1`
+Base path: `/api/v1`. JSON request/response schemas come from Pydantic/OpenAPI.
+Use RFC 9457-style errors; 204 responses have no body. Lists use bounded `page`
+and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 
-### Auth
+### Phase 1 endpoints
 
-| Method | Path                  | Description           |
-|--------|-----------------------|-----------------------|
-| POST   | /auth/register        | Create account        |
-| POST   | /auth/login           | Login, get tokens     |
-| POST   | /auth/refresh         | Refresh access token   |
-| POST   | /auth/logout          | Revoke refresh token  |
-| GET    | /auth/me              | Current user info     |
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | /auth/register | Create account |
+| POST | /auth/login | Create session and set cookie |
+| POST | /auth/logout | Delete current session and clear cookie |
+| GET | /auth/me | Current public profile |
+| PATCH | /auth/me | Update display name, default bodyweight, timezone |
+| GET | /workouts | History; date and active/finished filters |
+| POST | /workouts | Create an empty active workout with a client-generated ID |
+| GET | /workouts/{id} | Graph, recorded load inputs, revision, last save ID, and previous performance |
+| PUT | /workouts/{id} | Full-graph save, including metadata and optional finish |
+| DELETE | /workouts/{id}?revision=N | Delete only at the expected revision |
+| GET | /exercises | Defaults plus caller's custom entries; search and filters |
+| GET | /exercises/{id} | Visible catalog entry |
+| POST | /exercises | Create owner-private custom entry |
+| PATCH | /exercises/{id} | Edit own custom entry for future instances |
+| DELETE | /exercises/{id} | Delete own unreferenced entry |
+| GET | /stats/summary | Basic eligible workout/set counts and volume |
+| GET | /export | User-owned training data as versioned JSON, excluding auth secrets |
 
-### Workouts
+There are no separate workout metadata PATCH, finish, per-exercise, or per-set
+write endpoints. A workout's graph is small enough to save together.
 
-| Method | Path                  | Description                       |
-|--------|-----------------------|-----------------------------------|
-| GET    | /workouts             | List (filter by date range, page) |
-| POST   | /workouts             | Create workout                    |
-| GET    | /workouts/{id}        | Get workout with exercises/sets; each exercise includes an inline `last_performance` object (for "vs last time" hints) |
-| PUT    | /workouts/{id}        | **Bulk-save**: upsert the full exercise+set graph in one request (primary write path for the active workout — see Bulk Save below) |
-| PATCH  | /workouts/{id}        | Update workout metadata (name, notes, started_at) |
-| DELETE | /workouts/{id}        | Delete workout                    |
-| POST   | /workouts/{id}/finish | Mark workout as finished (sets `ended_at`) |
-| POST   | /workouts/{id}/clone  | Clone this workout into a new active one (exercises+sets copied as not-done drafts) |
-| POST   | /workouts/repeat-last | Clone the most recent *finished* workout into a new active one |
+### Creation and repeat-last
 
-> **Bulk Save** (`PUT /workouts/{id}`): the active-workout write path. Body is
-> the full graph — exercises (with `catalog_id`, `order_index`, optional `id`
-> for existing) each with their sets (`set_index`, `reps`, `weight`,
-> `bw_fraction_override`, `rpe`, `done`, optional `id`). The server upserts in
-> one transaction: rows with an `id` are updated, rows without are inserted,
-> and any existing exercise/set not present in the payload is deleted. This
-> replaces per-set round-trips during a session (one request saves the whole
-> workout) and is the unit of offline sync. Per-item endpoints below remain
-> for targeted edits. Idempotency: client may send an `Idempotency-Key` header
-> to make retries safe.
+- Creation requires a client-generated UUID and `started_at`; the server
+  records bodyweight from the profile and returns revision 0. Creation requires
+  connectivity in the MVP. Persist the create request locally until acknowledged.
+- Fingerprint the validated create request using a canonical representation.
+  Retrying the same ID and fingerprint returns the existing owned workout;
+  different content for that ID returns 409. Never return another user's row.
+- **Repeat last** reads the most recent finished workout using the history API,
+  creates a new empty workout, and copies its exercises and completed sets into
+  the local draft with new UUIDs and `done=false`. Copy reps, weights, side, and
+  percentage overrides; reset RPE. Use current bodyweight/catalog defaults for
+  the new workout. If there are no completed sets for an exercise, add one blank
+  draft set. No dedicated clone/repeat write endpoint is necessary.
+- The copied graph is persisted by the same bulk-save as manual edits. Filter
+  or flag source exercises that are no longer available; never silently save
+  invalid references.
 
-### Exercises (within a workout)
+### Bulk-save contract
 
-| Method | Path                                          | Description          |
-|--------|-----------------------------------------------|----------------------|
-| POST   | /workouts/{wid}/exercises                     | Add exercise to workout. Body: `{catalog_id, prefill_from_last?: bool}` — when `prefill_from_last=true`, seed sets from the last session (see note) |
-| PATCH  | /workouts/{wid}/exercises/{eid}               | Update exercise (order, notes) |
-| DELETE | /workouts/{wid}/exercises/{eid}               | Remove exercise      |
+`PUT /workouts/{id}` includes:
 
-> **Prefill from last session** (`POST /workouts/{wid}/exercises` with
-> `{"prefill_from_last": true}`): looks up the caller's most recent *finished*
-> workout containing this `catalog_id` (same source as the Last Performance
-> endpoint), creates the exercise instance, and seeds it with the **same number
-> of sets** as that last instance, copying `reps`/`weight`/`rpe` per set index
-> into new, editable (not-done) sets. The user can then change weight, reps,
-> add or remove sets. If no prior session exists, the exercise is created with
-> one empty set. Note: the bulk-save `PUT` is the usual way to persist edits
-> during a session; this endpoint is for adding an exercise mid-workout with
-> prefill in one call.
+- `revision`: the revision the client edited.
+- `save_id`: a fresh UUID for this immutable save attempt, reused on its retries.
+- All writable workout metadata, recorded `bodyweight_kg`, and `ended_at`.
+- The complete ordered exercise/set graph. Every row has a client-generated ID;
+  omitted existing rows are deleted. Array order determines dense stored indexes.
+  Load snapshots, owner IDs, and server timestamps are not writable fields.
 
-### Sets
+Server processing, within one write transaction:
 
-| Method | Path                                                              | Description   |
-|--------|-------------------------------------------------------------------|---------------|
-| POST   | /workouts/{wid}/exercises/{eid}/sets                             | Add set       |
-| PATCH  | /workouts/{wid}/exercises/{eid}/sets/{sid}                        | Update set    |
-| DELETE | /workouts/{wid}/exercises/{eid}/sets/{sid}                        | Delete set    |
+1. Authenticate and load the owned workout; PUT never creates a missing workout.
+2. Validate the request and fingerprint its canonical validated content.
+3. If `save_id` equals `last_save_id`, require the same fingerprint and return
+   the saved graph/revision without applying it again. Different content with
+   the same ID returns 409.
+4. Otherwise require an exact revision match. A mismatch returns 409 with a
+   conflict code/current revision and changes nothing.
+5. Validate lifecycle, nested ownership, catalog visibility, and all invariants;
+   save the graph and metadata atomically, increment the revision, and record
+   `last_save_id`/`last_save_hash` in the same commit.
+6. Return the authoritative graph, revision, and last save ID.
 
-> Per-set endpoints are for targeted edits; the **bulk-save `PUT
-> /workouts/{id}`** is the primary write path during an active workout (one
-> request for the whole graph, offline-friendly).
+Only the last accepted save receipt is retained, for the lifetime of that
+revision. If another client has since saved, an older retry becomes a normal
+conflict; do not claim an unprovable success or silently replay old content.
+This bounded receipt avoids a generic idempotency service or operation log.
 
-### Exercise Catalog
+### Finishing and lifecycle
 
-| Method | Path                       | Description                          |
-|--------|----------------------------|--------------------------------------|
-| GET    | /exercises                 | List visible catalog = defaults + own custom (search, filter muscle) |
-| GET    | /exercises/{id}            | Get one (must be visible to caller)  |
-| POST   | /exercises                 | Create custom exercise (owner = caller; user-private) |
-| PATCH  | /exercises/{id}            | Update own custom exercise (defaults immutable) |
-| DELETE | /exercises/{id}            | Delete own custom exercise; blocked (409) if referenced in any workout/template |
+- To finish, send the final full graph with `ended_at` set to the client-recorded
+  finish time. Validate timezone-aware timestamps, `ended_at >= started_at`, and
+  no future finish time. This records workout duration even if upload is delayed.
+- Saving the final sets and marking finished are atomic. The UI displays
+  **finish pending** until acknowledged; it never deletes the draft early.
+- Finished workouts are read-only in Phase 1 except deletion and exact retry of
+  the accepted finish. Later history editing uses the same revisioned PUT;
+  reopening is deferred.
+- DELETE checks revision in its transaction. A lost delete response can be
+  resolved by GET returning 404. A queued PUT after deletion returns 404 and
+  retains the local draft rather than recreating the workout automatically.
+- After an uncertain create response, resolve the original ID before issuing
+  another create. Creation is not an indefinitely replayed offline operation;
+  a workout deleted elsewhere requires an explicit user decision to start anew.
 
-> **Visibility rules**: every catalog endpoint enforces that custom
-> exercises are only readable/mutable by their owner (`created_by =
-> current_user`). Defaults (`is_default=true`) are readable by all and never
-> writable/deletable. `GET /exercises` returns the union of defaults and the
-> caller's custom exercises.
+### Client persistence and conflict handling
 
-### Last Performance
-
-| Method | Path                                        | Description                                              |
-|--------|---------------------------------------------|----------------------------------------------------------|
-| GET    | /exercises/{catalog_id}/last-performance    | Most recent finished workout containing this exercise + that exercise instance's sets (reps, weight, rpe, set_index), ordered by `started_at desc`. Returns 204/empty if none. Used to prefill new exercise instances and to show "vs last time". |
-| POST   | /exercises/last-performance                 | **Batch**: body `{catalog_ids: [...]}` → map of `catalog_id` → last-performance (or null). Avoids N round-trips when loading a workout with several exercises. |
-
-> The single-exercise `last_performance` is also embedded inline in
-> `GET /workouts/{id}` per exercise, so the active-workout screen gets
-> everything in one call; the batch endpoint is for ad-hoc lookups (e.g. the
-> exercise picker showing "last: 80x8").
-
-### Templates
-
-| Method | Path                          | Description              |
-|--------|-------------------------------|--------------------------|
-| GET    | /templates                   | List templates           |
-| POST   | /templates                   | Create template          |
-| GET    | /templates/{id}              | Get template details     |
-| POST   | /templates/{id}/instantiate  | Start a workout from template |
-
-### Statistics
-
-| Method | Path                              | Description                                   |
-|--------|-----------------------------------|-----------------------------------------------|
-| GET    | /stats/summary                    | Totals: workouts, volume, training days        |
-| GET    | /stats/volume?range=...&group=... | Volume over time (per week/month)             |
-| GET    | /stats/exercises/{id}             | Per-exercise progression & estimated 1RM      |
-| GET    | /stats/personal-records           | Top lifts per exercise                        |
-| GET    | /stats/frequency                  | Workouts per week, streaks                    |
-| GET    | /stats/bodyweight                 | Bodyweight trend (if entries exist)           |
-
-### Conventions
-
-- All responses are JSON.
-- Errors use RFC 9457-style problem details.
-- List endpoints support `page`, `pageSize`, and return `total`.
-- Auth via `Authorization: Bearer <access_token>`.
-- OpenAPI spec auto-generated and served at `/api/v1/docs`.
-
----
-
-## 7. Statistics to Compute
-
-- **Volume** = sum(reps * effective_load) per workout / per exercise / per
-  muscle group / per week. `effective_load` is derived from `load_type` +
-  `bodyweight_fraction` + the user's bodyweight at workout time (see Load Model).
-- **Training frequency**: workouts per week, per muscle group.
-- **Streaks**: consecutive weeks with >=1 workout.
-- **Personal records (PRs)**:
-  - *Weighted* (`single_weight`/`split_weight`): max weight for a given rep
-    count, and max estimated 1RM.
-  - *Bodyweight* (`bodyweight` load_type): max reps at bodyweight; estimated
-    1RM is **not** shown via Epley on `bw*fraction` (meaningless for high-rep
-    bodyweight work). Instead, optionally report "estimated added-weight 1RM"
-    only when the user has logged weighted variants of that movement.
-- **Estimated 1RM**: Epley formula `1RM = w * (1 + reps/30)`, where `w` is the
-  *external* load (`weight`, or `weight*side_count` for split). Applies to
-  weighted exercises only. For bodyweight sets, `w` would be `bw*fraction` —
-  deliberately excluded from 1RM/weight-PR stats to avoid nonsense numbers.
-- **Progression**: weight@reps over time for a given exercise.
-- **vs last session**: for each exercise in the active/recent workout, compare
-  current set values (reps, weight, effective_load) and total exercise volume
-  against the previous session for the same `catalog_id` — surface per-set
-  deltas and a total-volume delta so the user sees progress vs last time.
-- **Bodyweight trend** (optional).
+- Partition IndexedDB by account ID, workout ID, and a unique editor/draft ID.
+  Separate tabs must not overwrite each other's local drafts. Recover existing
+  drafts explicitly on relaunch and keep one editor per workout within a tab.
+  Persist each edit before displaying it as locally saved. Handle storage
+  failures visibly; browser storage eviction is possible, so local persistence
+  is not a universal backup.
+- Keep the latest editable draft and, separately, at most one immutable in-flight
+  payload per draft (`revision`, `save_id`, content). Later edits remain local
+  while that payload is being saved. Do not overwrite newer edits with an older
+  response. Other tabs/devices are independent clients governed by revisions.
+- On a lost response, retry that exact payload. On success, persist the returned
+  revision and acknowledgement, then submit newer edits with a new save ID.
+- On reconnect/relaunch, authenticate the same account, resume an uncertain save
+  first, and fetch current state before sending other pending work. Do not
+  advance a draft's base revision just because a newer server revision exists.
+- On conflict, stop automatic saves and retain the local draft. Offer to use
+  the server copy, export/copy the local draft into a new workout, or explicitly
+  replace the server copy using a newly fetched revision where lifecycle permits.
+  No automatic merging or per-set last-write-wins.
+- Sync runs while the app is open, on edits and reconnection. Phase 1 can continue
+  an already loaded workout offline and recover drafts after relaunch when the
+  app loads. Cold-starting the entire app without a network requires the later
+  PWA app-shell cache. Background sync is deferred.
+- Expired sessions pause upload without deleting drafts. On logout, offer to
+  sync/export/discard pending changes, then clear that account's local data;
+  never upload an old account's draft under a newly logged-in user.
 
 ---
 
-## 8. Frontend Screens (Mobile-First)
+## 7. Statistics and Previous Performance
 
-1. **Auth**: login / register.
-2. **Home / Dashboard**: recent workouts, quick start, weekly summary, and a
-   **"Repeat last workout"** action (clones the most recent finished session
-   into a new active workout via `POST /workouts/repeat-last`).
-3. **Active Workout**:
-   - List of exercises with collapsible sets.
-   - Big touch-friendly inputs for reps / weight.
-   - "Add set", "Add exercise", "Finish workout".
-   - **Local persistence**: the in-progress workout is written to **IndexedDB**
-     on every change so a refresh, crash, or network drop never loses the
-     session. On reconnect/relaunch, the local draft is reconciled with the
-     server (last-write-wins per set, or prompt on conflict) and pushed via
-     bulk-save.
-   - **Bulk-save**: edits are queued locally and synced with a single
-     `PUT /workouts/{id}` (debounced / on-finish), not per-set requests.
-   - **Add exercise → prefill**: when adding an exercise previously done, the
-     app seeds the same number of sets as the last session with last-time
-     reps/weight (editable). Each set row also shows a faint "last: 80x8"
-     hint for comparison; the user edits weight/reps/set-count live.
-   - **Per-set + per-exercise "vs last time" delta** (volume, weight@reps) so
-     the user sees progress in-session (data comes inline in the workout GET).
-   - Auto-rest-timer between sets (nice-to-have).
-4. **Workout History**: list by date, tap to view/edit.
-5. **Exercise Catalog / Picker**: search, filter by muscle group.
-6. **Templates**: list, create, start from template.
-7. **Statistics**: charts (volume trend, PRs, frequency).
-8. **Settings**: profile, units (kg/lb), logout.
+### Eligibility and missing data
 
-### Mobile-first UI principles
+- Historical stats include only **finished workouts and `done=true` sets**.
+  Prefilled and unfinished sets do not earn volume or PRs.
+- Training frequency counts finished workouts with at least one completed set;
+  muscle-group frequency requires a completed set for that group.
+- Active-workout completed-set totals are provisional and labeled separately.
+- Sum known volumes while exposing `unknown_load_set_count` and a completeness
+  flag. If all eligible loads are unknown, total volume is `null`; no eligible
+  sets means a known total of 0. Never present a partial sum as a complete total.
+- Store instants in UTC. Group training days/weeks in the user's IANA timezone,
+  with Monday as week start and explicit half-open date ranges. Use stdlib
+  `zoneinfo`; deployment must provide timezone data. Streaks count consecutive
+  weeks with an eligible workout, allowing the current week to still be ongoing.
 
-- Bottom navigation bar (Home, History, Stats, Settings).
-- Single-column layouts; large tap targets (>=44px).
-- Sticky "Add set" / "Finish" buttons at the bottom.
-- Offline-friendly: forms work offline, sync when online (PWA + service worker).
-- Numeric keyboards for reps/weight inputs (`inputmode="decimal"`).
+### Previous performance
+
+- Without a current workout, select the most recent finished session with
+  completed sets for that catalog ID, ordered by `(started_at, id)` descending.
+- For a viewed workout, exclude itself and require a strictly earlier
+  `started_at`. Use the same ID tie-breaker among candidate sessions.
+- If the catalog exercise appears more than once in that session, return all
+  its instances in workout order. Pair occurrences in order, then completed
+  sets by side and ordinal; unmatched sets have no comparison delta.
+- Compare load-based values only when the recorded load settings and per-set
+  overrides are compatible. A catalog change must not imply fake progress.
+- Inline previous performance in workout GET using bounded queries. In the
+  progression phase add `GET /exercises/{id}/last-performance` (200 with `null`
+  when absent) for local prefill; copying results creates new draft IDs and
+  resets completion/RPE. A batch read is optional only if measured demand warrants it.
+
+### Metrics
+
+- **Volume**: integer `reps * effective_load`, aggregated by workout, exercise,
+  muscle group, and calendar period, with the completeness rules above.
+- **PRs**: maximum logged external weight at a given rep count for weighted
+  exercises; maximum reps for pure-bodyweight exercises. Keep side and load
+  settings comparable. Estimated loads are not universal cross-exercise scores.
+- **Estimated 1RM**: only weighted exercises with no bodyweight contribution.
+  For one rep, use external load directly. For 2 through 10 reps, use
+  `external_load * (30 + reps) // 30`; above 10 reps return `null`. No estimated
+  1RM for pure-bodyweight, weighted-bodyweight, or assisted movements.
+- **Progression**: weight at reps, completed-set totals, and previous-session
+  deltas. Calculate all displayed averages/percentages with floor division;
+  show `null` when the comparison or denominator is unavailable.
+- **Duration**: completed workout's elapsed whole seconds. Derive it from
+  integer-second timestamps, not floating-point duration arithmetic.
+
+---
+
+## 8. Frontend Screens
+
+1. **Auth**: register/login; reauthenticate without losing a draft.
+2. **Home**: resume active workout, quick start, repeat last, recent history,
+   and a basic weekly summary.
+3. **Active workout**: large integer inputs, add/remove/reorder exercises and
+   sets locally, mark done, show provisional totals, save, and finish.
+   Distinguish locally saved, syncing, synced, offline, conflict, and finish
+   pending. Preserve focus through stable keyed IDs.
+4. **History/detail**: finished workouts and previous-session comparison;
+   editing finished workouts comes later.
+5. **Catalog/picker**: search, muscle filters, default/custom labels, and
+   creation/editing of own custom entries.
+6. **Settings**: display name, default bodyweight, timezone, JSON export, logout.
+   No unit selector in the MVP.
+7. Later: templates and dedicated statistics charts.
+
+Mobile rules: single-column layouts, bottom navigation, touch targets of at
+least 44 CSS pixels, visible labels/errors, keyboard accessibility, and sticky
+primary actions. Use `inputmode="numeric"` and integer steps for measurement
+inputs; browser controls supplement, not replace, strict API validation.
 
 ---
 
 ## 9. Project Structure
 
-```
+```text
 basefit/
   PLAN.md
   README.md
-  backend/                 # FastAPI service
+  backend/
     app/
       main.py
-      api/v1/            # route handlers
-      core/              # config, security (JWT, hashing)
-      db/                # thin sync executor: driver, param-style normalize, row->Pydantic mappers
-      sql/               # *.sql query files (one per resource/feature)
-      schemas/           # Pydantic request/response + row mappers
-      services/          # business logic (workouts, stats, load model)
-      stats/             # aggregate queries + volume/PR/1RM computation
-      tests/
-    alembic/             # raw-SQL migrations (op.execute)
+      config.py
+      db.py                 # connection/transaction helper
+      auth.py               # sessions and password verification
+      api/                  # versioned routes
+      schemas/              # explicit request/response models
+      services/             # resource-specific SQL and business logic
+    migrations/             # numbered SQLite SQL files
+    migrate.py              # small stdlib migration command
+    tests/
     pyproject.toml
-    Dockerfile
-  frontend/                # Svelte 5 (SPA) + Vite
+  frontend/
     src/
-      main.ts              # app bootstrap
+      main.ts
       App.svelte
-      routes/              # svelte-spa-router route definitions
-      lib/
-        components/        # UI components (.svelte)
-        features/          # workout, stats, catalog, ...
-        stores/            # Svelte stores (UI/local state)
-        db/                # idb (IndexedDB) persistence + offline mutation queue
-        charts/            # Chart.js/uPlot wrappers
-      shared/              # API client + types + Zod (shared with future mobile;
-                           # extractable to root packages/shared workspace later)
-    public/                # PWA manifest, icons
+      api.ts                # fetch helpers and local API types
+      routes/
+      components/
+      features/
+      db.ts                 # idb drafts and one pending save per editor draft
     package.json
     vite.config.ts
     svelte.config.js
     tsconfig.json
-    Dockerfile
-  docker-compose.yml
 ```
 
----
-
-## 10. Roadmap / Phases
-
-### Phase 1 - Foundation (lean, usable core)
-
-Goal: a user can register, pick exercises, run an active workout that survives
-a refresh, save it in one shot, and repeat their last session. Ship this first.
-
-- Backend: project scaffolding, FastAPI (sync `def` endpoints) + raw SQL
-  (sqlite3 / psycopg3) + thin executor + Alembic raw-SQL migrations; **SQLite**
-  (local) as default DB, Postgres-ready via `DATABASE_URL`. Pin SQLite >= 3.35.
-- Auth: register, login, JWT access + refresh (refresh-token storage strategy
-  decided — see Cross-Cutting). Profile includes `bodyweight_default` and
-  `preferred_unit` (so bodyweight load is computable from day one).
-- **Seed catalog**: a curated list of ~40-60 common exercises spanning all
-  muscle groups and the three load types, each with a **researched
-  `bodyweight_fraction`** where applicable (e.g. push-up ~0.64, pull-up ~1.0,
-  dip ~0.96, feet-elevated push-up ~0.75). Fractions sourced from biomechanics
-  literature; documented in a seed file with citations. Getting these wrong
-  silently corrupts bodyweight volume, so they're treated as data, not
-  throwaway fixtures.
-- Exercise catalog API: list visible catalog (defaults + own custom),
-  create/edit/delete **user-private** custom exercises; deletion blocked (409)
-  when referenced. `muscle_group`/`equipment` are CHECK enums.
-- Workouts: create, **bulk-save (`PUT`)**, finish, list, get (with inline
-  `last_performance`), delete, **clone**, **repeat-last**.
-- Sets/exercises: per-item endpoints for targeted edits; unique
-  `(workout_id, order_index)` and `(exercise_id, set_index)` with app-managed
-  reindexing.
-- Frontend: auth, profile (bodyweight + unit), active workout flow with
-  **IndexedDB persistence** + bulk-save sync, **"Repeat last workout"** action,
-  history list, exercise picker.
-
-### Phase 1.5 - Progression fast-follow
-
-- **Per-exercise prefill from last session** (`prefill_from_last` on add).
-- **Batch last-performance** endpoint + exercise-picker "last: 80x8" hints.
-- **Per-set / per-exercise "vs last time" deltas** in the active workout and
-  workout detail (volume, weight@reps).
-
-> Rationale: repeat-last already covers the common "same session as last time"
-> flow, so the core ships in Phase 1; prefill + deltas are the natural next
-> increment for ad-hoc exercise additions and in-session motivation.
-
-### Phase 2 - Polish & Templates
-
-- Workout templates + "start from template".
-- Edit existing (finished) workouts.
-- **Bodyweight history** (`bodyweight_entries`) — enables bodyweight trend and
-  time-accurate `bw` resolution per workout (Phase 1 uses `bodyweight_default`).
-- PWA: installable, offline mutation queue around bulk-save, background sync.
-- Improved UX: rest timer, keyboard helpers, validation.
-
-### Phase 3 - Statistics
-
-- Summary, volume over time, frequency, PRs, estimated 1RM (weighted only —
-  see Stats semantics).
-- Charts on the Stats screen.
-- Per-exercise progression view.
-
-### Phase 4 - Mobile App
-
-- Native (React Native/Flutter) consuming the same `/api/v1`.
-- Offline-first sync (conflict resolution strategy).
-- Push notifications (reminders).
-
-### Phase 5 - Extras (later)
-
-- Custom metrics: tempo, rest targets. (RPE is already an optional `sets`
-  field from Phase 1 — it just isn't surfaced in stats until here.)
-- Exercise images / videos.
-- Import/export (CSV, JSON).
-- Sharing workouts.
+Create modules as their features arrive. Avoid a second stats service hierarchy,
+generic repositories, shared workspaces, plugin systems, and speculative wrappers.
 
 ---
 
-## 11. Cross-Cutting Concerns
+## 10. Roadmap and Acceptance
 
-- **Security**: bcrypt/argon2 hashes, JWT short-lived access + refresh
-  rotation, input validation everywhere, rate limiting on auth endpoints.
-  - **Token storage (web-now, native-later)**: access token kept **in memory
-    only** (not localStorage) to limit XSS exposure. Refresh token delivered
-    as an **httpOnly, Secure, SameSite=Strict cookie** on the web client.
-    `POST /auth/refresh` accepts the refresh token from **either** the httpOnly
-    cookie **or** the request body, so the future native app can store it in
-    the OS secure enclave (Keychain/Keystore) and send it in the body while the
-    web app relies on the cookie. Refresh rotation: each refresh issues a new
-    refresh token and invalidates the old (reuse detection → revoke family).
-- **Observability**: structured logging, request IDs, basic metrics.
-- **Testing**: backend unit + integration (pytest + test db), frontend unit
-  (Vitest) + E2E (Playwright).
-- **CI**: lint, typecheck, tests, build on every PR.
-- **Config**: environment-based (.env), no secrets in repo. Key vars:
-  `DATABASE_URL` (SQLite or Postgres), `JWT_SECRET`, `JWT_ACCESS_TTL`,
-  `JWT_REFRESH_TTL`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `APP_ENV`
-  (dev/prod/test).
-- **i18n**: keep strings externalized from day one (en first).
-- **Units**: store kg internally; show lb in UI per `users.preferred_unit`.
+### Phase 1 - Reliable, usable core
+
+- Synchronous FastAPI, direct SQLite SQL, integer-only contract, migrations,
+  backup/restore procedure, and the minimal session-based authentication.
+- Profile updates, a small estimated seed catalog, and private custom entries.
+- Online creation, local workout editing, IndexedDB persistence, revision checks,
+  bounded save receipts, atomic save-and-finish, history, deletion, repeat-last.
+- Record bodyweight/load inputs from day one. Show basic completed-set totals,
+  summary stats, and inline previous performance.
+- JSON export of saved training data plus local-draft export for recovery.
+  Include format version, recorded inputs, and referenced catalog data. Import
+  is separate future work; JSON export does not replace database backup.
+
+### Phase 1 acceptance checks
+
+1. Edit a loaded workout offline, reload with the app available, reconnect,
+   and recover every locally acknowledged edit.
+2. Lose a create/save/finish response and retry: no duplicate workout/rows,
+   regenerated IDs, double revision increment, or premature draft deletion.
+3. Edit while a save is in flight: its response cannot overwrite newer input.
+4. Edit in two tabs: stale saves fail atomically and both drafts remain recoverable.
+5. Finish with unsynced sets: final graph and finish are accepted together.
+6. Submit another user's workout, nested IDs, or catalog entry: no partial write
+   or unauthorized read. UUID guessing does not bypass ownership checks.
+7. Reorder/remove/add exercises and sets under unique indexes successfully.
+8. Repeat a workout: copied draft sets do not affect historical totals or PRs.
+9. Reject fractional, string, boolean, and out-of-range integer inputs; verify
+   floor arithmetic, negative deltas, unknown loads, and the calculation examples.
+10. Change profile/catalog defaults: existing recorded workouts retain their totals.
+11. Expire a session, switch accounts, and retry after deletion: preserve or
+    explicitly discard drafts without cross-account uploads or silent recreation.
+12. Verify CSRF protection, cookie expiry, logout revocation, and exclusion of
+    session/password data from API output and export.
+13. Restore a backup and upgrade an older schema: data, indexes, and foreign keys
+    remain valid. No requirement for PostgreSQL tests in this phase.
+
+### Phase 2 - Progression and usability
+
+- Per-exercise last-performance read and local prefill; side-aware set/exercise
+  deltas, simple progression views, and optional rest timer.
+- Edit finished workouts with the same save/revision protocol; no new per-set API.
+- Optional installable PWA and app-shell caching; foreground reconnect remains
+  the sync mechanism. Show quota/storage failures rather than promising no loss.
+
+### Phase 3 - Templates, bodyweight history, and charts
+
+- Template list/create/get/update/delete (`GET/POST /templates`,
+  `GET/PUT/DELETE /templates/{id}`); instantiate locally into a newly created
+  workout and save through the existing graph endpoint. Validate owner/catalog
+  access and protect referenced catalog entries. Target values remain integers.
+- Bodyweight-entry list/create/update/delete (`GET/POST /bodyweight-entries`,
+  `PATCH/DELETE /bodyweight-entries/{id}`), with integer kg and measurement time.
+  Entries affect newly resolved snapshots; corrections to a workout are explicit.
+- Dedicated volume, frequency, PR, exercise-progression, and bodyweight stats
+  endpoints/charts. Reuse the eligibility and integer arithmetic contracts.
+
+### Later, when justified
+
+- Native app: same API, opaque session delivered to OS secure storage and sent
+  in an authorization header; define native issuance when implementing that client.
+- PostgreSQL migration and deployment scaling based on real usage.
+- Offline creation, background sync, multi-device automatic merging, and shared
+  client packages only when the simple foreground workflow is insufficient.
+- Import, additional units/precision, new exercise metrics, media, sharing, and
+  notifications as separate product decisions.
+
+---
+
+## 11. Authentication and Cross-Cutting Rules
+
+### Simple sessions
+
+- Generate a high-entropy random token with `secrets.token_urlsafe(32)` on login.
+  Store only its SHA-256 hash, owner, creation time, and absolute expiry.
+  Passwords use Argon2id; fast hashing is only for random session tokens.
+- Send the token in an **HttpOnly, Secure, SameSite=Strict** cookie, scoped to
+  `/api/v1`. Never put it in localStorage, IndexedDB, URLs, or application logs.
+  Allow non-Secure cookies only for explicitly configured local HTTP development.
+- Look up the session on each authenticated request, reject expired sessions,
+  and delete the row on logout. Use a configurable fixed lifetime; expiry
+  requires login. No JWT library, refresh endpoint, rotation family, or Redis.
+- For every mutating browser request, including login/register/logout, require
+  JSON plus an exact allowed `Origin`. Reject absent/mismatched origins in the
+  browser MVP. Keep GET side-effect-free and do not enable cross-origin
+  credentialed access. SameSite is an additional defense, not the whole CSRF policy.
+- Reject unexpected auth fields/transports. A future native bearer-token mode
+  must deliberately define issuance and CSRF exemption rather than weakening
+  the cookie-authenticated browser checks.
+- Apply bounded auth throttling for the single-process deployment, generic
+  login errors, and request/body size limits. Keep credentials out of all output.
+
+### Operations and verification
+
+- Configuration: `DATABASE_PATH`, `SESSION_TTL_SECONDS`, `APP_ORIGIN`,
+  `COOKIE_SECURE`, and `APP_ENV`. No database-selection adapter or JWT settings.
+- Log request IDs and failures; add metrics infrastructure only when needed.
+- CI: lint, typecheck, backend/frontend checks, and production frontend build.
+  Exercise real SQLite transactions for concurrency and migration cases.
+- Backend validation is authoritative. Maintain a small set of shared example
+  expectations for integer arithmetic and API behavior, not a schema-sharing framework.
+- Keep UI strings easy to find and English-first; add a translation framework
+  only when supporting another language.
 
 ---
 
 ## 12. Decision Log
 
-Key decisions and their rationale (living record — update as decisions change):
-
-- **Switchable DB: SQLite (MVP) → PostgreSQL (prod)** via a single
-  `DATABASE_URL`; one schema, portable storage rules (TEXT UUIDs/timestamps,
-  CHECK enums). Avoids a prod-only DB during local dev; CI tests both.
-- **Synchronous backend** (plain `def` FastAPI endpoints in a threadpool; sync
-  `sqlite3` / `psycopg3`): the workload is short CRUD transactions + scoped
-  aggregate queries — DB-bound, not connection-juggling-bound — and there are
-  no WebSockets/SSE/streaming needs. SQLite makes async fake anyway (aiosqlite
-  = sqlite3 in a thread) and is single-writer regardless. Sync removes async
-  coloring from the whole codebase (simpler to read, debug, test). Trade-off:
-  lower per-process concurrency ceiling than async, mitigated by tunable
-  threadpool size + horizontal scaling (more workers/nodes); the DB is the real
-  constraint either way. `psycopg3` (sync+async capable) keeps async as an
-  escape hatch if a future real-time feature ever needs it. See *Concurrency
-  model*.
-- **Raw SQL, no ORM** (§Why no ORM): shallow schema, analytics-heavy reads,
-  switchable-DB. An ORM's relationship/unit-of-work machinery doesn't pay off,
-  and lazy-loading N+1 risk sits on the hot path (workout → exercises → sets);
-  raw SQL writes one explicit fetch. We accept hand-written SQL + raw-SQL
-  Alembic migrations.
-- **Bulk-save (`PUT /workouts/{id}`) is the primary active-workout write path**
-  — one request for the whole exercise+set graph instead of per-set
-  round-trips. Critical for mobile UX and offline sync (the bulk-save is the
-  unit of queuing/retry; `Idempotency-Key` makes retries safe).
-- **"Repeat last workout" before per-exercise prefill**: repeat-last
-  (`POST /workouts/repeat-last`) covers the dominant "same session as last
-  time" flow and ships in Phase 1; per-exercise prefill + vs-last deltas are a
-  Phase 1.5 fast-follow for ad-hoc additions.
-- **Custom exercises are user-private**; defaults are global and immutable.
-  `exercises.catalog_id` is `ON DELETE RESTRICT` so a custom exercise can't be
-  deleted while referenced by history (409 instead of orphaning).
-- **`bodyweight_fraction` is researched data, not fixtures** — wrong fractions
-  silently corrupt all bodyweight volume/PR stats, so the seed catalog cites
-  sources and is maintained deliberately.
-- **1RM / weight-PRs are weighted-only**: Epley on `bw*fraction` for high-rep
-  bodyweight work is meaningless; bodyweight PRs use max-reps instead.
-- **Bodyweight resolution**: time-accurate via `bodyweight_entries` (Phase 2);
-  Phase 1 falls back to `users.bodyweight_default`. If both are null, bodyweight
-  effective_load/volume is `null` (excluded from sums, never 0) and the UI
-  prompts for a bodyweight.
-- **Refresh-token storage**: httpOnly cookie on web, request-body for native;
-  access token in memory only. Chosen so the same `/auth/refresh` endpoint
-  serves both the web MVP and the future native app without redesign.
-- **Active-workout local persistence (IndexedDB)**: a refresh/crash/network
-  drop must never lose an in-progress session; local draft reconciles with
-  server on reconnect.
-- **Svelte (SPA) over React for the web frontend**: the only genuinely reactive
-  screen is the Active Workout editor (dynamic exercise/set lists, live
-  two-way editing, computed deltas, IndexedDB persistence). Svelte's compiler
-  handles exactly that — keyed `{#each}` preserves row identity (no
-  focus/cursor jumps), `bind:` gives two-way binding for free, granular DOM
-  updates without a virtual DOM — with a far smaller API surface and no
-  runtime framework shipped. React's ecosystem maturity (Radix/shadcn, Recharts,
-  testing-library) doesn't proportionally help this goal, and its complexity
-  (hooks rules, re-render behavior, state-management choices, ~45KB+ runtime)
-  is the cost we're avoiding. The mobile-reuse argument doesn't require React:
-  the reusable asset is the **shared TS package** (api client + types + Zod),
-  which any web framework consumes and React Native can reuse directly.
-  Vanilla TS + lit-html + nanostores was considered (fewest deps) but moves
-  render/reactivity/focus-management glue into our codebase — more total code
-  and more edge-case bugs on the workout editor, which cuts against
-  "lightweight" in practice. Trade-off accepted: younger ecosystem than React
-  (bits-ui/shadcn-svelte are newer than Radix), and Svelte needs a build step
-  (its compiler) — but it compiles away, so lock-in is low and output is plain
-  DOM code.
+- **Integer-only, always floor**: whole kg, integer RPE, integer bodyweight
+  percentages, explicit calculation order. No fractional measurements or unit
+  conversion in the MVP; unknown values remain `null`.
+- **SQLite-first, direct SQL**: stdlib connections and small helpers are enough.
+  Defer PostgreSQL, pooling, dialect rewriting, ORM, and migration dependencies.
+- **Synchronous service owns its connection**: keeps the transaction on one
+  thread without relying on FastAPI dependency scheduling.
+- **One graph write path**: metadata, exercises, sets, and finish share a single
+  atomic PUT. Repeat and prefill are local draft operations, not extra write APIs.
+- **Revision + last-save receipt**: prevent stale overwrites and recover a lost
+  response without building an operation log or automatic merge engine.
+- **Recorded inputs preserve history**: bodyweight and load settings belong to
+  the recorded workout/instance; current defaults only affect new records.
+- **Opaque database sessions**: one table and a cookie are enough for web login,
+  expiry, and logout; introduce native transport when the native client exists.
+- **Draft persistence before background sync**: keep recovery reliable while the
+  app is open; define offline limits and surface conflicts rather than hiding them.
+- **Progress feedback and export early**: repeat-last, completed-set totals,
+  previous performance, and recoverable data matter before elaborate charts.
+- **Svelte without speculative packages**: built-in reactivity, local fetch
+  helpers, and a small IndexedDB wrapper; dependencies must remove actual work.
