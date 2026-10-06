@@ -35,6 +35,9 @@ when a second client or a measured deployment need justifies them.
 - PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
 - Automatic conflict merging, background sync, and starting new workouts offline.
 - Templates, a native app, and advanced charts.
+- Admin impersonation, password viewing/reset, workout inspection/editing,
+  user-data export, and default-catalog management. The Phase 1 admin panel is
+  limited to account operations.
 - Email verification and password recovery for the initial private/small
   deployment; resolve account recovery before a public multi-user launch.
 
@@ -105,6 +108,32 @@ One web origin serves the SPA and API. A future native app uses the same API.
 - Add PostgreSQL only when required. That work includes migrations, connection
   budgets, SQL differences, and verification; changing one URL is not a promised
   zero-work database migration.
+
+### Remote QA and test-data isolation
+
+- Test the production build and deployment topology remotely, but never point
+  automated tests or fixture/reset tooling at the production user database.
+  Environment similarity does not require shared data.
+- Run production, long-lived human QA/beta, and automated E2E as separate app
+  instances with separate origins, processes, SQLite files, WAL sidecars,
+  backup locations, and secrets. They may share one server and the same built
+  artifact. Use distinct, explicit `DATABASE_PATH` values; copying production
+  data into QA is out of scope unless a separate redaction process is designed.
+- Prefer a disposable database per automated remote E2E run. Create it from
+  migrations, load only deterministic fixtures needed by that run, start one
+  app process against it, then stop the process and delete the whole database
+  plus sidecars. Whole-database disposal is safer and simpler than identifying
+  and deleting test rows from a mixed database.
+- Prefer an on-server fixture command over an HTTP QA API. If remote orchestration
+  later proves that an HTTP fixture API is necessary, mount it only when
+  `APP_ENV=qa`, keep it disabled by default, require a separate high-entropy CI
+  credential and restricted ingress, and make startup fail unless the database
+  is explicitly marked disposable. Production mode must never expose fixture,
+  reset, bulk-delete, or environment-switching endpoints.
+- A smoke test against the actual production origin uses only the normal public
+  API and one clearly named synthetic account. Reuse that account and clean up
+  its resources through normal owner-scoped behavior; never run a broad QA
+  cleanup operation in the production database.
 
 ---
 
@@ -183,6 +212,9 @@ zero denominators produce `null`, not an exception or fabricated percentage.
   settings as a snapshot.
 - **Set**: reps, weight, optional RPE, side, optional bodyweight percentage
   override, and whether it was actually completed.
+- **AdminAuditEvent**: immutable record of an administrative actor, target,
+  action, required reason, request ID, and timestamp. It contains no password,
+  session token, workout content, or exported user data.
 - Later: **BodyweightEntry**, **WorkoutTemplate**, **TemplateExercise**, and
   **TemplateSet**. Do not create their tables or endpoints in Phase 1.
 
@@ -246,6 +278,34 @@ not pair a left set with a right set.
   A custom name may match a default name; distinguish them by ID and a custom
   label rather than adding cross-scope uniqueness machinery.
 
+### Minimal administration
+
+- Users have an explicit `user|admin` role and `active|disabled` account status.
+  Public registration always creates an active ordinary user. Roles are never
+  accepted from public profile or registration input.
+- Bootstrap and change admin roles through an on-server CLI with an explicit
+  target and confirmation. Do not expose role grants in the Phase 1 panel, and
+  never allow removal of the last active admin.
+- Every admin API request requires an authenticated active admin; authorization
+  is checked server-side on every request. Non-admin users receive 403 without
+  any admin data. Disabling an account and revoking all its sessions is one
+  transaction; disabled accounts cannot log in or use an existing session.
+  Re-enabling an account does not restore old sessions.
+- The panel supports bounded user search/list, account disable/enable, session
+  revocation, and bounded audit-log reads. Mutations require reauthentication,
+  an explicit confirmation, and a non-empty bounded reason. Prevent an admin
+  from disabling itself and prevent operations that would leave no active admin.
+- `GET /auth/me` exposes the caller's role as a read-only field so the client can
+  hide or show admin navigation; role and status remain server-controlled and
+  are never accepted by registration or profile updates.
+- Record successful and rejected mutations attempted by an authorized admin in
+  an append-only audit log without secrets or user workout content. There is no
+  API to update/delete audit records. Keep stable ordering and an ID tie-breaker
+  for audit pagination. User data exports never include roles or admin audit data.
+- Admins cannot impersonate users, read or edit workouts, view/reset passwords,
+  access user exports, delete users, or edit the default exercise catalog in
+  Phase 1. QA fixture/reset tooling is separate and is never an admin feature.
+
 ---
 
 ## 5. Database Schema and Operations
@@ -260,6 +320,8 @@ users
   id TEXT PK
   email TEXT UNIQUE NOT NULL           # documented normalization before storage
   password_hash TEXT NOT NULL
+  role TEXT NOT NULL                   # user|admin; default user; admin migration
+  account_status TEXT NOT NULL         # active|disabled; default active; admin migration
   display_name TEXT
   bodyweight_default_kg INTEGER        # null or > 0
   utc_offset_minutes INTEGER NOT NULL  # fixed offset, default 0 (UTC); -720..840
@@ -272,6 +334,17 @@ sessions
   created_at TEXT NOT NULL
   expires_at TEXT NOT NULL
   # index: expires_at; logout deletes the row
+
+admin_audit_log                         # added by the admin migration
+  id TEXT PK
+  actor TEXT NOT NULL                  # user:<uuid> or bootstrap CLI identity
+  target_user_id TEXT NOT NULL         # retained as text for durable audit history
+  action TEXT NOT NULL                 # role_grant|role_revoke|disable|enable|revoke_sessions
+  result TEXT NOT NULL                 # succeeded|rejected
+  reason TEXT NOT NULL
+  request_id TEXT NOT NULL
+  created_at TEXT NOT NULL
+  # indexes: (created_at, id), (target_user_id, created_at, id)
 
 exercise_catalog
   id TEXT PK
@@ -384,6 +457,11 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 | DELETE | /exercises/{id} | Delete own unreferenced entry |
 | GET | /stats/summary | Basic eligible workout/set counts and volume |
 | GET | /export | User-owned training data as versioned JSON, excluding auth secrets |
+| GET | /admin/users | Bounded user search/list with account metadata only |
+| POST | /admin/users/{id}/disable | Disable an account and revoke its sessions atomically |
+| POST | /admin/users/{id}/enable | Re-enable an account without restoring sessions |
+| POST | /admin/users/{id}/revoke-sessions | Revoke all sessions for an account |
+| GET | /admin/audit-log | Bounded immutable administrative audit history |
 
 There are no separate workout metadata PATCH, finish, per-exercise, or per-set
 write endpoints. A workout's graph is small enough to save together.
@@ -554,7 +632,10 @@ This bounded receipt avoids a generic idempotency service or operation log.
 6. **Settings**: dark/light theme switch, display name, default bodyweight,
    UTC offset picker (hour steps, e.g. −3 h … +3 h), JSON export, logout.
    Units are always metric, with no unit selector.
-7. Later: templates and dedicated statistics charts.
+7. **Admin**: role-gated user search, account status, disable/enable, session
+   revocation, and audit history. Require reason/confirmation for mutations;
+   expose no workout content, impersonation, password controls, or user exports.
+8. Later: templates and dedicated statistics charts.
 
 Mobile rules: single-column layouts, bottom navigation, touch targets of at
 least 44 CSS pixels, visible labels/errors, keyboard accessibility, and sticky
@@ -619,6 +700,11 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - JSON export of saved training data plus local-draft export for recovery.
   Include format version, recorded inputs, and referenced catalog data. Import
   is separate future work; JSON export does not replace database backup.
+- Minimal audited administration: securely bootstrap admins, search users,
+  disable/enable accounts, revoke sessions, and review admin actions without
+  impersonation or access to workout content.
+- Remote QA uses the production artifact with isolated databases as defined in
+  §2. Automated E2E data is disposable without querying or deleting real-user rows.
 
 ### Phase 1 acceptance checks
 
@@ -645,6 +731,10 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 14. Switch between dark and light in Settings, navigate, and reload: the chosen
     theme persists and controls remain legible. Verify metric units throughout
     the UI, API, and export, with no unit selector or imperial option.
+15. Verify non-admins cannot access admin data/actions; disabling an account
+    atomically revokes its sessions and blocks login; enabling it restores only
+    login eligibility; self/last-admin safeguards hold; successful and rejected
+    mutations are audited without secrets or workout content.
 
 ### Phase 2 - Progression and usability
 
@@ -701,6 +791,10 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   the cookie-authenticated browser checks.
 - Apply bounded auth throttling for the single-process deployment, generic
   login errors, and request/body size limits. Keep credentials out of all output.
+- Resolve the current user role and account status during each authenticated
+  request. Disabled users and stale sessions fail closed. Admin mutations also
+  require password reauthentication and use the same Origin/JSON protections;
+  an admin role never bypasses ordinary resource ownership checks.
 
 ### Operations and verification
 
@@ -748,3 +842,6 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   previous performance, and recoverable data matter before elaborate charts.
 - **Svelte without speculative packages**: built-in reactivity, local fetch
   helpers, and a small IndexedDB wrapper; dependencies must remove actual work.
+- **Minimal, non-impersonating administration**: operational account controls
+  require explicit roles, reauthentication, confirmation, and immutable audit
+  records. Admin status does not grant access to workouts, exports, or passwords.
