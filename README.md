@@ -2,7 +2,8 @@
 
 Mobile-first fitness training tracker: log exercises, sets, reps, and weights.
 Metric units only (whole kilograms). See [PLAN.md](PLAN.md) for the product
-contract and [IMPLEMENTATION.md](IMPLEMENTATION.md) for the staged build plan.
+contract, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the staged build plan, and
+[AGENTS.md](AGENTS.md) for repository-wide development rules.
 
 ## Layout
 
