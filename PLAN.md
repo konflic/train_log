@@ -173,7 +173,8 @@ zero denominators produce `null`, not an exception or fabricated percentage.
 ## 4. Domain Model and History
 
 - **User**: owns workouts and custom exercises; has an optional current
-  bodyweight default and an IANA timezone for calendar-based statistics.
+  bodyweight default and a user-chosen fixed UTC offset (whole minutes,
+  default 0 = UTC) for calendar-based statistics and local-time display.
 - **Session**: an expiring, revocable login stored in the database.
 - **Workout**: session metadata, a recorded bodyweight, an integer revision,
   and an ordered graph of exercises and sets. `ended_at=null` means active.
@@ -261,7 +262,7 @@ users
   password_hash TEXT NOT NULL
   display_name TEXT
   bodyweight_default_kg INTEGER        # null or > 0
-  timezone TEXT NOT NULL               # validated IANA name; default UTC
+  utc_offset_minutes INTEGER NOT NULL  # fixed offset, default 0 (UTC); -720..840
   created_at TEXT NOT NULL
   updated_at TEXT NOT NULL
 
@@ -370,7 +371,7 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 | POST | /auth/login | Create session and set cookie |
 | POST | /auth/logout | Delete current session and clear cookie |
 | GET | /auth/me | Current public profile |
-| PATCH | /auth/me | Update display name, default bodyweight, timezone |
+| PATCH | /auth/me | Update display name, default bodyweight, UTC offset |
 | GET | /workouts | History; date and active/finished filters |
 | POST | /workouts | Create an empty active workout with a client-generated ID |
 | GET | /workouts/{id} | Graph, recorded load inputs, revision, last save ID, and previous performance |
@@ -495,10 +496,12 @@ This bounded receipt avoids a generic idempotency service or operation log.
 - Sum known volumes while exposing `unknown_load_set_count` and a completeness
   flag. If all eligible loads are unknown, total volume is `null`; no eligible
   sets means a known total of 0. Never present a partial sum as a complete total.
-- Store instants in UTC. Group training days/weeks in the user's IANA timezone,
-  with Monday as week start and explicit half-open date ranges. Use stdlib
-  `zoneinfo`; deployment must provide timezone data. Streaks count consecutive
-  weeks with an eligible workout, allowing the current week to still be ongoing.
+- Store instants in canonical UTC. Group training days/weeks by applying the
+  user's fixed UTC offset, with Monday as week start and explicit half-open
+  date ranges. No `zoneinfo`/tzdata dependency; a fixed offset does not track
+  DST, so daylight-saving users' day boundaries shift by one hour seasonally
+  (accepted tradeoff, see §12). Streaks count consecutive weeks with an
+  eligible workout, allowing the current week to still be ongoing.
 
 ### Previous performance
 
@@ -549,7 +552,8 @@ This bounded receipt avoids a generic idempotency service or operation log.
 5. **Catalog/picker**: search, muscle filters, default/custom labels, and
    creation/editing of own custom entries.
 6. **Settings**: dark/light theme switch, display name, default bodyweight,
-   timezone, JSON export, logout. Units are always metric, with no unit selector.
+   UTC offset picker (hour steps, e.g. −3 h … +3 h), JSON export, logout.
+   Units are always metric, with no unit selector.
 7. Later: templates and dedicated statistics charts.
 
 Mobile rules: single-column layouts, bottom navigation, touch targets of at
@@ -719,6 +723,11 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   MVP; unknown values remain `null`.
 - **Metric only, permanently**: fixed metric units across clients, API, storage,
   and exports; no imperial support or user-selectable unit system.
+- **UTC storage + fixed user UTC offset**: every stored instant is canonical
+  UTC; the user picks a fixed offset (integer minutes, default 0) in Settings
+  for display and calendar grouping. Removes zoneinfo/tzdata deployment
+  requirements; DST shifts are not tracked and move affected users' day
+  boundaries by one hour seasonally (accepted for the MVP).
 - **Dark/light switch in Settings**: available in Phase 1, persisted per device,
   and implemented with existing styling tools rather than another dependency.
 - **SQLite-first, direct SQL**: stdlib connections and small helpers are enough.
