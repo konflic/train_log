@@ -7,6 +7,15 @@ so every step is small, testable, and verifiable before the next one starts.
 Scope = `PLAN.md` §10 **"Phase 1 - Reliable, usable core"** and its **14
 acceptance checks**. Phases 2-3 are out of scope here.
 
+## Implementation status
+
+- **Completed:** Stage 0 was merged to `master` in
+  [PR #1](https://github.com/konflic/train_log/pull/1) on 2026-10-06 (`75065b4`).
+  Gate G0 passed locally and in GitHub CI: backend lint, format,
+  typecheck, and tests; frontend check, lint, unit tests, and production build;
+  and Playwright browser smoke tests.
+- **Next:** Stage 1 - Database foundation and migrations.
+
 ---
 
 ## Ground rules
