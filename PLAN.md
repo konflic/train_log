@@ -18,10 +18,16 @@ when a second client or a measured deployment need justifies them.
 - Repeat the last workout and see basic progress before building elaborate charts.
 - Keep implementation explicit: synchronous functions, direct SQL, and few dependencies.
 
+### Permanent Product Rules
+
+- **Metric only** across the UI, API, storage, and exports, including future
+  features. No imperial units, unit-system preference, or unit selector.
+- **Dark/light theme switch in Settings**, available from Phase 1.
+
 ### Non-Goals for the MVP
 
 - Social features, sharing, nutrition, coaching, billing, and media storage.
-- Fractional weights, fractional RPE, pounds, and unit conversion. Weights are
+- Fractional weights and fractional RPE. Weights are
   **whole kilograms**; fractional plate increments cannot be represented.
   If finer precision becomes necessary later, reconsider integer grams rather
   than introducing decimal or floating-point domain values.
@@ -66,6 +72,10 @@ One web origin serves the SPA and API. A future native app uses the same API.
   runtime support; it is not a zero-runtime framework.
 - **Tailwind CSS** for styling, semantic HTML for simple controls. Add an
   accessible headless component dependency only for controls that need it.
+- **Dark/light themes** via a root CSS class and existing styling tools. Use the
+  system color preference on first visit (light as fallback), then persist the
+  user's explicit Settings choice in localStorage on that device. Apply the
+  saved theme before first paint; no theme library or backend preference needed.
 - **`svelte-spa-router`** for small hash-based routing without rewrite rules.
 - A local **`api.ts`** over browser `fetch` and ordinary TypeScript types.
   No separate shared package, generated-client pipeline, or read-cache library
@@ -102,6 +112,7 @@ One web origin serves the SPA and API. A future native app uses the same API.
 
 All numeric domain inputs, stored measurements, and reported calculations are
 integers. Text, timestamps, booleans, and `null` retain their natural API types.
+Measurement units are fixed metric units, not a user preference; weight is kg.
 
 | Value | Representation |
 |-------|----------------|
@@ -537,14 +548,15 @@ This bounded receipt avoids a generic idempotency service or operation log.
    editing finished workouts comes later.
 5. **Catalog/picker**: search, muscle filters, default/custom labels, and
    creation/editing of own custom entries.
-6. **Settings**: display name, default bodyweight, timezone, JSON export, logout.
-   No unit selector in the MVP.
+6. **Settings**: dark/light theme switch, display name, default bodyweight,
+   timezone, JSON export, logout. Units are always metric, with no unit selector.
 7. Later: templates and dedicated statistics charts.
 
 Mobile rules: single-column layouts, bottom navigation, touch targets of at
 least 44 CSS pixels, visible labels/errors, keyboard accessibility, and sticky
 primary actions. Use `inputmode="numeric"` and integer steps for measurement
 inputs; browser controls supplement, not replace, strict API validation.
+Both themes must keep text, inputs, focus indicators, and status colors legible.
 
 ---
 
@@ -594,6 +606,8 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - Synchronous FastAPI, direct SQLite SQL, integer-only contract, migrations,
   backup/restore procedure, and the minimal session-based authentication.
 - Profile updates, a small estimated seed catalog, and private custom entries.
+- Dark/light theme switch in Settings, remembered locally across reloads.
+  Fixed metric labels throughout; no configurable unit system.
 - Online creation, local workout editing, IndexedDB persistence, revision checks,
   bounded save receipts, atomic save-and-finish, history, deletion, repeat-last.
 - Record bodyweight/load inputs from day one. Show basic completed-set totals,
@@ -624,6 +638,9 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
     session/password data from API output and export.
 13. Restore a backup and upgrade an older schema: data, indexes, and foreign keys
     remain valid. No requirement for PostgreSQL tests in this phase.
+14. Switch between dark and light in Settings, navigate, and reload: the chosen
+    theme persists and controls remain legible. Verify metric units throughout
+    the UI, API, and export, with no unit selector or imperial option.
 
 ### Phase 2 - Progression and usability
 
@@ -652,8 +669,9 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - PostgreSQL migration and deployment scaling based on real usage.
 - Offline creation, background sync, multi-device automatic merging, and shared
   client packages only when the simple foreground workflow is insufficient.
-- Import, additional units/precision, new exercise metrics, media, sharing, and
-  notifications as separate product decisions.
+- Import, finer integer-based metric precision, new exercise metrics, media,
+  sharing, and notifications as separate product decisions. Metric-only remains
+  a permanent constraint.
 
 ---
 
@@ -697,8 +715,12 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 ## 12. Decision Log
 
 - **Integer-only, always floor**: whole kg, integer RPE, integer bodyweight
-  percentages, explicit calculation order. No fractional measurements or unit
-  conversion in the MVP; unknown values remain `null`.
+  percentages, explicit calculation order. No fractional measurements in the
+  MVP; unknown values remain `null`.
+- **Metric only, permanently**: fixed metric units across clients, API, storage,
+  and exports; no imperial support or user-selectable unit system.
+- **Dark/light switch in Settings**: available in Phase 1, persisted per device,
+  and implemented with existing styling tools rather than another dependency.
 - **SQLite-first, direct SQL**: stdlib connections and small helpers are enough.
   Defer PostgreSQL, pooling, dialect rewriting, ORM, and migration dependencies.
 - **Synchronous service owns its connection**: keeps the transaction on one
