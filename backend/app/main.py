@@ -9,6 +9,8 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 
+from app.db import validate_sqlite_runtime
+
 
 class HealthResponse(BaseModel):
     """Public health payload."""
@@ -27,6 +29,9 @@ def create_api_v1_router() -> APIRouter:
 
 
 def create_app() -> FastAPI:
+    # Fail startup when the linked SQLite cannot support STRICT tables
+    # (PLAN.md §3); never assume the runtime version.
+    validate_sqlite_runtime()
     app = FastAPI(title="BaseFit API", version="0.1.0")
     app.include_router(create_api_v1_router())
     return app

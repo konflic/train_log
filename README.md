@@ -43,9 +43,36 @@ Backend checks:
 cd backend
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
-.venv/bin/mypy app
+.venv/bin/mypy app migrate.py
 .venv/bin/pytest -q
 ```
+
+## Database migrations and backups
+
+Migrations are numbered SQL files in `backend/migrations/` and are run
+explicitly before serving requests (never per worker). `migrate.py` honors
+`DATABASE_PATH` (default `data/basefit.db`), creates the file with WAL
+enabled, applies each pending migration in its own transaction, and is a
+no-op when the database is up to date:
+
+```bash
+cd backend
+.venv/bin/python migrate.py
+```
+
+Back up a live database with the online backup API (safe while WAL is
+active; never plain-copy the main file) and verify restores:
+
+```bash
+cd backend
+.venv/bin/python -m app.backup backup data/basefit.db backups/basefit-$(date -u +%Y%m%dT%H%M%SZ).db
+.venv/bin/python -m app.backup verify backups/basefit-<timestamp>.db
+```
+
+To restore: stop the application, move the live database and its `-wal`/`-shm`
+sidecars aside, copy the backup into place, remove any stale sidecars, run
+`verify`, then start the application again. Back up before destructive schema
+migrations. Database files, WAL sidecars, and backups never enter Git.
 
 ## Frontend setup
 

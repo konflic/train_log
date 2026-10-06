@@ -4,7 +4,7 @@ Companion to `PLAN.md`. `PLAN.md` defines **what** to build (contracts,
 architecture, permanent rules). This file defines **in what order** to build it
 so every step is small, testable, and verifiable before the next one starts.
 
-Scope = `PLAN.md` §10 **"Phase 1 - Reliable, usable core"** and its **14
+Scope = `PLAN.md` §10 **"Phase 1 - Reliable, usable core"** and its **15
 acceptance checks**. Phases 2-3 are out of scope here.
 
 ## Implementation status
@@ -14,7 +14,28 @@ acceptance checks**. Phases 2-3 are out of scope here.
   Gate G0 passed locally and in GitHub CI: backend lint, format,
   typecheck, and tests; frontend check, lint, unit tests, and production build;
   and Playwright browser smoke tests.
-- **Next:** Stage 1 - Database foundation and migrations.
+- **Completed on this branch (PR pending):** Stage 1 - Database foundation and
+  migrations. Gate G1 passed locally on 2026-10-06; CI re-runs it on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    and `pytest -q` (60 tests) all green.
+  - Isolated temporary database: `python migrate.py` applied `0001` + `0002`;
+    a second run reported no pending migrations; `python -m app.backup backup`
+    then `verify` (integrity_check + foreign_key_check + workout-graph read)
+    passed; no WAL sidecars next to the backup file.
+  - Tests cover: migrate-from-empty (all tables STRICT, WAL on, seed present,
+    `foreign_key_check` clean); re-run no-op; failed migration rolls back
+    DDL/data/version record and resumes after fix; migration transaction/PRAGMA
+    escape attempts are rejected atomically; unknown recorded version refused;
+    STRICT rejects fractional/non-convertible integers, BLOBs in TEXT, and
+    impossible/non-canonical timestamps (lossless `1.0`/`"12"`/bool coercion
+    documented for Stage 2); FK cascade/restrict; partial unique catalog-name
+    indexes per scope; previous → current migration preserves data/indexes/FKs;
+    backup while WAL holds committed data → restore → verify + direct graph
+    reads; missing/corrupt backup sources fail without leaving an output; held
+    write lock past busy timeout → retryable `DatabaseBusyError`, retry succeeds.
+  - No earlier gate regressed: frontend `check`/`lint`/`test:unit`/`build` and
+    both Playwright smoke tests green locally.
+- **Next:** Stage 2 - Integer-only contract.
 
 ---
 
@@ -34,7 +55,8 @@ acceptance checks**. Phases 2-3 are out of scope here.
   merge, not deferred to a separate follow-up PR.
 - **Backend stages (1-8) verify with `pytest`/API tests only** - no frontend
   required. **Frontend stages (9-13)** build against a running backend.
-  **Stage 14** ties everything together end-to-end.
+  **Stage 14** adds the cross-stack admin surface; **Stage 15** ties everything
+  together end-to-end.
 - **Single source of numeric truth.** The integer examples in `PLAN.md` §3 live
   in a language-neutral `tests/fixtures/numeric_examples.json` at the repo root,
   read directly by backend and frontend tests without a generator
@@ -43,13 +65,16 @@ acceptance checks**. Phases 2-3 are out of scope here.
   create `backend/` and `frontend/` at the root.
 - Keep dependencies minimal per `PLAN.md` §2; add one only when it removes real
   work.
+- Remote QA follows `PLAN.md` §2 data isolation: production, human QA/beta, and
+  automated E2E never share a database. Test reset means replacing a disposable
+  database, not bulk-deleting marked rows from a mixed production database.
 - Record completion evidence for each gate: implemented scope, commands and
   results, manual observations where relevant, and remaining blockers. Later
   tests in the traceability table are not proof that an earlier gate passed.
 
 ## Verification commands (introduced when their implementation exists)
 
-- Backend: `cd backend && ruff check . && ruff format --check . && mypy app && pytest -q`
+- Backend: `cd backend && ruff check . && ruff format --check . && mypy app migrate.py && pytest -q`
 - Migrations (Stage 1): `cd backend && python migrate.py` (honors `DATABASE_PATH`)
 - Frontend: `cd frontend && npm run check && npm run lint && npm run test:unit`
 - E2E: `cd frontend && npm run test:e2e` (Playwright)
@@ -59,7 +84,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
 
 Stage 0 introduces backend, frontend, and browser smoke tests that actually
 execute; do not mask empty suites with allow-no-tests flags. Feature-specific
-checks join CI in their owning stage rather than waiting until Stage 14.
+checks join CI in their owning stage rather than waiting until Stage 15.
 
 `NN` below = stage number; `GNN` = its exit gate.
 
@@ -70,7 +95,7 @@ checks join CI in their owning stage rather than waiting until Stage 14.
 | MS | Stage | Deliverable (verifiable increment) | Primary verification | Est. days |
 |----|-------|------------------------------------|----------------------|-----------|
 | A. Foundation | **0** | Repo scaffold, tooling, CI skeleton, configs | lint/typecheck/test run green on skeleton | 1 |
-| A | **1** | DB helper + migration runner + full STRICT schema + seed catalog | migrations, `PRAGMA foreign_key_check`, backup/restore | 2.5 |
+| A | **1** | DB helper + migration runner + core STRICT schema + seed catalog | migrations, `PRAGMA foreign_key_check`, backup/restore | 2.5 |
 | A | **2** | Integer contract: floor helpers + strict Pydantic types + shared examples | unit tests on §3 examples | 1 |
 | B. Backend API | **3** | Auth: register/login/logout/me, sessions, cookies, CSRF, throttling | auth API tests | 2 |
 | B | **4** | Exercise catalog CRUD + visibility/uniqueness/delete-guard | catalog API tests | 1 |
@@ -83,15 +108,17 @@ checks join CI in their owning stage rather than waiting until Stage 14.
 | C | **11a–11c** | Local drafts/export → durable create/save → reconnect/conflict/account handling | three separate exit gates | 3 |
 | C | **12a–12c** | Local editor → synchronization/finish → repeat-last/conflict UI | three separate exit gates | 4 |
 | C | **13** | History/detail + Settings + export UI + logout flow | Playwright settings/theme/export/acct-switch | 2.5 |
-| D. Hardening | **14** | Acceptance evidence + production deployment smoke | full CI + deployment/restart checks | 5 |
+| D. Operations | **14** | Minimal admin API/panel + account controls + audit log | admin API/security tests + Playwright | 3 |
+| E. Hardening | **15** | Acceptance evidence + production deployment smoke | full CI + deployment/restart checks | 5 |
 
-The table totals **35.5 person-days**, including implementation and verification
+The table totals **38.5 person-days**, including implementation and verification
 within each stage. Reserve **8.5 additional days of contingency**, for a planning
-budget of **44 person-days** (about nine five-day working weeks for one developer).
+budget of **47 person-days** (about nine to ten five-day working weeks for one
+developer).
 These are estimates, not gate deadlines; re-estimate after Stages 6c and 11c.
 Lettered substages divide their parent's estimate rather than adding effort
 again. Milestones: **A** = foundation, **B** = complete tested API, **C** = full
-client, **D** = shippable.
+client, **D** = operational administration, **E** = shippable.
 
 ---
 
@@ -132,7 +159,8 @@ green locally and in CI. No feature API, migration, or export is required yet.
 - `0001` schema: `users, sessions, exercise_catalog, workouts, exercises, sets`
   as **STRICT** tables, `NOT NULL` PKs, all CHECKs, indexes, and the two partial
   unique indexes on catalog names (§5). TEXT UUIDs, canonical UTC timestamps,
-  0/1 booleans.
+  0/1 booleans. Admin role/status fields and the audit table are introduced by
+  a later numbered migration in Stage 14.
 - `0002` seed catalog: small default set with muscle_group/equipment/load_type/
   `bodyweight_percent` estimates + provenance note (§4).
 - `backup.py`: `sqlite3.Connection.backup()` / `VACUUM INTO`; restore verifier
@@ -148,7 +176,7 @@ API input types belongs to Pydantic checks in Stage 2. Exercise table-rebuild
 preservation when an actual schema change requires it, rather than inventing a
 production migration solely for a test.
 **Gate G1:** migrations idempotent + transactional; `foreign_key_check` clean;
-backup/restore verified. **Covers acceptance check 13 (with S14).**
+backup/restore verified. **Covers acceptance check 13 (with S15).**
 
 ### Stage 2 - Integer-only contract
 **Purpose:** one arithmetic/validation core both sides mirror. (`PLAN.md` §3)
@@ -186,8 +214,8 @@ size limits), auth throttling.
 - Cookie: HttpOnly, Secure, SameSite=Strict, `Path=/api/v1`; non-Secure only for
   configured local HTTP dev. Never log/persist the raw token.
 - Endpoints: `POST /auth/register|login|logout`, `GET /auth/me`,
-  `PATCH /auth/me` (display_name, bodyweight_default_kg, timezone via
-  `zoneinfo`). Email normalization before store.
+   `PATCH /auth/me` (display_name, bodyweight_default_kg, utc_offset_minutes
+   bounded to -720..840). Email normalization before store.
 - CSRF: mutating browser requests require JSON + exact allowed `Origin`; GET
   side-effect-free; reject mismatch. Bounded login throttling; generic errors;
   request/body size limits. No secrets in any output.
@@ -325,8 +353,9 @@ prev-perf in `GET /workouts/{id}`, `app/api/export.py`.
 - `GET /stats/summary`: only **finished workouts + `done=true` sets**; volume
   summed with `unknown_load_set_count` + completeness flag (all-unknown → null;
   no eligible → 0); frequency (finished w/ ≥1 completed set) and muscle-group
-  frequency; tz day/week grouping (`zoneinfo`, Monday start, half-open ranges);
-  weekly streaks (current week may be ongoing). Floor all averages/percentages.
+   frequency; day/week grouping via the user's fixed UTC offset (Monday start,
+   half-open ranges); weekly streaks (current week may be ongoing). Floor all
+   averages/percentages.
 - Inline previous performance in workout GET: most recent strictly-earlier
   finished session per catalog id, all instances in workout order, pair by order
   then completed sets by **side + ordinal**; compare only compatible load
@@ -338,11 +367,17 @@ prev-perf in `GET /workouts/{id}`, `app/api/export.py`.
 **Verification:** `pytest` for eligibility; mixed known/unknown loads return the
 known sum with `unknown_load_set_count > 0` and an incomplete flag; all-unknown
 eligible loads return null; no eligible sets return known 0;
-tz grouping + streak edge cases; prev-perf pairing incl. left/right not paired,
+offset grouping + streak edge cases; prev-perf pairing incl. left/right not paired,
 negative-delta floor, changed catalog → no fake progress; profile/catalog edits
 don't rewrite existing totals; export excludes secrets; 1RM rules.
 **Gate G8:** stats/prev-perf/export correct. **Covers checks 8 (server half),
 9, 10, 12 (export secrets).**
+
+> **Remote deployment checkpoint:** after this stage we can start testing an
+> API deployment on a remote server with private QA access. Run the production
+> artifact under a separate QA origin/process and `DATABASE_PATH`; never use the
+> production user database. This is an integration environment, not a
+> user-facing beta or production release.
 
 > **Milestone B exit:** the full API is complete and green under `pytest` with no
 > frontend. This is the contract the client builds against.
@@ -494,12 +529,19 @@ historical totals; unavailable/changed catalog entries are handled visibly.
 **Gate G12c / G12:** logging, repeat-last, and conflict recovery work end-to-end.
 **Covers checks 1, 2, 3, 4, 5, 8, and editor reauthentication from check 11.**
 
+> **Remote deployment checkpoint:** after this stage we can start testing a
+> complete core-app deployment on a remote server with QA and invited beta
+> testers. Keep access restricted and use a dedicated human-QA/beta database,
+> separate from both production and automated E2E data. Stage 15 remains the
+> production release gate.
+
 ### Stage 13 - History/detail, Settings, export UI
 **Purpose:** review + preferences + data recovery. (`PLAN.md` §8)
 **Scope:** `features/history`, `features/settings`, export/download.
 **Tasks:** History/detail with previous-session comparison (deltas from S8);
-Settings (dark/light switch, display name, default bodyweight, timezone, JSON
-export, logout); expose saved-data export and local-draft recovery as distinct
+Settings (dark/light switch, display name, default bodyweight, UTC offset
+picker, JSON export, logout); expose saved-data export and local-draft recovery
+as distinct
 actions. Logout offers **sync/export/discard** pending changes and clears that
 account's local data only after the chosen action succeeds (or explicit discard);
 failed/cancelled actions retain drafts. Never upload an old account's draft under
@@ -510,39 +552,103 @@ existing workout totals unchanged; saved-data and local-draft exports download
 valid versioned JSON without secrets; the local export contains newer unsynced
 edits; failed sync/export during logout preserves data; switch accounts with a
 pending draft → no cross-account upload or delayed-response contamination.
-**Gate G13:** full feature set. **Covers checks 10, 11, 12, 14.**
+**Gate G13:** full user feature set. **Covers checks 10, 11, 12, 14.**
 
 > **Milestone C exit:** complete client against the live API.
 
 ---
 
-## Milestone D - Hardening
+## Milestone D - Administration
 
-### Stage 14 - Acceptance evidence and production deployment smoke
-**Purpose:** prove the 14 acceptance checks and lock them in CI. (`PLAN.md` §10)
-**Scope:** acceptance evidence, E2E suite, backend concurrency/migration tests,
-production startup/serving configuration, README run/backup/restore docs.
+### Stage 14 - Minimal operational admin panel
+**Purpose:** operate accounts safely without impersonation or access to training
+data. (`PLAN.md` §4, §6, §8, §11)
+**Scope:** numbered admin migration, `app/admin.py` bootstrap CLI,
+`app/api/admin.py`, `app/schemas/admin.py`, `app/services/admin.py`, admin route
+and components, append-only audit reads/writes.
 **Tasks:**
-- Audit the 14 acceptance checks against tests introduced in their owning stages;
+- Add `users.role` (`user|admin`), `users.account_status`
+  (`active|disabled`), and `admin_audit_log` through a numbered migration.
+  Existing users become active ordinary users. Preserve data/indexes/FKs and
+  verify upgrade from the pre-admin schema.
+- Add a confirmation-based on-server CLI to grant/revoke admin role. Record CLI
+  role changes in the audit log and refuse removal of the last active admin.
+  Public registration/profile requests never accept role or status fields.
+- Resolve role/status on every authenticated request. Disabled accounts cannot
+  log in or continue through an existing session. Admin endpoints require an
+  active admin; admin role does not bypass normal workout/catalog ownership.
+  Extend `GET /auth/me` with a read-only role for navigation without making role
+  or status writable through registration/profile schemas.
+- Implement bounded `GET /admin/users` and `GET /admin/audit-log`, plus explicit
+  disable, enable, and revoke-sessions actions. Mutations require password
+  reauthentication, exact Origin/JSON checks, confirmation, and a bounded
+  non-empty reason. Disable + session revocation is one transaction; enable
+  never restores sessions. Prevent self-disable and loss of the last active admin.
+- Append audit events for successful and rejected authorized admin mutations,
+  including actor, target, action, reason, request ID, result, and timestamp.
+  Expose no endpoint that updates or deletes audit records.
+- Add a role-gated admin screen for user search, status, disable/enable, session
+  revocation, and audit history. It has no impersonation, password reset/view,
+  workout/content inspection, user export/delete, or default-catalog controls.
+**Verification:** migration preserves existing users and defaults them safely;
+bootstrap/last-admin guards; non-admin and disabled-session rejection; generic
+disabled-login response; atomic disable + revocation; enable requires a fresh
+login; self-disable refused; reauthentication/CSRF checks; stable bounded lists;
+successful and rejected mutations audited without credentials, tokens, exports,
+or workout content. Playwright covers admin login → search → disable/revoke →
+blocked target → enable → fresh target login, and verifies ordinary users cannot
+open the admin UI or API.
+**Gate G14:** minimal administration is authorized, audited, and cannot access
+training data or impersonate users. **Covers acceptance check 15.**
+
+> **Milestone D exit:** operators can manage account access without broad data
+> privileges or direct database edits.
+
+---
+
+## Milestone E - Hardening
+
+### Stage 15 - Acceptance evidence and production deployment smoke
+**Purpose:** prove the 15 acceptance checks and lock them in CI. (`PLAN.md` §10)
+**Scope:** acceptance evidence, E2E suite, backend concurrency/migration tests,
+production startup/serving configuration, README run/backup/restore/admin docs.
+**Tasks:**
+- Audit the 15 acceptance checks against tests introduced in their owning stages;
   fill gaps without postponing earlier gates or duplicating every backend test
   as E2E. CI exercises real SQLite concurrency and migration/backup-restore.
 - Serve the **built SPA and `/api/v1` under one origin**, using one API process
-  and a persistent local-disk database. Configure explicit pre-start migrations,
-  production cookie settings, and installed IANA timezone data. Containers
-  remain optional. Document the concrete production startup procedure.
+   and a persistent local-disk database. Configure explicit pre-start migrations
+   and production cookie settings. Containers
+   remain optional. Document the concrete production startup procedure.
+- Add the remote E2E harness: provision a unique disposable SQLite file, run
+  migrations, load deterministic fixtures through an on-server command, start
+  the production artifact against that file, run tests, stop the process, and
+  remove the database and sidecars. Keep human QA/beta on a different database.
+  If an HTTP fixture API is demonstrated to be necessary, it must be disabled
+  by default, available only in `APP_ENV=qa`, separately authenticated and
+  ingress-restricted, and fail closed unless the database is marked disposable.
+  Verify production mode has no fixture/reset routes.
 - Run a deployment smoke with production build/configuration: load the SPA,
   register/login through the same origin, verify Secure/HttpOnly/SameSite cookie
   behavior over HTTPS, create/save/finish a workout, restart the application,
-  and verify the workout remains readable. Keep TLS verification enabled.
+  and verify the workout remains readable. Against the real production origin,
+  use only the public API and one reusable synthetic account; no QA cleanup
+  tooling may access the production database. Keep TLS verification enabled.
 - Restore a backup to an isolated database and read its graph; verify an upgrade
-  from the previous migration preserves data/indexes/FKs. Confirm a non-UTC
-  timezone works in the deployment environment.
+   from the previous migration preserves data/indexes/FKs. Confirm a non-zero
+   user UTC offset groups statistics and displays times as expected.
+- Document admin bootstrap, role recovery, account disable/enable, session
+  revocation, audit review, and the last-admin safeguards. Keep direct SQL out of
+  normal operator procedures.
 **Verification:** all automated acceptance checks pass in CI from a fresh clone;
 record production smoke results and a mobile/keyboard/light-dark visual check.
-Automated assertions supplement rather than replace a legibility review.
-**Gate G14 (ship gate):** all 14 checks have passing evidence, the production
+Prove an E2E run can be removed by deleting only its disposable database and
+that production exposes no fixture/reset routes. Automated assertions supplement
+rather than replace a legibility review.
+**Gate G15 (ship gate):** all 15 checks have passing evidence, the production
 same-origin/restart smoke succeeds, and README documents setup, migrate,
-production run, backup, and restore. No PWA app-shell cache is required.
+production run, backup/restore, and admin operations. No PWA app-shell cache is
+required.
 
 ---
 
@@ -550,25 +656,26 @@ production run, backup, and restore. No PWA app-shell cache is required.
 
 | # | Check | Stages that prove it |
 |---|-------|----------------------|
-| 1 | Offline edit → reload → reconnect recovers every acked edit | 11a–11c, 12a–12b, 14 |
-| 2 | Lost create/save/finish retried: no dup/regen/double-increment/early-delete | 5, 6c, 7, 11b, 12b, 14 |
-| 3 | Edit during in-flight save: response can't overwrite newer input | 11b, 12b, 14 |
-| 4 | Two tabs: stale saves fail atomically, both drafts recoverable | 6c, 11a, 11c, 12c, 14 |
-| 5 | Finish with unsynced sets accepted together | 6c, 12b, 14 |
-| 6 | Other user's/nested/catalog ids: no partial write or unauthorized read | 3, 4, 5, 6a–6c, 14 |
-| 7 | Reorder/remove/add under unique indexes | 6b, 12a, 14 |
-| 8 | Repeat workout: copies don't affect historical totals/PRs | 8, 12c, 14 |
-| 9 | Reject fractional/string/bool/out-of-range; floor + negative/unknown cases | 2, 4-8, 9, 14 |
-| 10 | Profile/catalog edits don't rewrite recorded totals | 5, 8, 13, 14 |
-| 11 | Expire session, switch accounts, retry after delete: preserve/discard safely | 3, 7, 11b–11c, 12b, 13, 14 |
-| 12 | CSRF, cookie expiry, logout revocation, no secrets in output/export | 3, 8, 13, 14 |
-| 13 | Restore backup + upgrade older schema: data/indexes/FKs valid | 1, 14 |
-| 14 | Dark/light persists + legible; metric-only everywhere, no unit selector | 9, 13, 14 |
+| 1 | Offline edit → reload → reconnect recovers every acked edit | 11a–11c, 12a–12b, 15 |
+| 2 | Lost create/save/finish retried: no dup/regen/double-increment/early-delete | 5, 6c, 7, 11b, 12b, 15 |
+| 3 | Edit during in-flight save: response can't overwrite newer input | 11b, 12b, 15 |
+| 4 | Two tabs: stale saves fail atomically, both drafts recoverable | 6c, 11a, 11c, 12c, 15 |
+| 5 | Finish with unsynced sets accepted together | 6c, 12b, 15 |
+| 6 | Other user's/nested/catalog ids: no partial write or unauthorized read | 3, 4, 5, 6a–6c, 15 |
+| 7 | Reorder/remove/add under unique indexes | 6b, 12a, 15 |
+| 8 | Repeat workout: copies don't affect historical totals/PRs | 8, 12c, 15 |
+| 9 | Reject fractional/string/bool/out-of-range; floor + negative/unknown cases | 2, 4-8, 9, 15 |
+| 10 | Profile/catalog edits don't rewrite recorded totals | 5, 8, 13, 15 |
+| 11 | Expire session, switch accounts, retry after delete: preserve/discard safely | 3, 7, 11b–11c, 12b, 13, 15 |
+| 12 | CSRF, cookie expiry, logout revocation, no secrets in output/export | 3, 8, 13, 14, 15 |
+| 13 | Restore backup + upgrade older schema: data/indexes/FKs valid | 1, 14, 15 |
+| 14 | Dark/light persists + legible; metric-only everywhere, no unit selector | 9, 13, 15 |
+| 15 | Admin authorization, disable/revoke, safeguards, audit, no training-data access | 14, 15 |
 
 Additional Phase 1 deliverables beyond the numbered checks: versioned local
 draft export is proved in 11a/11b and exposed in 12a/13; production same-origin
-serving, persistent storage across restart, and timezone availability are proved
-in 14. Keep those gates even though they do not have separate acceptance numbers.
+serving, persistent storage across restart, and UTC-offset handling are proved
+in 15. Keep those gates even though they do not have separate acceptance numbers.
 
 ## Risk notes (where stages most often slip)
 
@@ -576,6 +683,8 @@ in 14. Keep those gates even though they do not have separate acceptance numbers
   test time here; a direct occupied swap is a known trap (§5).
 - **S11 draft/sync protocol:** offline, two-tab, and lost-response ordering are
   subtle; test the coordinator explicitly, not just via UI.
-- **S8 tz grouping/streaks + prev-perf pairing:** Monday-start half-open ranges
+- **S8 offset grouping/streaks + prev-perf pairing:** Monday-start half-open ranges
   and left/right non-pairing are easy to get wrong; cover with fixtures.
+- **S14 admin authorization/audit:** disabling accounts and preserving immutable
+  evidence must stay atomic without granting access to user training data.
 - If any stage's gate is red, **split it** rather than pushing forward.

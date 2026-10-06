@@ -27,9 +27,16 @@ jobs:
       - name: Format check
         run: ruff format --check .
       - name: Typecheck
-        run: mypy app
+        run: mypy app migrate.py
       - name: Tests
         run: pytest -q
+      - name: Migration and backup check (isolated temporary database)
+        run: |
+          export DATABASE_PATH="$RUNNER_TEMP/basefit-migrations.db"
+          python migrate.py
+          python migrate.py
+          python -m app.backup backup "$DATABASE_PATH" "$RUNNER_TEMP/basefit-backup.db"
+          python -m app.backup verify "$RUNNER_TEMP/basefit-backup.db"
 
   frontend:
     runs-on: ubuntu-latest
