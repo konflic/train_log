@@ -1,0 +1,84 @@
+{
+  "safe_integer_max": 9007199254740991,
+  "examples": [
+    {
+      "name": "weighted bodyweight load and volume",
+      "input": {
+        "reps": 10,
+        "weight_kg": 0,
+        "load_type": "single_weight",
+        "side_count": 1,
+        "bodyweight_kg": 81,
+        "bodyweight_percent": 65
+      },
+      "expected": {
+        "effective_load_kg": 52,
+        "volume_kg_reps": 520
+      }
+    },
+    {
+      "name": "split weights multiply before reps",
+      "input": {
+        "reps": 8,
+        "weight_kg": 12,
+        "load_type": "split_weight",
+        "side_count": 2,
+        "bodyweight_kg": null,
+        "bodyweight_percent": null
+      },
+      "expected": {
+        "effective_load_kg": 24,
+        "volume_kg_reps": 192
+      }
+    },
+    {
+      "name": "pure bodyweight requires no external weight",
+      "input": {
+        "reps": 10,
+        "weight_kg": null,
+        "load_type": "bodyweight",
+        "side_count": 1,
+        "bodyweight_kg": 81,
+        "bodyweight_percent": 65
+      },
+      "expected": {
+        "effective_load_kg": 52,
+        "volume_kg_reps": 520
+      }
+    },
+    {
+      "name": "unknown bodyweight preserves unknown load",
+      "input": {
+        "reps": 10,
+        "weight_kg": 20,
+        "load_type": "single_weight",
+        "side_count": 1,
+        "bodyweight_kg": null,
+        "bodyweight_percent": 50
+      },
+      "expected": {
+        "effective_load_kg": null,
+        "volume_kg_reps": null
+      }
+    },
+    {
+      "name": "known zero is not unknown",
+      "input": {
+        "reps": 10,
+        "weight_kg": 0,
+        "load_type": "single_weight",
+        "side_count": 1,
+        "bodyweight_kg": null,
+        "bodyweight_percent": null
+      },
+      "expected": {
+        "effective_load_kg": 0,
+        "volume_kg_reps": 0
+      }
+    }
+  ],
+  "floor_division": [
+    {"numerator": -100, "denominator": 3, "expected": -34},
+    {"numerator": 1, "denominator": 0, "expected": null}
+  ]
+}

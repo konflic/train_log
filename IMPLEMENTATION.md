@@ -14,8 +14,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
   Gate G0 passed locally and in GitHub CI: backend lint, format,
   typecheck, and tests; frontend check, lint, unit tests, and production build;
   and Playwright browser smoke tests.
-- **Completed on this branch (PR pending):** Stage 1 - Database foundation and
-  migrations. Gate G1 passed locally on 2026-10-06; CI re-runs it on the PR:
+- **Completed:** Stage 1 was merged to `master` in
+  [PR #3](https://github.com/konflic/train_log/pull/3) on 2026-10-06 (`4cf9760`).
+  Gate G1 passed locally and in GitHub CI:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     and `pytest -q` (60 tests) all green.
   - Isolated temporary database: `python migrate.py` applied `0001` + `0002`;
@@ -33,9 +34,20 @@ acceptance checks**. Phases 2-3 are out of scope here.
     backup while WAL holds committed data → restore → verify + direct graph
     reads; missing/corrupt backup sources fail without leaving an output; held
     write lock past busy timeout → retryable `DatabaseBusyError`, retry succeeds.
-  - No earlier gate regressed: frontend `check`/`lint`/`test:unit`/`build` and
-    both Playwright smoke tests green locally.
-- **Next:** Stage 2 - Integer-only contract.
+- **Completed on this branch (PR pending):** Stage 2 - Integer-only contract.
+  Gate G2 passed locally on 2026-10-06; CI re-runs it on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (84 tests), and `pip check` all green.
+  - `app/numbers.py` defines safe JSON/SQLite integer guards and documented
+    floor-only bodyweight, external-load, effective-load, and volume
+    calculations. Zero denominators and unknown inputs propagate as `null`.
+  - `app/schemas/common.py` provides strict bounded integer Pydantic types and
+    validates draft/completed set requirements without accepting unknown fields.
+  - `tests/fixtures/numeric_examples.json` is the language-neutral numeric
+    source of truth. Tests exercise every fixture example plus strict rejection
+    of fractional, string, boolean, out-of-range, invalid completion, and
+    incompatible bodyweight values.
+- **Next:** Stage 3 - Auth and sessions.
 
 ---
 
