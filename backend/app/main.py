@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.auth import router as auth_router
+from app.api.exercises import router as exercises_router
 from app.auth import LoginThrottle
 from app.config import Settings, load_settings
 from app.db import DatabaseBusyError, validate_sqlite_runtime
@@ -47,6 +48,7 @@ def create_api_v1_router() -> APIRouter:
         return HealthResponse(status="ok")
 
     router.include_router(auth_router)
+    router.include_router(exercises_router)
     return router
 
 
