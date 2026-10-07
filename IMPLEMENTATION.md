@@ -34,8 +34,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
     backup while WAL holds committed data → restore → verify + direct graph
     reads; missing/corrupt backup sources fail without leaving an output; held
     write lock past busy timeout → retryable `DatabaseBusyError`, retry succeeds.
-- **Completed on this branch (PR pending):** Stage 2 - Integer-only contract.
-  Gate G2 passed locally on 2026-10-06; CI re-runs it on the PR:
+- **Completed:** Stage 2 was merged to `master` in
+  [PR #4](https://github.com/konflic/train_log/pull/4) on 2026-10-06 (`3ee7e4e`).
+  Gate G2 passed locally and in GitHub CI:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     `pytest -q` (84 tests), and `pip check` all green.
   - `app/numbers.py` defines safe JSON/SQLite integer guards and documented
@@ -47,7 +48,62 @@ acceptance checks**. Phases 2-3 are out of scope here.
     source of truth. Tests exercise every fixture example plus strict rejection
     of fractional, string, boolean, out-of-range, invalid completion, and
     incompatible bodyweight values.
-- **Next:** Stage 3 - Auth and sessions.
+- **Completed on this branch (PR pending):** Stage 3 - Auth and sessions.
+  Gate G3 passed locally on 2026-10-06 and was reverified on 2026-10-07; CI
+  re-runs it on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (190 tests), and `pip check` all green. Frontend
+    `check`/`lint`/`test:unit` and the two Playwright E2E smoke tests still pass
+    (no earlier gate regressed).
+  - Dependency: added the maintained **Argon2id** library `argon2-cffi==25.1.0`
+    (pinned in `pyproject.toml` and `constraints.txt`); reviewed the resolved
+    tree (`argon2-cffi-bindings`, `cffi`, `pycparser`) and confirmed no local
+    reimplementation of password hashing.
+  - `app/auth.py`: Argon2id hash/verify; opaque sessions from
+    `secrets.token_urlsafe(32)` storing only the SHA-256 hash + owner +
+    created/expires; per-request session resolution that rejects **and deletes**
+    expired rows; logout deletes the row; unknown-email logins still run one
+    verification (dummy hash) so timing does not reveal account existence; a
+    bounded in-memory `LoginThrottle` keyed by IP and (IP, email) with an
+    injectable clock and a capped key set.
+  - `app/schemas/auth.py`: strict Pydantic models (`extra="forbid"`) with email
+    normalization (trim + lowercase + conservative format), bounded
+    display_name/password and `utc_offset_minutes` (-720..840), and Stage 2
+    strict integer bodyweight; `PATCH` distinguishes absent from explicit
+    `null` via `model_fields_set`.
+  - `app/services/users.py`: owner-scoped SQL; duplicate email surfaces as
+    `DuplicateEmailError` from the `UNIQUE` constraint; `update_profile`
+    whitelists writable columns and refuses email/role/status.
+  - `app/api/auth.py` + `app/middleware/`: `POST /auth/register|login|logout`,
+    `GET`/`PATCH /auth/me`. Established the shared API conventions reused by
+    later stages: RFC 9457-style `application/problem+json` errors with stable
+    `code` + `request_id`, `X-Request-ID` on every response, request-id access
+    logging that never includes bodies/cookies/tokens, Origin+JSON CSRF checks
+    on every mutating verb under `/api/v1` (GET exempt), and a 256 KiB body-size
+    limit (Content-Length precheck + streaming counter); logout returns an empty
+    204.
+  - Cookies: HttpOnly, SameSite=Strict, `Path=/api/v1`; `Secure` follows
+    `COOKIE_SECURE`; `create_app` refuses a non-Secure cookie outside the local
+    HTTP `development`/`test` environments.
+  - Tests added (+106): register/login/logout happy paths; cookie flags incl.
+    Secure toggling; login stores only the token hash; generic identical 401 for
+    wrong password vs unknown email; expired-session rejection + row deletion;
+    logout revocation + cookie clearing; missing/mismatched Origin → 403 and
+    non-JSON → 415 on mutating verbs while GET is exempt; throttling blocks
+    after repeated failures, covers the per-IP bound, resets on success, and
+    honors window expiry; profile writes affect only the authenticated account;
+    strict rejection of unknown/server-controlled fields (role, account_status),
+    fractional/string/boolean/out-of-range integers, and malformed emails; no
+    password/hash/token appears in any response body or log; request-id and
+    problem-document shape; oversized body → 413. Unit-focused review added
+    direct coverage of unknown-user timing equalization, user lookup and error
+    classification, throttle reset/pruning, email length bounds, and streamed
+    body limits. A focused standard-library line trace reports 100% for
+    `app.auth`, `app.schemas.auth`, and `app.services.users`, 100% for CSRF
+    middleware, and 98% for the auth API module.
+  - **Covers acceptance check 12 (CSRF/cookie/logout/no-secrets) and parts of
+    6 and 11.**
+- **Next:** Stage 4 - Exercise catalog API.
 
 ---
 
