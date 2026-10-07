@@ -83,6 +83,7 @@ SET_COLUMNS = (
 )
 
 WorkoutStatus = Literal["active", "finished"]
+SQLITE_MAX_INTEGER = (1 << 63) - 1
 
 
 class CreateConflictError(Exception):
@@ -430,24 +431,11 @@ def apply_validated_graph(
     if not conn.in_transaction:
         raise RuntimeError("applying a save graph requires an active transaction")
 
-    # Writable workout metadata only; the finish/lifecycle/receipt columns are
-    # Stage 6c's responsibility and are not written here.
-    conn.execute(
-        "UPDATE workouts SET name = :name, notes = :notes, bodyweight_kg = :bodyweight_kg "
-        "WHERE id = :id",
-        {
-            "name": graph.name,
-            "notes": graph.notes,
-            "bodyweight_kg": graph.bodyweight_kg,
-            "id": workout_id,
-        },
-    )
-
     submitted_exercises = graph.exercises
     submitted_exercise_ids = {exercise.id for exercise in submitted_exercises}
 
     # Resolve the stored child state to delete omitted rows and to compute
-    # reordering bases. Read inside the same transaction after validation.
+    # reordering bases before issuing the first mutation.
     stored_exercise_index: dict[str, int] = {
         str(row["id"]): int(row["order_index"])
         for row in conn.execute(
@@ -469,6 +457,50 @@ def apply_validated_graph(
             retained_exercise_ids,
         ).fetchall():
             stored_set_index[str(row["exercise_id"])][str(row["id"])] = int(row["set_index"])
+
+    exercise_temp_base = (
+        max(
+            max(
+                (stored_exercise_index[exercise.id] for exercise in retained_exercises), default=-1
+            ),
+            len(submitted_exercises) - 1,
+        )
+        + 1
+    )
+    if retained_exercises and exercise_temp_base + len(retained_exercises) - 1 > SQLITE_MAX_INTEGER:
+        raise OverflowError("temporary exercise index exceeds SQLite INTEGER range")
+
+    set_temp_moves: list[dict[str, Any]] = []
+    for exercise in retained_exercises:
+        retained_sets = [item for item in exercise.sets if not item.is_new]
+        if not retained_sets:
+            continue
+        set_temp_base = (
+            max(
+                max(stored_set_index[exercise.id][item.id] for item in retained_sets),
+                len(exercise.sets) - 1,
+            )
+            + 1
+        )
+        if set_temp_base + len(retained_sets) - 1 > SQLITE_MAX_INTEGER:
+            raise OverflowError("temporary set index exceeds SQLite INTEGER range")
+        set_temp_moves.extend(
+            {"temp": set_temp_base + position, "id": item.id}
+            for position, item in enumerate(retained_sets)
+        )
+
+    # Writable workout metadata only; the finish/lifecycle/receipt columns are
+    # Stage 6c's responsibility and are not written here.
+    conn.execute(
+        "UPDATE workouts SET name = :name, notes = :notes, bodyweight_kg = :bodyweight_kg "
+        "WHERE id = :id",
+        {
+            "name": graph.name,
+            "notes": graph.notes,
+            "bodyweight_kg": graph.bodyweight_kg,
+            "id": workout_id,
+        },
+    )
 
     # 1. Delete omitted sets from retained exercises (their parents persist).
     omitted_set_ids: list[str] = []
@@ -492,17 +524,7 @@ def apply_validated_graph(
         conn.execute(f"DELETE FROM exercises WHERE id IN ({placeholders})", omitted_exercise_ids)
 
     # 3. Move retained exercises to distinct temporary indexes above both the
-    #    occupied stored indexes and the final dense range. With no stored row
-    #    the base is -1, so every temporary index stays nonnegative.
-    exercise_temp_base = (
-        max(
-            max(
-                (stored_exercise_index[exercise.id] for exercise in retained_exercises), default=-1
-            ),
-            len(submitted_exercises) - 1,
-        )
-        + 1
-    )
+    #    occupied stored indexes and the final dense range.
     if retained_exercises:
         conn.executemany(
             "UPDATE exercises SET order_index = :temp WHERE id = :id",
@@ -513,22 +535,6 @@ def apply_validated_graph(
         )
 
     # 4. Move retained sets to distinct temporary indexes within each exercise.
-    set_temp_moves: list[dict[str, Any]] = []
-    for exercise in retained_exercises:
-        retained_sets = [item for item in exercise.sets if not item.is_new]
-        if not retained_sets:
-            continue
-        set_temp_base = (
-            max(
-                max(stored_set_index[exercise.id][item.id] for item in retained_sets),
-                len(exercise.sets) - 1,
-            )
-            + 1
-        )
-        set_temp_moves.extend(
-            {"temp": set_temp_base + position, "id": item.id}
-            for position, item in enumerate(retained_sets)
-        )
     if set_temp_moves:
         conn.executemany("UPDATE sets SET set_index = :temp WHERE id = :id", set_temp_moves)
 

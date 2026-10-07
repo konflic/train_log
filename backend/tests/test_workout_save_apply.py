@@ -482,6 +482,35 @@ def test_lifecycle_and_receipt_fields_are_never_written(apply_db: Path) -> None:
     assert after["updated_at"] == before["updated_at"]
 
 
+@pytest.mark.parametrize(
+    "overflow_sql",
+    [
+        f"UPDATE exercises SET order_index = 9223372036854775807 WHERE id = '{EXERCISE_A}'",
+        f"UPDATE sets SET set_index = 9223372036854775807 WHERE id = '{SET_A1}'",
+    ],
+    ids=["exercise", "set"],
+)
+def test_temporary_index_overflow_is_rejected_before_mutation(
+    apply_db: Path, overflow_sql: str
+) -> None:
+    with connect(apply_db) as conn, write_transaction(conn):
+        seed_exercise(conn, EXERCISE_A, order_index=0, set_ids=(SET_A1,))
+        conn.execute(overflow_sql)
+
+    payload = save_req(
+        [exercise_req(EXERCISE_A, sets=[set_req(SET_A1)])],
+        name="must not stick",
+    )
+    with connect(apply_db) as conn, write_transaction(conn):
+        graph = validate_save_graph(conn, owner_id=OWNER, workout_id=WORKOUT, payload=payload)
+        changes_before = conn.total_changes
+        with pytest.raises(OverflowError, match="SQLite INTEGER range"):
+            apply_validated_graph(conn, workout_id=WORKOUT, graph=graph)
+        assert conn.total_changes == changes_before
+
+    assert workout_row(apply_db)["name"] is None
+
+
 def test_cross_parent_set_id_is_rejected_before_mutation(apply_db: Path) -> None:
     with connect(apply_db) as conn, write_transaction(conn):
         seed_exercise(conn, EXERCISE_A, order_index=0, set_ids=(SET_A1,))
