@@ -120,8 +120,24 @@ variable explicitly.
 | `DATABASE_PATH`       | `data/basefit.db`        | SQLite database file location             |
 | `SESSION_TTL_SECONDS` | `86400`                  | Login session lifetime                    |
 | `APP_ORIGIN`          | `http://localhost:5173`  | Allowed browser origin (CSRF checks)      |
-| `COOKIE_SECURE`       | `false`                  | Secure cookie flag; `true` in production  |
-| `APP_ENV`             | `development`            | Environment label                         |
+| `COOKIE_SECURE`       | `false`                  | Secure cookie flag; must be `true` unless `APP_ENV` is `development`/`test` |
+| `APP_ENV`             | `development`            | Environment label (`development`, `test`, `qa`, `production`) |
+
+## Authentication and cookies
+
+Login issues an opaque server-side session (only its SHA-256 hash is stored) in
+an `HttpOnly`, `SameSite=Strict` cookie scoped to `Path=/api/v1`. The `Secure`
+flag follows `COOKIE_SECURE`; the API refuses to start with a non-Secure cookie
+outside the local HTTP `development`/`test` environments, so any remote or
+production deployment must set `COOKIE_SECURE=true` and serve over HTTPS.
+
+Every mutating request under `/api/v1` (including register/login/logout) must
+send `Content-Type: application/json` and an `Origin` exactly matching
+`APP_ORIGIN`; `GET` requests are exempt and side-effect-free. Failed logins are
+rate-limited per client IP and per (IP, email) for the single-process
+deployment. Errors are returned as RFC 9457-style `application/problem+json`
+with a stable `code` and an `X-Request-ID` header; request logging never
+includes bodies, cookies, or tokens.
 
 ## CI
 
