@@ -157,7 +157,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
 - **Completed on this branch (PR pending):** Stage 5 - Workout create + read.
   Gate G5 passed locally on 2026-10-07; CI re-runs it on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
-    `pytest -q` (337 tests, +41), and `pip check` all green. No earlier gate
+    `pytest -q` (341 tests, +45), and `pip check` all green. No earlier gate
     regressed (the whole Stage 0-4 suite still passes; CI runs it every time).
     No frontend changes, so the frontend/E2E checks are unchanged. No
     dependency added.
@@ -172,8 +172,11 @@ acceptance checks**. Phases 2-3 are out of scope here.
     offset (naive local times are ambiguous and rejected) and is converted to
     canonical UTC text. Normalization happens before fingerprinting, so a
     retry spelled differently (uppercase UUID, `+03:00` offset) is the same
-    logical create. Explicit summary/detail/graph response models; history
-    date-filter bounds keep offset arithmetic inside four-digit UTC years.
+    logical create. UTC conversion rejects instants outside the supported
+    datetime range and canonical formatting zero-pads all four-digit years.
+    Explicit summary/detail/graph response models; history date filters accept
+    only `YYYY-MM-DD`, and their bounds keep offset arithmetic inside
+    four-digit UTC years.
   - `app/services/workouts.py` (read side; the write side arrives in Stage 6):
     `create_request_hash` is SHA-256 over compact sorted-key JSON of
     `(user_id, id, started_at)` - the owner-bound fingerprint makes identical
@@ -187,7 +190,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
     filters resolved through the user's fixed `utc_offset_minutes` into a
     half-open canonical-UTC range (fixed-width text order = time order),
     stable newest-first total order `(started_at DESC, id DESC)`, and bounded
-    validated paging. `get_workout_graph` uses exactly three queries
+    validated paging. Both multi-query reads use one deferred read transaction,
+    so a concurrent WAL commit cannot mix revisions or disagree with `total`.
+    `get_workout_graph` uses exactly three data queries
     (workout, exercises, sets joined through exercises) regardless of graph
     size - never one query per set; foreign/unknown ids return `None`.
   - `app/api/workouts.py`: `POST /workouts` (201 with the authoritative
@@ -199,7 +204,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
     inputs, revision, and `last_save_id` receipt; internal hashes are never
     serialized; foreign/unknown → 404). Stage 3 conventions apply unchanged
     (problem+json, X-Request-ID, Origin/JSON CSRF on POST, body-size limit).
-  - Tests added (+41): `tests/test_workouts_service.py` (fingerprint
+  - Tests added (+45): `tests/test_workouts_service.py` (fingerprint
     canonicality and owner binding; revision-0 create with bodyweight
     snapshot and null profile; missing-owner FK failure; retry returns the
     existing row without duplicates; same-id/different-content conflict;
@@ -207,6 +212,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
     newest-first listing; status filters; inclusive UTC date bounds;
     `local_date_bounds` at +180/-720 offsets; offset-shifted date filtering;
     started_at id tie-break; pagination without gaps; argument bounds;
+    consistent list and graph snapshots across deterministic concurrent commits;
     nested graph ordering with decoded done flags; owner scoping; empty
     graph; exactly-three-queries via a SQLite trace callback) and
     `tests/test_workouts_api.py` (auth on every endpoint; 201 detail shape;
@@ -217,9 +223,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     with snapshots, sides, receipt, and no internal hashes; foreign/unknown
     404; summaries newest-first; status/date filters through the API
     including a profile-offset switch; owner-scoped listing; stable
-    pagination; invalid query params; recorded bodyweight survives profile
-    edits and clears; CSRF 403 and non-JSON 415 on POST; request-id and
-    problem-document conventions).
+    pagination; invalid query params including timestamp-shaped date filters;
+    early-year timestamp formatting and out-of-range UTC conversion; recorded
+    bodyweight survives profile edits and clears; CSRF 403 and non-JSON 415 on
+    POST; request-id and problem-document conventions).
   - **Covers parts of acceptance checks 2, 6, and 10** (create-retry server
     half, foreign-id 404s, snapshot-vs-profile isolation).
 - **Next:** Stage 6 - Workout bulk-save (PUT), substages 6a → 6b → 6c with

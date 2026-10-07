@@ -314,7 +314,9 @@ def list_workouts(
         params["started_to"] = started_to
     where = " AND ".join(clauses)
 
-    with connect(database_path) as conn:
+    with connect(database_path) as conn, conn:
+        # Keep the count and page rows on one snapshot while saves commit.
+        conn.execute("BEGIN")
         total_row = conn.execute(
             f"SELECT COUNT(*) AS total FROM workouts WHERE {where}", params
         ).fetchone()
@@ -335,7 +337,9 @@ def get_workout_graph(
     exercises in stored order, and all their sets joined through the exercises
     in `(order_index, set_index)` order.
     """
-    with connect(database_path) as conn:
+    with connect(database_path) as conn, conn:
+        # All three graph queries must describe the same committed revision.
+        conn.execute("BEGIN")
         workout_row = conn.execute(
             f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts "
             "WHERE id = :id AND user_id = :user_id",

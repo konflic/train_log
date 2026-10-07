@@ -19,6 +19,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response
+from pydantic import BeforeValidator
 
 from app.auth import CurrentUser
 from app.config import Settings
@@ -43,7 +44,28 @@ router = APIRouter(prefix="/workouts", tags=["workouts"])
 PageNumber = Annotated[int, Query(ge=1, le=MAX_PAGE_NUMBER)]
 PageSize = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE, alias="pageSize")]
 StatusFilter = Annotated[WorkoutStatus, Query()]
-HistoryDate = Annotated[date, Query(ge=MIN_HISTORY_DATE, le=MAX_HISTORY_DATE)]
+
+
+def _parse_history_date(value: object) -> date:
+    """Accept an ISO calendar date, never a coerced timestamp."""
+    if not isinstance(value, str) or (
+        len(value) != 10
+        or value[4] != "-"
+        or value[7] != "-"
+        or not (value[:4] + value[5:7] + value[8:]).isdigit()
+    ):
+        raise ValueError("date must use YYYY-MM-DD")
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("date must be a valid calendar date") from None
+
+
+HistoryDate = Annotated[
+    date,
+    BeforeValidator(_parse_history_date),
+    Query(ge=MIN_HISTORY_DATE, le=MAX_HISTORY_DATE),
+]
 
 
 def _settings(request: Request) -> Settings:
