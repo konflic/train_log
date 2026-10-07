@@ -23,10 +23,8 @@ from pydantic import ValidationError
 from app.auth import CurrentUser
 from app.config import Settings
 from app.errors import ConflictError, ForbiddenError, NotFoundError
+from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.exercises import (
-    DEFAULT_PAGE_SIZE,
-    MAX_PAGE_NUMBER,
-    MAX_PAGE_SIZE,
     MAX_SEARCH_LENGTH,
     CreateExerciseRequest,
     Equipment,
