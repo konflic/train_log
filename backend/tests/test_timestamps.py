@@ -28,6 +28,10 @@ def test_to_timestamp_converts_offset_to_utc() -> None:
     assert to_timestamp(plus_two) == "2026-03-04T05:00:00Z"
 
 
+def test_to_timestamp_zero_pads_early_years() -> None:
+    assert to_timestamp(datetime(999, 1, 2, 3, 4, 5, tzinfo=UTC)) == "0999-01-02T03:04:05Z"
+
+
 def test_to_timestamp_rejects_naive() -> None:
     with pytest.raises(ValueError, match="naive"):
         to_timestamp(datetime(2026, 3, 4, 5, 6, 7))

@@ -278,6 +278,44 @@ def test_list_paginates_without_gaps_or_duplicates(two_users: Path) -> None:
     assert [record.id for record in second.items] == ["w-jan-01"]
 
 
+def test_list_uses_one_snapshot_during_concurrent_insert(
+    two_users: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_history(two_users)
+    real_connect = workouts.connect
+    inserted = False
+
+    @contextmanager
+    def racing_connect(database_path: str | Path, **kwargs: Any) -> Iterator[sqlite3.Connection]:
+        nonlocal inserted
+        with real_connect(database_path, **kwargs) as conn:
+            select_count = 0
+
+            def insert_before_page(statement: str) -> None:
+                nonlocal inserted, select_count
+                if not statement.lstrip().upper().startswith("SELECT"):
+                    return
+                select_count += 1
+                if select_count == 2:
+                    with real_connect(database_path) as writer, write_transaction(writer):
+                        insert_workout(
+                            writer,
+                            "w-concurrent",
+                            user_id="user-1",
+                            started_at="2026-01-04T08:00:00Z",
+                        )
+                    inserted = True
+
+            conn.set_trace_callback(insert_before_page)
+            yield conn
+
+    monkeypatch.setattr(workouts, "connect", racing_connect)
+    page = workouts.list_workouts(two_users, user_id="user-1", limit=50, offset=0)
+    assert inserted is True
+    assert page.total == 3
+    assert [record.id for record in page.items] == ["w-jan-03", "w-jan-02", "w-jan-01"]
+
+
 def test_list_rejects_invalid_arguments(two_users: Path) -> None:
     with pytest.raises(ValueError, match="limit"):
         workouts.list_workouts(two_users, user_id="user-1", limit=0, offset=0)
@@ -396,6 +434,60 @@ def test_graph_read_of_empty_workout_has_no_exercises(two_users: Path) -> None:
     assert graph.exercises == ()
 
 
+def test_graph_read_uses_one_snapshot_during_concurrent_replacement(
+    two_users: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with connect(two_users) as conn, write_transaction(conn):
+        insert_workout(conn, "workout-race", user_id="user-1")
+        insert_exercise(
+            conn,
+            "exercise-old",
+            workout_id="workout-race",
+            catalog_id="bench-press",
+            load_type="single_weight",
+            side_count=1,
+        )
+        insert_set(conn, "set-old", exercise_id="exercise-old")
+
+    real_connect = workouts.connect
+    replaced = False
+
+    @contextmanager
+    def racing_connect(database_path: str | Path, **kwargs: Any) -> Iterator[sqlite3.Connection]:
+        nonlocal replaced
+        with real_connect(database_path, **kwargs) as conn:
+            select_count = 0
+
+            def replace_before_sets(statement: str) -> None:
+                nonlocal replaced, select_count
+                if not statement.lstrip().upper().startswith("SELECT"):
+                    return
+                select_count += 1
+                if select_count == 3:
+                    with real_connect(database_path) as writer, write_transaction(writer):
+                        writer.execute("DELETE FROM exercises WHERE id = 'exercise-old'")
+                        insert_exercise(
+                            writer,
+                            "exercise-new",
+                            workout_id="workout-race",
+                            catalog_id="bench-press",
+                            load_type="single_weight",
+                            side_count=1,
+                        )
+                        insert_set(writer, "set-new", exercise_id="exercise-new")
+                    replaced = True
+
+            conn.set_trace_callback(replace_before_sets)
+            yield conn
+
+    monkeypatch.setattr(workouts, "connect", racing_connect)
+    graph = workouts.get_workout_graph(two_users, "workout-race", user_id="user-1")
+    assert replaced is True
+    assert graph is not None
+    assert [exercise.id for exercise in graph.exercises] == ["exercise-old"]
+    assert [item.id for item in graph.exercises[0].sets] == ["set-old"]
+
+
 def test_graph_read_uses_a_fixed_number_of_queries(
     two_users: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -414,4 +506,9 @@ def test_graph_read_uses_a_fixed_number_of_queries(
     assert graph is not None
     assert len(graph.exercises) == 2
     # Workout + exercises + all sets: never one query per set (PLAN.md §5).
-    assert len(statements) == 3
+    selects = [
+        statement for statement in statements if statement.lstrip().upper().startswith("SELECT")
+    ]
+    assert len(selects) == 3
+    assert statements[0] == "BEGIN"
+    assert statements[-1] == "COMMIT"

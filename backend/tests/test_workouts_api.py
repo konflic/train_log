@@ -176,6 +176,13 @@ def test_create_retry_matches_after_input_normalization(api_client: TestClient) 
     assert api_client.get(WORKOUTS_URL).json()["total"] == 1
 
 
+def test_create_accepts_canonical_early_year(api_client: TestClient) -> None:
+    register_and_login(api_client)
+    response = create_workout(api_client, started_at="0999-01-01T00:00:00Z")
+    assert response.status_code == 201
+    assert response.json()["started_at"] == "0999-01-01T00:00:00Z"
+
+
 def test_create_conflict_on_same_id_different_content(api_client: TestClient) -> None:
     register_and_login(api_client)
     workout_id = str(uuid.uuid4())
@@ -229,6 +236,8 @@ def test_create_rejects_malformed_inputs(api_client: TestClient) -> None:
         {"id": str(uuid.uuid4()), "started_at": "2026-01-01T08:00:00"},  # naive
         {"id": str(uuid.uuid4()), "started_at": "2026-01-01"},  # date only
         {"id": str(uuid.uuid4()), "started_at": "yesterday"},
+        {"id": str(uuid.uuid4()), "started_at": "0001-01-01T00:00:00+14:00"},
+        {"id": str(uuid.uuid4()), "started_at": "9999-12-31T23:59:59-12:00"},
         {"id": str(uuid.uuid4()), "started_at": 1767225600},  # numeric
         {"id": str(uuid.uuid4())},  # missing started_at
         {"started_at": STARTED_AT},  # missing id
@@ -482,6 +491,9 @@ def test_list_rejects_invalid_params(api_client: TestClient) -> None:
         {"date_from": "not-a-date"},
         {"date_from": "2026-02-30"},  # impossible calendar day
         {"date_from": "2026-01-01T08:00:00Z"},  # non-midnight times are not dates
+        {"date_from": "2026-01-01T00:00:00Z"},  # midnight is still not a calendar date
+        {"date_from": "1767225600"},  # Unix seconds are instants, not calendar dates
+        {"date_from": "1767225600000"},  # nor are Unix milliseconds
         {"date_from": "1899-12-31"},  # below the bounded range
         {"date_to": "9999-12-31"},  # above the bounded range
     ]

@@ -61,7 +61,10 @@ def normalize_timestamp(value: str) -> str:
         raise ValueError("timestamp must be an ISO-8601 date-time") from None
     if moment.tzinfo is None:
         raise ValueError("timestamp must include an explicit UTC offset")
-    return to_timestamp(moment)
+    try:
+        return to_timestamp(moment)
+    except OverflowError:
+        raise ValueError("timestamp is outside the supported UTC range") from None
 
 
 class CreateWorkoutRequest(BaseModel):
