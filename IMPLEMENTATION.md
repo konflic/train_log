@@ -49,9 +49,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     of fractional, string, boolean, out-of-range, invalid completion, and
     incompatible bodyweight values.
 - **Completed on this branch (PR pending):** Stage 3 - Auth and sessions.
-  Gate G3 passed locally on 2026-10-06; CI re-runs it on the PR:
+  Gate G3 passed locally on 2026-10-06 and was reverified on 2026-10-07; CI
+  re-runs it on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
-    `pytest -q` (182 tests), and `pip check` all green. Frontend
+    `pytest -q` (190 tests), and `pip check` all green. Frontend
     `check`/`lint`/`test:unit` and the two Playwright E2E smoke tests still pass
     (no earlier gate regressed).
   - Dependency: added the maintained **Argon2id** library `argon2-cffi==25.1.0`
@@ -84,7 +85,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
   - Cookies: HttpOnly, SameSite=Strict, `Path=/api/v1`; `Secure` follows
     `COOKIE_SECURE`; `create_app` refuses a non-Secure cookie outside the local
     HTTP `development`/`test` environments.
-  - Tests added (~+98): register/login/logout happy paths; cookie flags incl.
+  - Tests added (+106): register/login/logout happy paths; cookie flags incl.
     Secure toggling; login stores only the token hash; generic identical 401 for
     wrong password vs unknown email; expired-session rejection + row deletion;
     logout revocation + cookie clearing; missing/mismatched Origin → 403 and
@@ -94,7 +95,12 @@ acceptance checks**. Phases 2-3 are out of scope here.
     strict rejection of unknown/server-controlled fields (role, account_status),
     fractional/string/boolean/out-of-range integers, and malformed emails; no
     password/hash/token appears in any response body or log; request-id and
-    problem-document shape; oversized body → 413.
+    problem-document shape; oversized body → 413. Unit-focused review added
+    direct coverage of unknown-user timing equalization, user lookup and error
+    classification, throttle reset/pruning, email length bounds, and streamed
+    body limits. A focused standard-library line trace reports 100% for
+    `app.auth`, `app.schemas.auth`, and `app.services.users`, 100% for CSRF
+    middleware, and 98% for the auth API module.
   - **Covers acceptance check 12 (CSRF/cookie/logout/no-secrets) and parts of
     6 and 11.**
 - **Next:** Stage 4 - Exercise catalog API.

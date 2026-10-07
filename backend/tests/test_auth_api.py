@@ -347,21 +347,17 @@ def test_login_throttling_blocks_repeated_failures(make_app) -> None:
 
 def test_successful_login_resets_throttle(make_app) -> None:
     app = make_app()
-    now = [1000.0]
     app.state.login_throttle = LoginThrottle(
-        max_attempts=2, window_seconds=300.0, clock=lambda: now[0]
+        max_attempts=3, window_seconds=300.0, clock=lambda: 1000.0
     )
     with TestClient(app, headers={"Origin": ORIGIN}) as client:
         assert register(client).status_code == 201
         assert login(client, password="wrong-password-entirely").status_code == 401
-        assert login(client, password="wrong-password-entirely").status_code == 401
-        assert login(client).status_code == 429
-        now[0] += 301.0
         assert login(client).status_code == 200
-        # Two fresh failures are allowed before throttling resumes.
+        # The first failure was reset; two fresh failures do not yet block.
         assert login(client, password="wrong-password-entirely").status_code == 401
         assert login(client, password="wrong-password-entirely").status_code == 401
-        assert login(client).status_code == 429
+        assert login(client).status_code == 200
 
 
 # --- profile ------------------------------------------------------------------
