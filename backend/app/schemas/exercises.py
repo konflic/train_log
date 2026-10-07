@@ -20,16 +20,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.numbers import MAX_SAFE_INTEGER
 from app.schemas.common import LoadType, Percentage, SideCount
 
 MAX_NAME_LENGTH = 100
 # A search longer than the maximum stored name can never match.
 MAX_SEARCH_LENGTH = MAX_NAME_LENGTH
-DEFAULT_PAGE_SIZE = 50
-MAX_PAGE_SIZE = 100
-# Keep the largest possible offset within the shared JSON/SQLite integer range.
-MAX_PAGE_NUMBER = MAX_SAFE_INTEGER // MAX_PAGE_SIZE
 
 MuscleGroup = Literal["chest", "back", "legs", "shoulders", "arms", "core", "full_body", "other"]
 Equipment = Literal[

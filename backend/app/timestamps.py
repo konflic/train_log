@@ -16,7 +16,12 @@ def to_timestamp(moment: datetime) -> str:
     """Format a timezone-aware datetime as canonical UTC text."""
     if moment.tzinfo is None:
         raise ValueError("naive datetimes are not canonical UTC timestamps")
-    return moment.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
+    utc = moment.astimezone(UTC)
+    # strftime does not zero-pad years below 1000 on every supported platform.
+    return (
+        f"{utc.year:04d}-{utc.month:02d}-{utc.day:02d}T"
+        f"{utc.hour:02d}:{utc.minute:02d}:{utc.second:02d}Z"
+    )
 
 
 def now_timestamp() -> str:

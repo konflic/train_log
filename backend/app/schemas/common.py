@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.numbers import MAX_SAFE_INTEGER
 
+# Bounded list paging shared by every list endpoint (PLAN.md §6).
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 100
+# Keep the largest possible offset within the shared JSON/SQLite integer range.
+MAX_PAGE_NUMBER = MAX_SAFE_INTEGER // MAX_PAGE_SIZE
+
 StrictInteger = Annotated[int, Field(strict=True, ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
 NonNegativeInteger = Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)]
 PositiveInteger = Annotated[int, Field(strict=True, gt=0, le=MAX_SAFE_INTEGER)]
