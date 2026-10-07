@@ -301,7 +301,9 @@ def test_new_save_applies_graph_and_records_receipt(protocol_db: Path) -> None:
     assert row["updated_at"] != row["created_at"]
 
 
-def test_exact_retry_returns_stored_graph_without_reapplying(protocol_db: Path) -> None:
+def test_exact_retry_returns_stored_graph_without_reapplying(
+    protocol_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = save_req(
         revision=0,
         save_id=SAVE_1,
@@ -310,6 +312,11 @@ def test_exact_retry_returns_stored_graph_without_reapplying(protocol_db: Path) 
     )
     first = save(protocol_db, payload)
     row_after_first = tuple(workout_row(protocol_db))
+
+    def unexpected_clock_read() -> str:
+        raise AssertionError("exact retry must not sample the transaction clock")
+
+    monkeypatch.setattr(workouts, "now_timestamp", unexpected_clock_read)
     retry = save(protocol_db, payload)
     assert retry == first
     # No revision increment, no updated_at change, no duplicated rows.

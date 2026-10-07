@@ -326,11 +326,12 @@ acceptance checks**. Phases 2-3 are out of scope here.
     one `BEGIN IMMEDIATE` transaction: owner-scoped load (missing/foreign →
     404; PUT never creates); receipt resolution before every other check, so an
     exact `save_id`+hash retry - including the accepted finish and after input
-    re-spelling - returns the stored graph with no validation, mutation,
-    revision increment, or `updated_at` change, while same-id/different-content
-    raises `SaveIdConflictError`; revision match, so a superseded receipt retry
-    becomes a plain `RevisionConflictError` rather than a claimed success; the
-    finished-workout guard (a new id with identical content is a new write);
+    re-spelling - returns the stored graph before clock sampling, with no
+    validation, mutation, revision increment, or `updated_at` change, while
+    same-id/different-content raises `SaveIdConflictError`; revision match, so a
+    superseded receipt retry becomes a plain `RevisionConflictError` rather than
+    a claimed success; the finished-workout guard (a new id with identical
+    content is a new write);
     `RevisionExhaustedError` at `MAX_SAFE_INTEGER`, which still serves exact
     retries; finish-time rules (`ended_at >= started_at` and `<=` one
     transaction-sampled UTC timestamp, no clock-skew allowance) as
@@ -357,9 +358,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     `tests/test_workout_save_protocol.py` (21 service cases): hash
     canonicality, owner/workout binding, field/array-order sensitivity, and
     spelling-insensitivity; receipt recording with snapshot copying; exact
-    retry with no re-apply and finish retry after normalization; no-op new
-    saves; save-id/revision/superseded-receipt conflicts with byte-identical
-    database state; the finished guard; exhaustion serving only exact retries;
+    retry with no clock read or re-apply and finish retry after normalization;
+    no-op new saves; save-id/revision/superseded-receipt conflicts with
+    byte-identical database state; the finished guard; exhaustion serving only
+    exact retries;
     missing/foreign not-found without creation; stored-state conflicts leaving
     everything unchanged; frozen-clock finish boundaries (equal-start and
     equal-now accepted, before-start and future rejected without echoing

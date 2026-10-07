@@ -701,9 +701,6 @@ def save_workout(
     # Database-independent fingerprinting happens before taking the writer lock.
     request_hash = save_request_hash(owner_id=owner_id, workout_id=workout_id, payload=payload)
     with connect(database_path) as conn, write_transaction(conn):
-        # One sampled transaction timestamp: the finish-time ceiling and the
-        # row's `updated_at` must be the same instant.
-        now = now_timestamp()
         row = conn.execute(
             f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts "
             "WHERE id = :id AND user_id = :owner_id",
@@ -732,6 +729,11 @@ def save_workout(
             raise WorkoutFinishedError(stored.revision)
         if stored.revision >= MAX_SAFE_INTEGER:
             raise RevisionExhaustedError(stored.revision)
+
+        # Exact retries and protocol conflicts resolved above do not need the
+        # clock. For a new save, one timestamp is both the finish ceiling and
+        # `updated_at`.
+        now = now_timestamp()
         if payload.ended_at is not None:
             # Canonical fixed-width UTC text: text order is time order. There
             # is no clock-skew allowance; the ceiling is the sampled `now`.
