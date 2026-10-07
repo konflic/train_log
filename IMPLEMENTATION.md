@@ -48,9 +48,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     source of truth. Tests exercise every fixture example plus strict rejection
     of fractional, string, boolean, out-of-range, invalid completion, and
     incompatible bodyweight values.
-- **Completed on this branch (PR pending):** Stage 3 - Auth and sessions.
-  Gate G3 passed locally on 2026-10-06 and was reverified on 2026-10-07; CI
-  re-runs it on the PR:
+- **Completed:** Stage 3 was merged to `master` in
+  [PR #5](https://github.com/konflic/train_log/pull/5) on 2026-10-07 (`413996b`).
+  Gate G3 passed locally on 2026-10-06, was reverified on 2026-10-07, and in
+  GitHub CI on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     `pytest -q` (190 tests), and `pip check` all green. Frontend
     `check`/`lint`/`test:unit` and the two Playwright E2E smoke tests still pass
@@ -103,7 +104,56 @@ acceptance checks**. Phases 2-3 are out of scope here.
     middleware, and 98% for the auth API module.
   - **Covers acceptance check 12 (CSRF/cookie/logout/no-secrets) and parts of
     6 and 11.**
-- **Next:** Stage 4 - Exercise catalog API.
+- **Completed on this branch (PR pending):** Stage 4 - Exercise catalog API.
+  Gate G4 passed locally on 2026-10-07; CI re-runs it on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (296 tests, +106), and `pip check` all green. No earlier gate
+    regressed (the whole Stage 0-3 suite still passes; CI runs it every time).
+    No frontend changes, so the frontend/E2E checks are unchanged.
+  - Dependency: none added. `app/db.py` registers one small deterministic
+    `casefold(text)` SQL function on every connection so caseless search and
+    ordering are Unicode-correct; SQLite's built-in `LIKE`, `upper()`/`lower()`,
+    and `COLLATE NOCASE` fold ASCII only (verified: `'%жим%'` misses `'Жим'`).
+    No new package and no local reimplementation of anything security-sensitive.
+  - `app/schemas/exercises.py`: strict `extra="forbid"` create/update/response
+    models. Content-only input (`id`/`is_default`/`created_by` are
+    server-controlled and rejected); Unicode-aware name trim with codepoint
+    bounds; cross-field load rules mirror the DB CHECKs (pure-bodyweight
+    requires a percentage; only `split_weight` may be two-sided). `PATCH` is
+    partial (explicit `null` clears only `bodyweight_percent`); the API merges it
+    with the stored entry and revalidates through the create model, so a partial
+    update cannot produce an entry a full create would reject.
+  - `app/services/catalog.py`: owner-scoped SQL for list/get/create/update/
+    delete. Visibility is `(is_default=1 OR created_by=:viewer)`, so a foreign
+    custom is indistinguishable from an unknown id. The partial unique indexes
+    are the authoritative race-free duplicate check (`DuplicateNameError`);
+    defaults and foreign customs never match the owner-scoped `UPDATE`/`DELETE`
+    `WHERE`, so they are immutable/undeletable at the storage layer too; the
+    `ON DELETE RESTRICT` FK surfaces as `EntryInUseError`. Search escapes LIKE
+    wildcards; listing orders by `casefold(name)` with an `id` tie-break (a
+    total order, stable across pages).
+  - `app/api/exercises.py`: `GET /exercises` (defaults + caller customs, search
+    + muscle/equipment filters, bounded `page`/`pageSize` per PLAN.md §6,
+    `total`, stable order), `GET /exercises/{id}`, `POST /exercises`,
+    `PATCH /exercises/{id}`, `DELETE /exercises/{id}` (empty 204). Defaults
+    immutable → 403 `default_immutable`; foreign/unknown → 404; duplicate name
+    within scope → 409 `name_taken`; referenced-entry delete → 409
+    `entry_in_use`. Reuses the Stage 3 conventions (problem+json, request id,
+    Origin/JSON CSRF on mutating verbs, body-size limit) unchanged.
+  - Tests added (+105): `tests/test_catalog_service.py` (direct-SQLite scoping,
+    Unicode case-insensitive search with escaped wildcards, filters, casefold
+    ordering + id tie-break, pagination bounds, in-scope uniqueness incl. case
+    variants and cross-scope reuse, whitelisted owner-scoped updates, snapshot
+    preservation, delete guard + freeing on history delete, UTF-8 round-trip)
+    and `tests/test_exercises_api.py` (auth on all five verbs, visibility
+    scoping across two users, search/filters/pagination, strict rejection of
+    unknown/server-controlled and fractional/string/boolean/out-of-range fields,
+    merged-PATCH validation, atomic partial updates that preserve interleaved
+    unrelated edits, bounded page offsets, default immutability, delete-guard
+    409, cross-user 404, unescaped UTF-8 output, and the shared
+    problem+json/request-id/CSRF conventions).
+  - **Covers parts of acceptance checks 6 and 9.**
+- **Next:** Stage 5 - Workout create + read.
 
 ---
 
