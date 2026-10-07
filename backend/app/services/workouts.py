@@ -1,4 +1,4 @@
-"""Workout storage: idempotent creation, history listing, and graph reads.
+"""Workout storage: creation, reads, and internal bulk-save validation.
 
 Every lookup is scoped to the owner, so another user's workout is
 indistinguishable from an unknown id (`None`, PLAN.md §4). Creation is
@@ -14,6 +14,12 @@ timestamps share one fixed-width format, so text comparison is chronological.
 The order `(started_at DESC, id DESC)` is a total order and therefore stable
 across pages. Graph reads use exactly three queries (workout, exercises, sets)
 regardless of graph size — never one query per set (PLAN.md §5).
+
+Stage 6a adds the read-only, transaction-bound validation half of bulk-save.
+It classifies every submitted nested id as retained under its exact parent or
+globally new, resolves immutable exercise snapshots, and validates sets against
+those snapshots before later stages perform any mutation. No public PUT route
+exists until the complete save protocol is implemented in Stage 6c.
 """
 
 from __future__ import annotations
@@ -24,10 +30,12 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from app.db import connect, write_transaction
 from app.numbers import MAX_SAFE_INTEGER
+from app.schemas.common import LoadType
+from app.schemas.workouts import SaveSetRequest, SaveWorkoutRequest, Side
 from app.timestamps import now_timestamp, to_timestamp
 
 WORKOUT_COLUMNS = (
@@ -73,6 +81,27 @@ WorkoutStatus = Literal["active", "finished"]
 
 class CreateConflictError(Exception):
     """The workout id exists with different content or a different owner."""
+
+
+class WorkoutNotFoundError(Exception):
+    """The target workout is missing or does not belong to the caller."""
+
+
+class GraphConflictError(Exception):
+    """A submitted nested id or retained catalog identity conflicts with storage."""
+
+
+class CatalogUnavailableError(Exception):
+    """A new exercise references an unknown or caller-invisible catalog row."""
+
+
+class GraphValidationError(Exception):
+    """A set value is invalid for its resolved historical snapshot."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+        self.message = message
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +168,49 @@ class WorkoutPage:
     total: int
 
 
+@dataclass(frozen=True, slots=True)
+class ValidatedSet:
+    """A submitted set with its dense index and persisted-id decision."""
+
+    id: str
+    set_index: int
+    reps: int | None
+    weight_kg: int | None
+    bw_percent_override: int | None
+    rpe: int | None
+    side: Side
+    done: bool
+    is_new: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedExercise:
+    """A submitted exercise with a resolved immutable load snapshot."""
+
+    id: str
+    catalog_id: str
+    order_index: int
+    notes: str | None
+    load_type: LoadType
+    bodyweight_percent: int | None
+    side_count: int
+    sets: tuple[ValidatedSet, ...]
+    is_new: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedSaveGraph:
+    """Complete writable state after all Stage 6a storage decisions."""
+
+    revision: int
+    save_id: str
+    name: str | None
+    notes: str | None
+    bodyweight_kg: int | None
+    ended_at: str | None
+    exercises: tuple[ValidatedExercise, ...]
+
+
 def row_to_workout(row: sqlite3.Row) -> WorkoutRecord:
     return WorkoutRecord(
         id=str(row["id"]),
@@ -154,6 +226,173 @@ def row_to_workout(row: sqlite3.Row) -> WorkoutRecord:
         last_save_hash=row["last_save_hash"],
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
+    )
+
+
+def _validate_set_for_snapshot(
+    submitted_set: SaveSetRequest,
+    *,
+    field_prefix: str,
+    load_type: LoadType,
+    bodyweight_percent: int | None,
+    side_count: int,
+) -> None:
+    """Validate rules that depend on a retained or newly copied snapshot."""
+    allowed_sides: set[Side]
+    if load_type == "split_weight" and side_count == 1:
+        allowed_sides = {"left", "right"}
+    else:
+        allowed_sides = {"bilateral"}
+    if submitted_set.side not in allowed_sides:
+        raise GraphValidationError(
+            f"{field_prefix}.side", "side is incompatible with the exercise snapshot"
+        )
+    if submitted_set.bw_percent_override is not None and bodyweight_percent is None:
+        raise GraphValidationError(
+            f"{field_prefix}.bw_percent_override",
+            "bodyweight override requires a bodyweight contribution",
+        )
+    if load_type == "bodyweight" and submitted_set.weight_kg is not None:
+        raise GraphValidationError(
+            f"{field_prefix}.weight_kg", "bodyweight sets require weight_kg to be null"
+        )
+    if submitted_set.done and (submitted_set.reps is None or submitted_set.reps <= 0):
+        raise GraphValidationError(f"{field_prefix}.reps", "completed sets require positive reps")
+    if submitted_set.done and load_type != "bodyweight" and submitted_set.weight_kg is None:
+        raise GraphValidationError(
+            f"{field_prefix}.weight_kg", "completed weighted sets require weight_kg"
+        )
+
+
+def validate_save_graph(
+    conn: sqlite3.Connection,
+    *,
+    owner_id: str,
+    workout_id: str,
+    payload: SaveWorkoutRequest,
+) -> ValidatedSaveGraph:
+    """Resolve and validate one complete save graph without mutating storage.
+
+    The caller owns the write transaction. Requiring an active transaction
+    keeps every ownership, id, visibility, and snapshot decision on the same
+    database state that Stage 6b will later mutate.
+    """
+    if not conn.in_transaction:
+        raise RuntimeError("save graph validation requires an active transaction")
+
+    workout_row = conn.execute(
+        "SELECT 1 FROM workouts WHERE id = :id AND user_id = :owner_id",
+        {"id": workout_id, "owner_id": owner_id},
+    ).fetchone()
+    if workout_row is None:
+        raise WorkoutNotFoundError
+
+    exercise_ids = [exercise.id for exercise in payload.exercises]
+    stored_exercises: dict[str, sqlite3.Row] = {}
+    if exercise_ids:
+        placeholders = ", ".join("?" for _ in exercise_ids)
+        rows = conn.execute(
+            "SELECT id, workout_id, catalog_id, load_type, bodyweight_percent, side_count "
+            f"FROM exercises WHERE id IN ({placeholders})",
+            exercise_ids,
+        ).fetchall()
+        stored_exercises = {str(row["id"]): row for row in rows}
+
+    for exercise in payload.exercises:
+        stored = stored_exercises.get(exercise.id)
+        if stored is not None and (
+            str(stored["workout_id"]) != workout_id
+            or str(stored["catalog_id"]) != exercise.catalog_id
+        ):
+            raise GraphConflictError
+
+    set_ids = [item.id for exercise in payload.exercises for item in exercise.sets]
+    stored_sets: dict[str, sqlite3.Row] = {}
+    if set_ids:
+        placeholders = ", ".join("?" for _ in set_ids)
+        rows = conn.execute(
+            f"SELECT id, exercise_id FROM sets WHERE id IN ({placeholders})",
+            set_ids,
+        ).fetchall()
+        stored_sets = {str(row["id"]): row for row in rows}
+
+    for exercise in payload.exercises:
+        for submitted_set in exercise.sets:
+            stored = stored_sets.get(submitted_set.id)
+            if stored is not None and str(stored["exercise_id"]) != exercise.id:
+                raise GraphConflictError
+
+    new_exercises = [
+        exercise for exercise in payload.exercises if exercise.id not in stored_exercises
+    ]
+    new_catalog_ids = list(dict.fromkeys(exercise.catalog_id for exercise in new_exercises))
+    visible_catalog: dict[str, sqlite3.Row] = {}
+    if new_catalog_ids:
+        placeholders = ", ".join("?" for _ in new_catalog_ids)
+        rows = conn.execute(
+            "SELECT id, load_type, bodyweight_percent, side_count FROM exercise_catalog "
+            f"WHERE id IN ({placeholders}) AND (is_default = 1 OR created_by = ?)",
+            [*new_catalog_ids, owner_id],
+        ).fetchall()
+        visible_catalog = {str(row["id"]): row for row in rows}
+        if len(visible_catalog) != len(new_catalog_ids):
+            raise CatalogUnavailableError
+
+    validated_exercises: list[ValidatedExercise] = []
+    for exercise_index, exercise in enumerate(payload.exercises):
+        stored_exercise = stored_exercises.get(exercise.id)
+        snapshot = (
+            visible_catalog[exercise.catalog_id] if stored_exercise is None else stored_exercise
+        )
+        load_type = cast(LoadType, str(snapshot["load_type"]))
+        bodyweight_percent = snapshot["bodyweight_percent"]
+        side_count = int(snapshot["side_count"])
+
+        validated_sets: list[ValidatedSet] = []
+        for set_index, submitted_set in enumerate(exercise.sets):
+            field_prefix = f"exercises.{exercise_index}.sets.{set_index}"
+            _validate_set_for_snapshot(
+                submitted_set,
+                field_prefix=field_prefix,
+                load_type=load_type,
+                bodyweight_percent=bodyweight_percent,
+                side_count=side_count,
+            )
+            validated_sets.append(
+                ValidatedSet(
+                    id=submitted_set.id,
+                    set_index=set_index,
+                    reps=submitted_set.reps,
+                    weight_kg=submitted_set.weight_kg,
+                    bw_percent_override=submitted_set.bw_percent_override,
+                    rpe=submitted_set.rpe,
+                    side=submitted_set.side,
+                    done=submitted_set.done,
+                    is_new=submitted_set.id not in stored_sets,
+                )
+            )
+        validated_exercises.append(
+            ValidatedExercise(
+                id=exercise.id,
+                catalog_id=exercise.catalog_id,
+                order_index=exercise_index,
+                notes=exercise.notes,
+                load_type=load_type,
+                bodyweight_percent=bodyweight_percent,
+                side_count=side_count,
+                sets=tuple(validated_sets),
+                is_new=stored_exercise is None,
+            )
+        )
+
+    return ValidatedSaveGraph(
+        revision=payload.revision,
+        save_id=payload.save_id,
+        name=payload.name,
+        notes=payload.notes,
+        bodyweight_kg=payload.bodyweight_kg,
+        ended_at=payload.ended_at,
+        exercises=tuple(validated_exercises),
     )
 
 

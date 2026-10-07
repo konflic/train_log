@@ -154,8 +154,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
     409, cross-user 404, unescaped UTF-8 output, and the shared
     problem+json/request-id/CSRF conventions).
   - **Covers parts of acceptance checks 6 and 9.**
-- **Completed on this branch (PR pending):** Stage 5 - Workout create + read.
-  Gate G5 passed locally on 2026-10-07; CI re-runs it on the PR:
+- **Completed:** Stage 5 was merged to `master` in
+  [PR #7](https://github.com/konflic/train_log/pull/7) on 2026-10-07 (`f6d7e34`).
+  Gate G5 passed locally and in GitHub CI on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     `pytest -q` (341 tests, +45), and `pip check` all green. No earlier gate
     regressed (the whole Stage 0-4 suite still passes; CI runs it every time).
@@ -229,8 +230,39 @@ acceptance checks**. Phases 2-3 are out of scope here.
     POST; request-id and problem-document conventions).
   - **Covers parts of acceptance checks 2, 6, and 10** (create-retry server
     half, foreign-id 404s, snapshot-vs-profile isolation).
-- **Next:** Stage 6 - Workout bulk-save (PUT), substages 6a → 6b → 6c with
-  separate exit gates.
+- **Completed on this branch (PR pending):** Stage 6a - Graph validation and
+  historical snapshots. Gate G6a passed locally on 2026-10-07; CI re-runs the
+  complete suite on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (432 tests, +91), and `pip check` all green. No dependency,
+    migration, frontend, or public API route was added.
+  - `app/schemas/workouts.py`: strict full-state save models require every
+    nullable field explicitly, normalize UUIDs and `ended_at`, preserve text
+    exactly, reject all unknown/server-controlled fields, enforce safe-integer
+    and text/graph bounds, and reject exercise duplicates plus graph-global set
+    duplicates after UUID normalization.
+  - `app/services/workouts.py`: internal `validate_save_graph` requires the
+    caller's active transaction and performs no mutation. It owner-scopes the
+    workout, classifies every submitted exercise/set id as retained under its
+    exact parent or globally new, rejects every stored collision generically,
+    preserves retained snapshots/catalog identity, and copies snapshots only
+    from defaults or caller-owned custom catalog rows for new exercises. Its
+    immutable validated result carries explicit dense indexes and `is_new`
+    decisions for Stage 6b.
+  - Snapshot-aware checks cover the complete side matrix, override permission,
+    bodyweight null-weight rule, and draft/completed set requirements. Unknown
+    and foreign workout/catalog/nested rows use indistinguishable exceptions
+    without ids or owner details; every tested failure leaves all database rows
+    unchanged.
+  - Tests added (+91): 64 direct schema cases for required fields, explicit
+    nulls, normalization, exact text handling, all limits/boundaries, strict
+    types, unknown fields, and payload-local duplicates; 27 real-SQLite service
+    cases for empty/full graphs, retained/new snapshot decisions, changed
+    catalog defaults, owner visibility, parent/global collision handling,
+    generic non-disclosure, all side/load/completion rules, and transaction
+    enforcement.
+- **Next:** Stage 6b - Atomic graph replacement and reordering. It starts only
+  after Stage 6a is merged and keeps the write helper internal until Stage 6c.
 
 ---
 
@@ -295,7 +327,7 @@ checks join CI in their owning stage rather than waiting until Stage 15.
 | B. Backend API | **3** | Auth: register/login/logout/me, sessions, cookies, CSRF, throttling | auth API tests | 2 |
 | B | **4** | Exercise catalog CRUD + visibility/uniqueness/delete-guard | catalog API tests | 1 |
 | B | **5** | Workout create (+fingerprint/retry) + history list + GET graph | workout read/create tests | 1.5 |
-| B | **6a–6c** | **PUT bulk-save**: validation → graph persistence → receipt/concurrency/finish | three separate exit gates | 3 |
+| B | **6a–6c** | **PUT bulk-save**: validation → graph persistence → receipt/concurrency/finish | three separate exit gates | 4 |
 | B | **7** | DELETE + lifecycle rules (finished read-only, PUT-after-delete) | lifecycle tests | 0.5 |
 | B | **8** | Stats summary + inline previous performance + JSON export | stats/prev-perf/export tests | 3.5 |
 | C. Frontend | **9** | FE scaffold, theme, router, `api.ts`, BigInt helper | component/unit tests vs backend | 2 |
@@ -306,10 +338,9 @@ checks join CI in their owning stage rather than waiting until Stage 15.
 | D. Operations | **14** | Minimal admin API/panel + account controls + audit log | admin API/security tests + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence + production deployment smoke | full CI + deployment/restart checks | 5 |
 
-The table totals **38.5 person-days**, including implementation and verification
+The table totals **39.5 person-days**, including implementation and verification
 within each stage. Reserve **8.5 additional days of contingency**, for a planning
-budget of **47 person-days** (about nine to ten five-day working weeks for one
-developer).
+budget of **48 person-days** (about ten five-day working weeks for one developer).
 These are estimates, not gate deadlines; re-estimate after Stages 6c and 11c.
 Lettered substages divide their parent's estimate rather than adding effort
 again. Milestones: **A** = foundation, **B** = complete tested API, **C** = full
@@ -468,52 +499,193 @@ bodyweight snapshot unaffected by later profile edits.
 Implement **6a → 6b → 6c** as separate work increments. Keep incomplete write
 services internal until the public PUT contract is complete in 6c.
 
+**Resolved contract shared by 6a-6c:**
+- Deliver 6a, 6b, and 6c as three sequential branches/PRs. Each substage updates
+  this status section with its own gate evidence; 6b starts from merged 6a and
+  6c starts from merged 6b. All intermediate code remains internal and every PR
+  must pass the complete backend suite.
+- The PUT body is full state, not a patch. These top-level fields are all
+  required: `revision`, `save_id`, `name`, `notes`, `bodyweight_kg`, `ended_at`,
+  and `exercises`. Nullable fields must be sent explicitly as `null`; omission
+  is invalid rather than meaning "keep" or "clear". `started_at` is immutable
+  after POST and is not accepted by PUT. The workout id comes only from the path.
+- Every exercise requires `id`, `catalog_id`, `notes`, and `sets`; every set
+  requires `id`, `reps`, `weight_kg`, `bw_percent_override`, `rpe`, `side`, and
+  `done`, including explicit nulls. Array position is the only order input;
+  `order_index` and `set_index` are rejected. Snapshot fields, owner ids,
+  revision receipts, and server timestamps are also rejected.
+- `save_id`, exercise ids, and set ids are UUIDs normalized before duplicate
+  checks and hashing. Catalog ids are opaque visible-entry ids, not normalized
+  UUIDs; accept strict non-empty text up to 100 characters. Text is preserved
+  exactly after validation (no implicit trim or empty-to-null conversion).
+- Limits: 25 exercises per workout, 20 sets per exercise, 250 sets total, workout
+  name 100 characters, workout notes 2,000 characters, and exercise notes 300
+  characters. These limits leave headroom within the existing 256 KiB request
+  limit and bound SQL batches below SQLite's variable limit; the byte limit
+  remains the final bound for unusually encoded JSON. Do not add a PUT-specific
+  body limit or a new runtime setting.
+- Input integers retain the project-wide safe-JSON bounds from Stage 2 rather
+  than introducing arbitrary fitness caps: nonnegative safe integers for
+  revision/reps/weight, positive safe integer or null for bodyweight, and the
+  existing 1..100 percentage and 1..10 RPE bounds. Derived dense indexes are
+  bounded by the graph limits. A current revision at `MAX_SAFE_INTEGER` may only
+  serve an exact retry; reject a new save with `revision_exhausted` (409) rather
+  than emit an unsafe next revision.
+- Schema/value failures return the existing 422 `validation_error` with bounded
+  field paths/messages and no rejected values. Payload-local duplicate ids,
+  side/load violations, completion rules, and graph/text limits are schema
+  failures. Database-dependent failures use the stable codes defined in 6c and
+  never disclose the owner or location of a colliding foreign row.
+- Pydantic parsing, normalization, duplicate detection, graph bounds, and other
+  database-independent validation run before opening the write transaction.
+  Every ownership, visibility, lifecycle, revision, receipt, and stored-snapshot
+  decision is repeated/resolved from rows read inside the one `BEGIN IMMEDIATE`
+  transaction. This keeps invalid payloads from taking the writer lock while
+  preventing check-then-write races.
+
 #### Stage 6a - Graph validation and historical snapshots
-- Define full-graph input/output models, graph/text/numeric limits, duplicate-ID
-  rejection, parent ownership, catalog visibility, side/load/override rules,
-  and draft-versus-completed-set validation.
-- New instances copy catalog load settings on first persistence; existing
-  instances retain snapshots and cannot change catalog identity through PUT.
-  Writable workout bodyweight corrections remain explicit.
-- Array order defines dense indexes; client snapshots/owner/timestamp fields
-  are rejected. Validation used for writes executes within their transaction.
-**Verification:** service/schema tests with owned and foreign graphs, duplicate
-IDs, changed catalog defaults, null inputs, invalid sides, and unknown fields.
+- Define the full-state models above with `extra="forbid"`. An empty exercise
+  array is valid and deletes the graph; an exercise may have an empty set array.
+  Duplicate exercise ids are rejected across the exercise array, and duplicate
+  set ids are rejected across the entire submitted graph, not only one parent.
+- Enforce sides from the recorded/new catalog snapshot:
+
+  | Snapshot | Allowed set side |
+  |----------|------------------|
+  | `split_weight`, `side_count=1` | `left` or `right` |
+  | `split_weight`, `side_count=2` | `bilateral` |
+  | `single_weight` or `bodyweight` | `bilateral` |
+
+- Permit `bw_percent_override` only when the snapshot's
+  `bodyweight_percent IS NOT NULL`; whether draft weight is null does not change
+  that permission. Bodyweight sets always require `weight_kg=null`. Completed
+  sets require positive reps and a non-null weight for weighted load types;
+  unknown workout bodyweight is still valid and produces unknown derived load.
+- For every submitted exercise/set id, classify it before mutation as retained
+  under the exact submitted parent or globally new. Existing rows cannot be
+  reparented. A supposedly new id must be unused across the whole corresponding
+  table, including other users. Payload-local duplicate ids are 422; any stored
+  id collision/parent mismatch is the generic 409 `graph_conflict`.
+- Require `catalog_id` for both retained and new exercises. A retained
+  exercise's submitted value must exactly equal its stored catalog id; a
+  mismatch is `graph_conflict`. New instances require a currently visible
+  default or caller-owned custom catalog row and copy its `load_type`,
+  `bodyweight_percent`, and `side_count` inside the transaction. Unknown and
+  foreign custom catalog ids are indistinguishable and return 409
+  `catalog_unavailable`. Retained exercises use their stored snapshot even if
+  the catalog row changed since first persistence.
+- `bodyweight_kg` is required in the full-state body and may explicitly change
+  to a positive safe integer or `null`. It affects derived reads only; saves do
+  not persist calculated loads or totals. Exercise/set snapshot fields remain
+  server-owned and are never accepted from the client.
+**Verification:** service/schema tests with limits and boundary sizes; empty
+graphs; owned and foreign rows; duplicate ids within/across parents; stored id
+collisions; changed catalog defaults; visible/default/foreign catalog entries;
+explicit null metadata; bodyweight clear/correction; the full side matrix;
+override/load/completion rules; canonical UUIDs; and every server-controlled or
+unknown field. Assert all state-dependent failures leave the database unchanged
+and do not reveal whether a colliding row belongs to another user.
 **Gate G6a:** valid graphs have explicit snapshot decisions; invalid graphs
-leave the database unchanged. No public partial PUT endpoint yet.
+leave the database unchanged. No PUT route, feature flag, or other partial
+public endpoint exists yet; evidence is schema/service tests only. **Estimate:
+1 day.**
 
 #### Stage 6b - Atomic graph replacement and reordering
-- Implement the transaction-owned persistence operation using 6a validation:
-  delete omitted rows, move retained positions to distinct temporary indexes,
-  apply dense final positions, and insert new rows.
-- Validate all parent/ID relationships before mutations; do not reparent rows
-  through upserts. Persist metadata and snapshots with the graph.
-**Verification:** real SQLite tests for add/remove/swap/reverse ordering of
-exercises and sets, cross-parent IDs, snapshot preservation, and rollback after
-an injected failure midway through mutation.
+- Implement an internal replacement helper that accepts an already-open
+  transaction connection. It neither opens nor commits a transaction and does
+  not update revision, receipt, or `updated_at`; 6c owns those protocol fields.
+  It applies validated writable metadata and the complete graph, including
+  copied snapshots for new exercises. Tests may own `BEGIN IMMEDIATE` around it.
+- Resolve every parent/catalog/id relationship before the first mutation. Do
+  not use `INSERT OR REPLACE` or an upsert that can move rows between parents.
+- Mutate in this order: delete omitted sets from retained exercises; delete
+  omitted exercises (FK cascade is a backstop for their sets); move retained
+  exercise positions; move retained set positions within each exercise; write
+  retained content and final dense positions; insert new exercises with their
+  snapshots; then insert new sets.
+- For each parent independently, choose `temporary_base =
+  max(max_existing_index, final_count - 1) + 1` and assign each retained row a
+  distinct temporary position from that base before any final-position update.
+  This is above both occupied old positions and the final range. Check the
+  arithmetic before issuing SQL; graph produced by the service is far below the
+  SQLite integer limit. Use bounded `executemany` batches where it improves
+  clarity, without adding a batching abstraction.
+- No migration is required: the existing primary keys, foreign keys,
+  `UNIQUE(workout_id, order_index)`, and `UNIQUE(exercise_id, set_index)` are the
+  constraints this implementation must satisfy.
+**Verification:** real SQLite tests for empty replacement; add/remove/swap/
+reverse ordering of exercises and sets; moving both levels in one save;
+cross-parent/global-id rejection before mutation; snapshot preservation; and
+metadata/bodyweight persistence. For deterministic mid-mutation rollback, add
+a test-local SQLite `TEMP TRIGGER` that raises on a selected insert/update, call
+the internal helper in a write transaction, and verify the complete pre-save
+graph and metadata remain. Do not add a production failure-injection parameter.
 **Gate G6b:** graph replacement is atomic and unique-index-safe. Public receipt,
-revision, and finish behavior is introduced only in 6c.
+revision, `updated_at`, and finish behavior is introduced only in 6c. **Estimate:
+1 day.**
 
 #### Stage 6c - Public save protocol, concurrency, and finish
 **Tasks (single `BEGIN IMMEDIATE` transaction, in order):**
-1. Auth + load owned workout (PUT never creates).
-2. Validate request; fingerprint canonical validated content.
-3. `save_id == last_save_id` → require same fingerprint, return saved
-   graph/revision without re-applying; different content same id → 409.
-4. Else require exact `revision` match; mismatch → 409 + conflict code + current
-   revision; change nothing.
-5. Validate lifecycle, nested ownership, catalog visibility, and all invariants;
-   validate submitted ids belong to this parent or are new/global-unused.
-6. Apply the Stage 6b graph replacement: delete omitted rows → move retained to
-   distinct temp indexes above old+new ranges → apply final dense indexes →
-   insert new rows (never a direct occupied swap).
-7. Optional `ended_at` finish (tz-aware, `ended_at >= started_at`, not future);
-   increment revision; record `last_save_id`/`last_save_hash`; commit.
-8. Return authoritative graph, revision, last save id.
-- Finished workouts reject new saves; only an exact accepted-finish retry is
-  allowed. A receipt superseded by another accepted save becomes a normal
-  revision conflict, not an assumed earlier success.
-- Busy timeout → retryable service error; **never** discard client draft.
+1. Auth has already resolved the caller; load the owned workout in the write
+   transaction. Missing and foreign workout ids both return 404; PUT never
+   creates.
+2. Fingerprint compact sorted-key JSON over the owner id, path workout id, and
+   the exact normalized full-state body, including `revision`, `save_id`, nulls,
+   and array order. Do not include server snapshots or derived indexes. This
+   owner/workout-bound SHA-256 is `last_save_hash`.
+3. If `save_id == last_save_id`, require the hash to match. An exact match
+   returns the stored graph with 200 without validation/mutation, revision
+   increment, or `updated_at` change. A mismatch returns 409
+   `save_id_conflict` with `current_revision` and changes nothing.
+4. Otherwise require the request revision to equal the stored revision. A
+   mismatch returns 409 `revision_conflict` with `current_revision`, no graph,
+   and no mutation. Because only the latest receipt is retained, retrying an
+   older, superseded receipt reaches this revision check rather than claiming
+   success. `save_id` freshness is a client obligation; the bounded server
+   receipt cannot detect reuse of ids older than the latest accepted save.
+5. A new save to a finished workout returns 409 `workout_finished` with
+   `current_revision`. Otherwise reject a current revision at
+   `MAX_SAFE_INTEGER` with 409 `revision_exhausted`, then validate nested
+   ownership, catalog visibility, snapshots, finish time, and all 6a invariants
+   against transaction rows before the first mutation.
+6. Apply the Stage 6b replacement helper. A matching-revision save with a new
+   `save_id` is accepted and increments revision even when its user-visible
+   content is identical; every new accepted attempt receives a receipt.
+7. As validated before step 6, `ended_at=null` keeps an active workout active.
+   A non-null finish timestamp is normalized to UTC seconds, must be
+   `>= started_at`, and must be `<=` one server UTC timestamp sampled inside the
+   transaction; there is no implicit clock-skew allowance. Violations return
+   422 `validation_error` for `ended_at`, and the client retains/corrects its
+   draft. Once a finish commits, clearing/changing it is reopening/editing and
+   is rejected by the finished guard. Only the same accepted finish `save_id`
+   plus matching hash qualifies as an exact finish retry; a new id with
+   identical content does not.
+8. Increment revision by one; set `last_save_id`, `last_save_hash`, and one
+   transaction timestamp as `updated_at`; then read/build the authoritative
+   graph through the same connection before commit. Return that captured graph
+   only after commit succeeds, so a second writer cannot replace it between
+   commit and response. Refactor graph-query helpers to accept an existing
+   connection while preserving Stage 5's fixed three-query public GET.
+- Stable public failures are:
+
+  | Status/code | Meaning and safe members |
+  |-------------|--------------------------|
+  | 404 `not_found` | workout missing or foreign; no revision |
+  | 409 `save_id_conflict` | latest save id reused with different content; `current_revision` |
+  | 409 `revision_conflict` | stale/nonmatching revision; `current_revision` |
+  | 409 `revision_exhausted` | no safe revision remains; `current_revision` |
+  | 409 `workout_finished` | new write to finished workout; `current_revision` |
+  | 409 `graph_conflict` | stored nested-id/catalog-identity conflict; no row/id details |
+  | 409 `catalog_unavailable` | unknown or foreign custom catalog reference; no owner details |
+  | 422 `validation_error` | schema/value/finish validation; field paths, never values |
+  | 503 `retryable` | SQLite busy timeout; existing `Retry-After: 1` |
+
+  Conflict responses do not embed the current graph; the client performs an
+  owner-scoped GET when it needs the server copy.
+- Keep the production busy timeout at five seconds and the existing 503 mapping;
+  do not add configuration for one test. The timeout test may monkeypatch the
+  workouts service's connection factory to call the real `connect` with a short
+  timeout. Use synchronization events/barriers rather than timing-only sleeps.
 **Verification:** `pytest` for: add/remove/**reorder** exercises+sets under
 unique indexes; atomic save-and-finish; `save_id` retry (no double revision
 increment, no dup rows); revision-conflict 409; nested/foreign ids rejected with
@@ -525,10 +697,16 @@ deterministic concurrency cases:
 - A separately held write lock exceeds the busy timeout → retryable service
   error, no partial mutation; retry after releasing the lock succeeds.
 Also verify same-save-ID/different-content rejection, superseded receipt
-conflicts, and exact finish retry versus a new write to a finished workout.
+conflicts, exact finish retry versus a new write to a finished workout, no-op
+new saves, required nullable fields, every stable error shape, future/equal
+finish boundaries, revision exhaustion, and that the returned graph is captured
+on the write connection. Run concurrency cases with threads, independent
+connections, synchronization events, and temporary real SQLite files; do not
+skip them in CI.
 **Gate G6c / G6:** public bulk-save is atomic, idempotent, and lifecycle-safe;
 all 6a/6b checks still pass. **Covers checks 2 (save/finish server half),
-4 (server half), 5 (server half), 6, 7.**
+4 (server half), 5 (server half), 6, 7. Estimate: **2 days.** Re-estimate the
+remaining roadmap in this same PR using the completed Stage 6 evidence.
 
 ### Stage 7 - Delete + lifecycle
 **Purpose:** safe deletion and finished-workout rules. (`PLAN.md` §6)
