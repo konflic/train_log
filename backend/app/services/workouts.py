@@ -24,8 +24,15 @@ Stage 6b adds `apply_validated_graph`, the internal, transaction-bound mutation
 half: it replaces the writable metadata and the complete child graph from a
 `ValidatedSaveGraph`, deleting omitted rows and reindexing retained rows through
 temporary positions so unique indexes are never violated by a reorder. It stays
-internal and leaves lifecycle/receipt fields for Stage 6c; no public PUT route
-exists until the complete save protocol is implemented in Stage 6c.
+internal and leaves lifecycle/receipt fields for the save protocol.
+
+Stage 6c adds `save_workout`, the public bulk-save protocol behind
+`PUT /workouts/{id}`: inside one `BEGIN IMMEDIATE` transaction it resolves the
+`save_id` receipt (exact retry vs. conflict), enforces the revision match, the
+finished-workout guard, revision exhaustion, and the finish-time rules, applies
+the validated graph, and records revision/receipt/`updated_at` atomically. The
+authoritative response graph is captured on the write connection before commit,
+so a second writer cannot replace it between commit and response.
 """
 
 from __future__ import annotations
@@ -109,6 +116,30 @@ class GraphValidationError(Exception):
         super().__init__(message)
         self.field = field
         self.message = message
+
+
+class SaveConflictError(Exception):
+    """Base for save-protocol conflicts; carries only the stored revision."""
+
+    def __init__(self, current_revision: int) -> None:
+        super().__init__(f"current revision is {current_revision}")
+        self.current_revision = current_revision
+
+
+class SaveIdConflictError(SaveConflictError):
+    """The latest accepted `save_id` was reused with different content."""
+
+
+class RevisionConflictError(SaveConflictError):
+    """The request revision does not match the stored revision."""
+
+
+class RevisionExhaustedError(SaveConflictError):
+    """The stored revision reached `MAX_SAFE_INTEGER`; no safe successor exists."""
+
+
+class WorkoutFinishedError(SaveConflictError):
+    """A new save targets a finished workout (read-only except exact retry)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -621,6 +652,120 @@ def apply_validated_graph(
         )
 
 
+def save_request_hash(*, owner_id: str, workout_id: str, payload: SaveWorkoutRequest) -> str:
+    """Fingerprint a validated full-state save request canonically (PLAN.md §6).
+
+    Compact sorted-key JSON over the owner id, the path workout id, and the
+    exact normalized request body - `revision`, `save_id`, explicit nulls, and
+    array order included; server snapshots and derived indexes cannot appear
+    because the request schema rejects them. The owner/workout binding makes
+    identical content submitted by another user or for another workout never
+    match the stored receipt. Normalization happens during schema validation,
+    so a retry spelled differently (uppercase UUIDs, `+00:00` offsets) hashes
+    identically.
+    """
+    canonical = json.dumps(
+        {
+            "owner_id": owner_id,
+            "workout_id": workout_id,
+            "body": payload.model_dump(mode="json"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def save_workout(
+    database_path: str | Path,
+    *,
+    owner_id: str,
+    workout_id: str,
+    payload: SaveWorkoutRequest,
+) -> WorkoutGraph:
+    """Apply one full-state bulk-save and return the authoritative new graph.
+
+    The complete save protocol runs inside one `BEGIN IMMEDIATE` transaction
+    (IMPLEMENTATION.md Stage 6c, in order): load the owned row (missing and
+    foreign ids are indistinguishable; PUT never creates), resolve the `save_id`
+    receipt (exact retry vs. `save_id_conflict`), enforce the revision match,
+    the finished-workout guard, revision exhaustion, and the finish-time rules,
+    re-resolve all Stage 6a invariants against transaction rows, apply the
+    Stage 6b replacement, and record the incremented revision, receipt,
+    `ended_at`, and one transaction timestamp as `updated_at` in the same
+    commit. The response graph is read back on the write connection before the
+    commit and returned only after it succeeds, so a second writer cannot
+    replace it between commit and response.
+    """
+    # Database-independent fingerprinting happens before taking the writer lock.
+    request_hash = save_request_hash(owner_id=owner_id, workout_id=workout_id, payload=payload)
+    with connect(database_path) as conn, write_transaction(conn):
+        # One sampled transaction timestamp: the finish-time ceiling and the
+        # row's `updated_at` must be the same instant.
+        now = now_timestamp()
+        row = conn.execute(
+            f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts "
+            "WHERE id = :id AND user_id = :owner_id",
+            {"id": workout_id, "owner_id": owner_id},
+        ).fetchone()
+        if row is None:
+            raise WorkoutNotFoundError
+        stored = row_to_workout(row)
+
+        # Receipt resolution precedes every other check: an exact retry of the
+        # latest accepted save (including the accepted finish) returns the
+        # stored graph with no validation, mutation, or revision increment.
+        if payload.save_id == stored.last_save_id:
+            if request_hash != stored.last_save_hash:
+                raise SaveIdConflictError(stored.revision)
+            retry_graph = _read_workout_graph(conn, workout_id, user_id=owner_id)
+            if retry_graph is None:
+                raise RuntimeError("workout vanished inside its own save transaction")
+            return retry_graph
+
+        if payload.revision != stored.revision:
+            # Retries of superseded receipts land here too: only the latest
+            # receipt is retained, so an older save_id is a normal conflict.
+            raise RevisionConflictError(stored.revision)
+        if stored.ended_at is not None:
+            raise WorkoutFinishedError(stored.revision)
+        if stored.revision >= MAX_SAFE_INTEGER:
+            raise RevisionExhaustedError(stored.revision)
+        if payload.ended_at is not None:
+            # Canonical fixed-width UTC text: text order is time order. There
+            # is no clock-skew allowance; the ceiling is the sampled `now`.
+            if payload.ended_at < stored.started_at:
+                raise GraphValidationError("ended_at", "finish time is before the workout start")
+            if payload.ended_at > now:
+                raise GraphValidationError("ended_at", "finish time is in the future")
+
+        validated = validate_save_graph(
+            conn, owner_id=owner_id, workout_id=workout_id, payload=payload
+        )
+        apply_validated_graph(conn, workout_id=workout_id, graph=validated)
+        conn.execute(
+            "UPDATE workouts SET revision = :revision, last_save_id = :save_id, "
+            "last_save_hash = :save_hash, ended_at = :ended_at, updated_at = :now "
+            "WHERE id = :id AND user_id = :owner_id",
+            {
+                "revision": stored.revision + 1,
+                "save_id": payload.save_id,
+                "save_hash": request_hash,
+                "ended_at": payload.ended_at,
+                "now": now,
+                "id": workout_id,
+                "owner_id": owner_id,
+            },
+        )
+        # Captured on the write connection: the transaction commits while this
+        # value is returned, so callers only see a graph whose save succeeded.
+        saved_graph = _read_workout_graph(conn, workout_id, user_id=owner_id)
+        if saved_graph is None:
+            raise RuntimeError("workout vanished inside its own save transaction")
+        return saved_graph
+
+
 def create_request_hash(*, user_id: str, workout_id: str, started_at: str) -> str:
     """Fingerprint a validated create request canonically (PLAN.md §6).
 
@@ -792,36 +937,32 @@ def list_workouts(
     return WorkoutPage(items=[row_to_workout(row) for row in rows], total=int(total_row["total"]))
 
 
-def get_workout_graph(
-    database_path: str | Path, workout_id: str, *, user_id: str
+def _read_workout_graph(
+    conn: sqlite3.Connection, workout_id: str, *, user_id: str
 ) -> WorkoutGraph | None:
-    """Fetch the owned workout and its full graph; foreign/unknown are `None`.
+    """Build the owner-scoped graph from three queries on the caller's connection.
 
-    Exactly three queries regardless of graph size: the workout row, its
-    exercises in stored order, and all their sets joined through the exercises
-    in `(order_index, set_index)` order.
+    The caller owns transaction control: `get_workout_graph` wraps this in a
+    deferred read transaction, and `save_workout` calls it inside its write
+    transaction so the response graph is captured before the commit.
     """
-    with connect(database_path) as conn, conn:
-        # All three graph queries must describe the same committed revision.
-        conn.execute("BEGIN")
-        workout_row = conn.execute(
-            f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts "
-            "WHERE id = :id AND user_id = :user_id",
-            {"id": workout_id, "user_id": user_id},
-        ).fetchone()
-        if workout_row is None:
-            return None
-        exercise_rows = conn.execute(
-            f"SELECT {', '.join(EXERCISE_COLUMNS)} FROM exercises "
-            "WHERE workout_id = :id ORDER BY order_index",
-            {"id": workout_id},
-        ).fetchall()
-        set_rows = conn.execute(
-            f"SELECT {', '.join(f's.{name}' for name in SET_COLUMNS)} "
-            "FROM sets s JOIN exercises e ON e.id = s.exercise_id "
-            "WHERE e.workout_id = :id ORDER BY e.order_index, s.set_index",
-            {"id": workout_id},
-        ).fetchall()
+    workout_row = conn.execute(
+        f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts WHERE id = :id AND user_id = :user_id",
+        {"id": workout_id, "user_id": user_id},
+    ).fetchone()
+    if workout_row is None:
+        return None
+    exercise_rows = conn.execute(
+        f"SELECT {', '.join(EXERCISE_COLUMNS)} FROM exercises "
+        "WHERE workout_id = :id ORDER BY order_index",
+        {"id": workout_id},
+    ).fetchall()
+    set_rows = conn.execute(
+        f"SELECT {', '.join(f's.{name}' for name in SET_COLUMNS)} "
+        "FROM sets s JOIN exercises e ON e.id = s.exercise_id "
+        "WHERE e.workout_id = :id ORDER BY e.order_index, s.set_index",
+        {"id": workout_id},
+    ).fetchall()
 
     sets_by_exercise: dict[str, list[SetRecord]] = {str(row["id"]): [] for row in exercise_rows}
     for row in set_rows:
@@ -852,3 +993,18 @@ def get_workout_graph(
         for row in exercise_rows
     )
     return WorkoutGraph(workout=row_to_workout(workout_row), exercises=exercises)
+
+
+def get_workout_graph(
+    database_path: str | Path, workout_id: str, *, user_id: str
+) -> WorkoutGraph | None:
+    """Fetch the owned workout and its full graph; foreign/unknown are `None`.
+
+    Exactly three queries regardless of graph size: the workout row, its
+    exercises in stored order, and all their sets joined through the exercises
+    in `(order_index, set_index)` order.
+    """
+    with connect(database_path) as conn, conn:
+        # All three graph queries must describe the same committed revision.
+        conn.execute("BEGIN")
+        return _read_workout_graph(conn, workout_id, user_id=user_id)
