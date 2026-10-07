@@ -265,7 +265,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
   and reordering. Gate G6b passed locally on 2026-10-07; CI re-runs the complete
   suite on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
-    `pytest -q` (449 tests, +17), and `pip check` all green, and the isolated
+    `pytest -q` (451 tests, +19), and `pip check` all green, and the isolated
     migration + backup/verify check still passes. No dependency, migration,
     frontend, schema, or public API route was added.
   - `app/services/workouts.py`: internal `apply_validated_graph(conn, *,
@@ -283,14 +283,17 @@ acceptance checks**. Phases 2-3 are out of scope here.
     and final dense indexes, insert new exercises with their copied snapshots,
     then insert new sets. No `INSERT OR REPLACE`/upsert is used, so a row can
     never be reparented. Per parent, `temporary_base = max(max_existing_index,
-    final_count - 1) + 1` (base `-1` when nothing is stored) keeps every
-    temporary index nonnegative and above both the occupied and final ranges, so
-    a reorder never violates `UNIQUE(workout_id, order_index)` or
-    `UNIQUE(exercise_id, set_index)`. Retained rows are updated in place
+    final_count - 1) + 1` (with `max_existing_index = -1` when no retained row
+    exists) keeps every temporary index nonnegative and above both the occupied
+    and final ranges.
+    Both levels are resolved and checked against SQLite's integer limit before
+    the first mutation, so a reorder never violates
+    `UNIQUE(workout_id, order_index)` or `UNIQUE(exercise_id, set_index)`.
+    Retained rows are updated in place
     (exercises: `notes`/`order_index`; sets: mutable values/`set_index`) and keep
     their parent, catalog identity, and load snapshot. Set-oriented `executemany`
     batches stay within the 6a graph bounds; no batching abstraction was added.
-  - Tests added (+17, `tests/test_workout_save_apply.py`): each opens a real
+  - Tests added (+19, `tests/test_workout_save_apply.py`): each opens a real
     write transaction, runs 6a validation, calls the 6b helper, commits, and reads
     the authoritative graph back. They cover the active-transaction guard; empty
     replacement; add (including add-in-the-middle dense reindex); remove with
@@ -300,9 +303,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     updated in place; new-instance snapshot copying; metadata/bodyweight persist
     and clear; lifecycle/receipt fields never written; cross-parent set id and
     global exercise id rejected before mutation (whole-database state unchanged);
-    and a deterministic mid-mutation rollback using a test-local `TEMP TRIGGER`
-    that raises on the final new-set insert after earlier deletes/moves/updates,
-    verifying the complete pre-save graph and metadata survive.
+    arithmetic overflow is rejected before mutation; and a deterministic
+    mid-mutation rollback using a test-local `TEMP TRIGGER` that raises on the
+    final new-set insert after earlier deletes/moves/updates, verifying the
+    complete pre-save graph and metadata survive.
   - **Covers the server-side graph-replacement half of acceptance check 7**
     (reorder/remove/add exercises and sets under unique indexes); the public
     receipt/revision/finish behavior and concurrency checks land in Stage 6c.
