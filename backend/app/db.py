@@ -24,6 +24,18 @@ MIN_SQLITE_VERSION_TEXT = "3.37"
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 
 
+def _sql_casefold(value: object) -> str | None:
+    """Full-Unicode case folding for SQL text.
+
+    SQLite's built-in `LIKE`, `upper()`/`lower()`, and `COLLATE NOCASE` only
+    case-fold ASCII. Every connection exposes this deterministic function so
+    caseless search and ordering behave identically for any UTF-8 text
+    (Python's `str.casefold()` implements Unicode case folding). Non-text
+    input folds to NULL.
+    """
+    return value.casefold() if isinstance(value, str) else None
+
+
 class DatabaseError(Exception):
     """Base class for database-layer failures."""
 
@@ -86,6 +98,7 @@ def connect(
         isolation_level=None,
     )
     conn.row_factory = sqlite3.Row
+    conn.create_function("casefold", 1, _sql_casefold, deterministic=True)
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         yield conn
