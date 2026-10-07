@@ -1,4 +1,4 @@
-"""Workout create/read endpoints (PLAN.md §5, §6).
+"""Workout create/read/bulk-save endpoints (PLAN.md §5, §6).
 
 `POST /workouts` creates an empty active workout from a client-generated UUID
 and `started_at`, recording the profile bodyweight snapshot at revision 0. The
@@ -8,9 +8,19 @@ of the id is a 409 — including the same content from a different user, whose
 fingerprint never matches and who never sees the stored row. `GET /workouts`
 lists the caller's history (status and local-date filters, bounded paging,
 stable newest-first order); `GET /workouts/{id}` returns the authoritative
-graph. Another user's workout is a plain 404. The Stage 3 conventions apply
-unchanged: problem+json errors, request ids, Origin/JSON CSRF checks on
-mutating verbs, and body size limits.
+graph. Another user's workout is a plain 404.
+
+`PUT /workouts/{id}` is the full-state bulk-save: one atomic, idempotent,
+conflict-safe write path. An exact retry of the latest accepted `save_id`
+returns the stored graph (200) without re-applying it; every other outcome is
+either the new authoritative graph (200) or one stable problem+json failure —
+404 (missing/foreign, never created), 409 `save_id_conflict` /
+`revision_conflict` / `revision_exhausted` / `workout_finished` (each carrying
+only `current_revision`), 409 `graph_conflict` / `catalog_unavailable` (no row
+or owner details), or 422 `validation_error` (field paths, never values).
+Conflict responses never embed the graph; clients re-GET when they need the
+server copy. The Stage 3 conventions apply unchanged: problem+json errors,
+request ids, Origin/JSON CSRF checks on mutating verbs, and body size limits.
 """
 
 from __future__ import annotations
@@ -23,13 +33,14 @@ from pydantic import BeforeValidator
 
 from app.auth import CurrentUser
 from app.config import Settings
-from app.errors import ConflictError, NotFoundError
+from app.errors import ConflictError, NotFoundError, UnprocessableEntityError
 from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.workouts import (
     MAX_HISTORY_DATE,
     MIN_HISTORY_DATE,
     CreateWorkoutRequest,
     ExerciseNodeResponse,
+    SaveWorkoutRequest,
     SetResponse,
     WorkoutDetailResponse,
     WorkoutListResponse,
@@ -37,7 +48,19 @@ from app.schemas.workouts import (
     WorkoutSummaryResponse,
 )
 from app.services import workouts
-from app.services.workouts import CreateConflictError, ExerciseRecord, WorkoutGraph
+from app.services.workouts import (
+    CatalogUnavailableError,
+    CreateConflictError,
+    ExerciseRecord,
+    GraphConflictError,
+    GraphValidationError,
+    RevisionConflictError,
+    RevisionExhaustedError,
+    SaveIdConflictError,
+    WorkoutFinishedError,
+    WorkoutGraph,
+    WorkoutNotFoundError,
+)
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -206,4 +229,70 @@ def get_workout(workout_id: str, request: Request, user: CurrentUser) -> Workout
     )
     if graph is None:
         raise NotFoundError("Workout not found")
+    return _detail_response(graph)
+
+
+@router.put("/{workout_id}", response_model=WorkoutDetailResponse)
+def save_workout(
+    workout_id: str, payload: SaveWorkoutRequest, request: Request, user: CurrentUser
+) -> WorkoutDetailResponse:
+    """Full-state bulk-save: replace the writable metadata and graph atomically.
+
+    A newly accepted save and an exact retry of the latest receipt both return
+    the authoritative post-commit graph with 200. Every failure is one stable
+    problem+json code; conflict bodies carry only `current_revision` and never
+    embed the graph, so a client needing the server copy performs an
+    owner-scoped GET.
+    """
+    try:
+        graph = workouts.save_workout(
+            _settings(request).database_path,
+            owner_id=user.id,
+            workout_id=workout_id,
+            payload=payload,
+        )
+    except WorkoutNotFoundError:
+        # Missing and foreign ids are indistinguishable; PUT never creates.
+        raise NotFoundError("Workout not found") from None
+    except SaveIdConflictError as exc:
+        raise ConflictError(
+            "This save id was already accepted with different content",
+            code="save_id_conflict",
+            members={"current_revision": exc.current_revision},
+        ) from None
+    except RevisionConflictError as exc:
+        raise ConflictError(
+            "The workout has moved past this revision",
+            code="revision_conflict",
+            members={"current_revision": exc.current_revision},
+        ) from None
+    except RevisionExhaustedError as exc:
+        raise ConflictError(
+            "No further safe revision remains",
+            code="revision_exhausted",
+            members={"current_revision": exc.current_revision},
+        ) from None
+    except WorkoutFinishedError as exc:
+        raise ConflictError(
+            "Finished workouts are read-only except deletion and exact finish retry",
+            code="workout_finished",
+            members={"current_revision": exc.current_revision},
+        ) from None
+    except GraphConflictError:
+        # Generic: never disclose whether a colliding row belongs to another
+        # user, or which submitted id collided.
+        raise ConflictError(
+            "The submitted graph conflicts with stored state", code="graph_conflict"
+        ) from None
+    except CatalogUnavailableError:
+        raise ConflictError(
+            "A referenced catalog entry is unknown or unavailable",
+            code="catalog_unavailable",
+        ) from None
+    except GraphValidationError as exc:
+        # Field paths and messages only; never the rejected values.
+        raise UnprocessableEntityError(
+            "Request validation failed",
+            members={"errors": [{"field": exc.field, "message": exc.message}]},
+        ) from None
     return _detail_response(graph)

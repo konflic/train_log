@@ -261,9 +261,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
     catalog defaults, owner visibility, parent/global collision handling,
     generic non-disclosure, all side/load/completion rules, and transaction
     enforcement.
-- **Completed on this branch (PR pending):** Stage 6b - Atomic graph replacement
-  and reordering. Gate G6b passed locally on 2026-10-07; CI re-runs the complete
-  suite on the PR:
+- **Completed:** Stage 6b was merged to `master` in
+  [PR #9](https://github.com/konflic/train_log/pull/9) on 2026-10-07 (`c423699`).
+  Gate G6b passed locally on 2026-10-07; CI re-ran the complete suite on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     `pytest -q` (451 tests, +19), and `pip check` all green, and the isolated
     migration + backup/verify check still passes. No dependency, migration,
@@ -310,10 +310,81 @@ acceptance checks**. Phases 2-3 are out of scope here.
   - **Covers the server-side graph-replacement half of acceptance check 7**
     (reorder/remove/add exercises and sets under unique indexes); the public
     receipt/revision/finish behavior and concurrency checks land in Stage 6c.
-- **Next:** Stage 6c - Public save protocol, concurrency, and finish. It starts
-  from merged 6b and adds the public `PUT /workouts/{id}`, revision and `save_id`
-  receipt handling, finish/lifecycle rules, and the two-connection concurrency
-  tests, keeping all 6a/6b checks green.
+- **Completed on this branch (PR pending):** Stage 6c - Public save protocol,
+  concurrency, and finish. Gate G6c/G6 passed locally on 2026-10-07; CI re-runs
+  the complete suite on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (492 tests, +41), and `pip check` all green, and the isolated
+    migration + backup/verify check still passes. No dependency, migration,
+    frontend, or request-schema change was added; the only new public surface is
+    the `PUT /workouts/{id}` route and one 422 error class. All 6a/6b checks
+    still pass unchanged.
+  - `app/services/workouts.py`: `save_request_hash` fingerprints the owner id,
+    path workout id, and exact normalized full-state body (revision, `save_id`,
+    explicit nulls, and array order; never snapshots or derived indexes) as
+    compact sorted-key JSON. `save_workout` runs the complete public protocol in
+    one `BEGIN IMMEDIATE` transaction: owner-scoped load (missing/foreign →
+    404; PUT never creates); receipt resolution before every other check, so an
+    exact `save_id`+hash retry - including the accepted finish and after input
+    re-spelling - returns the stored graph with no validation, mutation,
+    revision increment, or `updated_at` change, while same-id/different-content
+    raises `SaveIdConflictError`; revision match, so a superseded receipt retry
+    becomes a plain `RevisionConflictError` rather than a claimed success; the
+    finished-workout guard (a new id with identical content is a new write);
+    `RevisionExhaustedError` at `MAX_SAFE_INTEGER`, which still serves exact
+    retries; finish-time rules (`ended_at >= started_at` and `<=` one
+    transaction-sampled UTC timestamp, no clock-skew allowance) as
+    `GraphValidationError("ended_at", ...)`; then the 6a validation and 6b
+    replacement, with revision+1, `last_save_id`, `last_save_hash`, `ended_at`,
+    and the same sampled timestamp as `updated_at` recorded in the one commit. A
+    no-op save with a new `save_id` is accepted and receipted like any other.
+    Graph reads were refactored into a connection-accepting helper: the public
+    GET keeps its fixed three queries, and the PUT response graph is captured on
+    the write connection before commit and returned only after commit succeeds.
+  - `app/api/workouts.py` + `app/errors.py`: `PUT /workouts/{id}` returns the
+    authoritative 200 detail (identical to the public GET) for both newly
+    accepted saves and exact retries, plus the complete stable failure table as
+    problem+json: 404 `not_found` (no revision member); 409 `save_id_conflict`,
+    `revision_conflict`, `revision_exhausted`, `workout_finished` (each carrying
+    only `current_revision`, never a graph); 409 `graph_conflict` and
+    `catalog_unavailable` (no row/owner details); 422 `validation_error` through
+    the new `UnprocessableEntityError` (field paths and messages, never
+    values); and the existing busy handler's 503 `retryable` with
+    `Retry-After: 1`. Stage 3 conventions (request ids, Origin/JSON CSRF on PUT,
+    256 KiB body limit) apply unchanged.
+  - Tests added (+41) use threads, independent connections, synchronization
+    events, and temporary real SQLite files; none is skipped in CI.
+    `tests/test_workout_save_protocol.py` (21 service cases): hash
+    canonicality, owner/workout binding, field/array-order sensitivity, and
+    spelling-insensitivity; receipt recording with snapshot copying; exact
+    retry with no re-apply and finish retry after normalization; no-op new
+    saves; save-id/revision/superseded-receipt conflicts with byte-identical
+    database state; the finished guard; exhaustion serving only exact retries;
+    missing/foreign not-found without creation; stored-state conflicts leaving
+    everything unchanged; frozen-clock finish boundaries (equal-start and
+    equal-now accepted, before-start and future rejected without echoing
+    values); and three deterministic concurrency cases - a same-base-revision
+    race where the forced-first writer holds the lock while the second queues
+    (exactly one winner, one increment, loser `RevisionConflictError`), a
+    separately held write lock exceeding a short busy timeout (retryable
+    `DatabaseBusyError`, no partial mutation, retry after release succeeds), and
+    a post-commit second writer proving the response graph was captured before
+    commit. `tests/test_workout_save_api.py` (20 API cases): auth/CSRF/415;
+    authoritative detail with PUT↔GET equality; retries without duplicate rows
+    or double increments; reorder/add/remove under the unique indexes; atomic
+    save-and-finish with the finished read-only and history-filter rules;
+    finish-time 422s and the equal-start boundary; every stable conflict shape
+    and member set; never-creates; foreign 404; generic graph/catalog conflicts
+    without partial writes; revision exhaustion; unknown/missing/
+    server-controlled field rejection at every nesting level; completed-vs-
+    draft set rules with exact field paths; pre-commit capture through the
+    public route; and busy → 503 then a successful retry.
+  - **Covers acceptance checks 2, 4, 5, 6, and 7 (server halves where noted),
+    completing Stage 6.**
+- **Next:** Stage 7 - Delete + lifecycle. It starts from merged 6c and adds
+  `DELETE /workouts/{id}?revision=N` with in-transaction revision checks, the
+  PUT-after-delete 404 rule, and the finished read-only/GET-after-delete
+  lifecycle tests, keeping the complete Stage 0-6c suite green.
 
 ---
 
@@ -396,6 +467,26 @@ These are estimates, not gate deadlines; re-estimate after Stages 6c and 11c.
 Lettered substages divide their parent's estimate rather than adding effort
 again. Milestones: **A** = foundation, **B** = complete tested API, **C** = full
 client, **D** = operational administration, **E** = shippable.
+
+**Post-Stage-6 re-estimate (2026-10-07):** Stage 6 was the plan's largest
+schedule risk (4 person-days, first risk note) and shipped as three gated
+substages adding +151 tests (6a +91, 6b +19, 6c +41) with no rework between
+substages; the reorder-under-unique-indexes trap was neutralized by the
+temporary-index design plus its dedicated rollback/race tests, and the
+receipt/concurrency protocol needed no corrections after landing. Using that
+evidence, the remaining 26.5 person-days are re-estimated at **24**: Stage 7
+0.5 (unchanged; reuses the 6c lifecycle guards), Stage 8 2.5 (from 3.5;
+stats/prev-perf pairing stays the trickiest backend logic, but bounded-query,
+fixture, and problem+json patterns are now routine), Stage 9 2 and Stage 10 2.5
+(from 3; the API contract the client builds against is fully demonstrated),
+Stages 11a-11c 3 and 12a-12c 4 (unchanged; coordinator/editor risk is unproven
+until started), Stage 13 2.5 and Stage 14 3 (unchanged), Stage 15 4 (from 5;
+the CI aggregate, isolated migration/backup checks, and real-SQLite concurrency
+harness already exist - deployment smoke remains new). Contingency drops from
+8.5 to **5** person-days: the largest backend risk is retired, and the remaining
+schedule risk concentrates in the Stage 11-12 draft/sync protocol and the
+production deployment smoke. Planning budget for the remaining roadmap: **29
+person-days**.
 
 ---
 
