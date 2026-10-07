@@ -14,7 +14,7 @@ size limits, and empty 204 responses.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +25,7 @@ from app.config import Settings
 from app.errors import ConflictError, ForbiddenError, NotFoundError
 from app.schemas.exercises import (
     DEFAULT_PAGE_SIZE,
+    MAX_PAGE_NUMBER,
     MAX_PAGE_SIZE,
     MAX_SEARCH_LENGTH,
     CreateExerciseRequest,
@@ -39,7 +40,7 @@ from app.services.catalog import CatalogEntry, DuplicateNameError, EntryInUseErr
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
-PageNumber = Annotated[int, Query(ge=1)]
+PageNumber = Annotated[int, Query(ge=1, le=MAX_PAGE_NUMBER)]
 PageSize = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE, alias="pageSize")]
 SearchText = Annotated[str, Query(max_length=MAX_SEARCH_LENGTH)]
 
@@ -75,29 +76,6 @@ def _require_visible_entry(request: Request, entry_id: str, user_id: str) -> Cat
 
 def _name_taken() -> ConflictError:
     return ConflictError("A custom exercise with this name already exists", code="name_taken")
-
-
-def _merged_content(entry: CatalogEntry, patch: UpdateExerciseRequest) -> dict[str, Any]:
-    """Merge stored content with provided patch fields and validate the result.
-
-    Cross-field load rules hold for the merged entry, so a partial update can
-    never produce content a full create would reject; failures surface with
-    the same 422 problem document as direct body validation.
-    """
-    merged: dict[str, Any] = {
-        "name": entry.name,
-        "muscle_group": entry.muscle_group,
-        "equipment": entry.equipment,
-        "load_type": entry.load_type,
-        "bodyweight_percent": entry.bodyweight_percent,
-        "side_count": entry.side_count,
-    }
-    merged.update(patch.model_dump(exclude_unset=True))
-    try:
-        validated = CreateExerciseRequest.model_validate(merged)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from None
-    return validated.model_dump()
 
 
 @router.get("", response_model=ExerciseListResponse)
@@ -163,11 +141,15 @@ def update_exercise(
     entry = _require_visible_entry(request, entry_id, user.id)
     if entry.is_default:
         raise ForbiddenError("Default catalog entries cannot be edited", code="default_immutable")
-    updates = _merged_content(entry, payload)
     try:
         updated = catalog.update_custom_entry(
-            _settings(request).database_path, entry_id, owner_id=user.id, updates=updates
+            _settings(request).database_path,
+            entry_id,
+            owner_id=user.id,
+            updates=payload.model_dump(exclude_unset=True),
         )
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from None
     except DuplicateNameError:
         raise _name_taken() from None
     if updated is None:

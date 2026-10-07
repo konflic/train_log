@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from app.db import connect, write_transaction
+from app.numbers import MAX_SAFE_INTEGER
+from app.schemas.exercises import CreateExerciseRequest
 
 CATALOG_COLUMNS = (
     "id",
@@ -137,6 +139,8 @@ def list_entries(
         raise ValueError(f"limit must be positive; got {limit}")
     if offset < 0:
         raise ValueError(f"offset must be nonnegative; got {offset}")
+    if offset > MAX_SAFE_INTEGER:
+        raise ValueError(f"offset must not exceed {MAX_SAFE_INTEGER}; got {offset}")
     where, params = _filter_clause(search=search, muscle_group=muscle_group, equipment=equipment)
     params["viewer_id"] = viewer_id
     columns = ", ".join(CATALOG_COLUMNS)
@@ -240,20 +244,38 @@ def update_custom_entry(
     if unknown:
         raise ValueError(f"unknown catalog fields: {sorted(unknown)}")
 
-    assignments = ", ".join(f"{name} = :{name}" for name in sorted(updates))
-    params: dict[str, Any] = dict(updates)
-    params["id"] = entry_id
-    params["owner_id"] = owner_id
     columns = ", ".join(CATALOG_COLUMNS)
     try:
         with connect(database_path) as conn, write_transaction(conn):
-            cursor = conn.execute(
+            row = conn.execute(
+                f"SELECT {columns} FROM exercise_catalog "
+                "WHERE id = :id AND is_default = 0 AND created_by = :owner_id",
+                {"id": entry_id, "owner_id": owner_id},
+            ).fetchone()
+            if row is None:
+                return None
+
+            current = row_to_entry(row)
+            merged: dict[str, Any] = {
+                "name": current.name,
+                "muscle_group": current.muscle_group,
+                "equipment": current.equipment,
+                "load_type": current.load_type,
+                "bodyweight_percent": current.bodyweight_percent,
+                "side_count": current.side_count,
+            }
+            merged.update(updates)
+            validated = CreateExerciseRequest.model_validate(merged)
+            normalized_updates = {name: getattr(validated, name) for name in updates}
+            assignments = ", ".join(f"{name} = :{name}" for name in sorted(normalized_updates))
+            params: dict[str, Any] = dict(normalized_updates)
+            params["id"] = entry_id
+            params["owner_id"] = owner_id
+            conn.execute(
                 f"UPDATE exercise_catalog SET {assignments} "
                 "WHERE id = :id AND is_default = 0 AND created_by = :owner_id",
                 params,
             )
-            if cursor.rowcount == 0:
-                return None
             row = conn.execute(
                 f"SELECT {columns} FROM exercise_catalog WHERE id = :id",
                 {"id": entry_id},

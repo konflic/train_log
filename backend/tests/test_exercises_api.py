@@ -11,9 +11,10 @@ request-id, and CSRF conventions established in Stage 3.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -21,6 +22,7 @@ from fastapi.testclient import TestClient
 from helpers import insert_exercise, insert_workout
 
 from app.db import connect, write_transaction
+from app.services import catalog
 
 ORIGIN = "http://testserver"
 PASSWORD = "correct-horse-battery"
@@ -324,6 +326,7 @@ def test_pagination_parameter_names_and_bounds(api_client: TestClient) -> None:
         {"pageSize": 2.5},
         {"pageSize": "many"},
         {"page": True},
+        {"page": 10**30},
     ):
         response = api_client.get(EXERCISES_URL, params=params)
         assert response.status_code == 422, params
@@ -472,6 +475,44 @@ def test_patch_updates_own_custom_entry(api_client: TestClient) -> None:
     assert body["side_count"] == 2
     assert body["is_default"] is False
     assert api_client.get(f"{EXERCISES_URL}/{entry['id']}").json() == body
+
+
+def test_patch_does_not_overwrite_interleaved_unrelated_update(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_and_login(api_client)
+    entry = create_exercise(api_client).json()
+    original_update = catalog.update_custom_entry
+
+    def update_after_concurrent_change(
+        database_path: str | Path,
+        entry_id: str,
+        *,
+        owner_id: str,
+        updates: Mapping[str, Any],
+    ) -> catalog.CatalogEntry | None:
+        concurrent = original_update(
+            database_path,
+            entry_id,
+            owner_id=owner_id,
+            updates={"equipment": "cable"},
+        )
+        assert concurrent is not None
+        return original_update(
+            database_path,
+            entry_id,
+            owner_id=owner_id,
+            updates=updates,
+        )
+
+    monkeypatch.setattr(catalog, "update_custom_entry", update_after_concurrent_change)
+    response = api_client.patch(
+        f"{EXERCISES_URL}/{entry['id']}",
+        json={"name": "Renamed Row"},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "Renamed Row"
+    assert response.json()["equipment"] == "cable"
 
 
 def test_patch_null_clears_bodyweight_percent_only(api_client: TestClient) -> None:

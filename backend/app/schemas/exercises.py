@@ -4,9 +4,10 @@ Custom entries carry content fields only: `id`, `is_default`, and `created_by`
 are server-controlled and rejected as unknown input. Cross-field load rules
 mirror the database CHECKs (pure-bodyweight entries require a percentage; only
 `split_weight` may cover two sides), so invalid entries fail with 422 at the
-API boundary. `PATCH` is partial input; the API layer merges it with the
-stored entry and revalidates the result through `CreateExerciseRequest`, so a
-partial update cannot produce an entry a full create would reject.
+API boundary. `PATCH` is partial input; the service merges it with the latest
+stored entry inside the write transaction and revalidates the result through
+`CreateExerciseRequest`, so a partial update cannot produce an entry a full
+create would reject.
 
 Names are Unicode text: bounds count codepoints, trimming is Unicode-aware,
 and stored case is preserved. Uniqueness is exact-match within scope (the
@@ -19,6 +20,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.numbers import MAX_SAFE_INTEGER
 from app.schemas.common import LoadType, Percentage, SideCount
 
 MAX_NAME_LENGTH = 100
@@ -26,6 +28,8 @@ MAX_NAME_LENGTH = 100
 MAX_SEARCH_LENGTH = MAX_NAME_LENGTH
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
+# Keep the largest possible offset within the shared JSON/SQLite integer range.
+MAX_PAGE_NUMBER = MAX_SAFE_INTEGER // MAX_PAGE_SIZE
 
 MuscleGroup = Literal["chest", "back", "legs", "shoulders", "arms", "core", "full_body", "other"]
 Equipment = Literal[
