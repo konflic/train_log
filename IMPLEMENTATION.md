@@ -107,7 +107,7 @@ acceptance checks**. Phases 2-3 are out of scope here.
 - **Completed on this branch (PR pending):** Stage 4 - Exercise catalog API.
   Gate G4 passed locally on 2026-10-07; CI re-runs it on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
-    `pytest -q` (295 tests, +105), and `pip check` all green. No earlier gate
+    `pytest -q` (296 tests, +106), and `pip check` all green. No earlier gate
     regressed (the whole Stage 0-3 suite still passes; CI runs it every time).
     No frontend changes, so the frontend/E2E checks are unchanged.
   - Dependency: none added. `app/db.py` registers one small deterministic
@@ -148,9 +148,10 @@ acceptance checks**. Phases 2-3 are out of scope here.
     and `tests/test_exercises_api.py` (auth on all five verbs, visibility
     scoping across two users, search/filters/pagination, strict rejection of
     unknown/server-controlled and fractional/string/boolean/out-of-range fields,
-    merged-PATCH validation, default immutability, delete-guard 409, cross-user
-    404, unescaped UTF-8 output, and the shared problem+json/request-id/CSRF
-    conventions).
+    merged-PATCH validation, atomic partial updates that preserve interleaved
+    unrelated edits, bounded page offsets, default immutability, delete-guard
+    409, cross-user 404, unescaped UTF-8 output, and the shared
+    problem+json/request-id/CSRF conventions).
   - **Covers parts of acceptance checks 6 and 9.**
 - **Next:** Stage 5 - Workout create + read.
 

@@ -284,6 +284,13 @@ def test_invalid_paging_is_rejected(two_users: Path) -> None:
         catalog.list_entries(two_users, viewer_id="user-1", limit=0, offset=0)
     with pytest.raises(ValueError):
         catalog.list_entries(two_users, viewer_id="user-1", limit=5, offset=-1)
+    with pytest.raises(ValueError):
+        catalog.list_entries(
+            two_users,
+            viewer_id="user-1",
+            limit=5,
+            offset=2**53,
+        )
 
 
 # --- update -----------------------------------------------------------------------
