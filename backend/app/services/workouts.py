@@ -18,7 +18,13 @@ regardless of graph size — never one query per set (PLAN.md §5).
 Stage 6a adds the read-only, transaction-bound validation half of bulk-save.
 It classifies every submitted nested id as retained under its exact parent or
 globally new, resolves immutable exercise snapshots, and validates sets against
-those snapshots before later stages perform any mutation. No public PUT route
+those snapshots before later stages perform any mutation.
+
+Stage 6b adds `apply_validated_graph`, the internal, transaction-bound mutation
+half: it replaces the writable metadata and the complete child graph from a
+`ValidatedSaveGraph`, deleting omitted rows and reindexing retained rows through
+temporary positions so unique indexes are never violated by a reorder. It stays
+internal and leaves lifecycle/receipt fields for Stage 6c; no public PUT route
 exists until the complete save protocol is implemented in Stage 6c.
 """
 
@@ -394,6 +400,219 @@ def validate_save_graph(
         ended_at=payload.ended_at,
         exercises=tuple(validated_exercises),
     )
+
+
+def apply_validated_graph(
+    conn: sqlite3.Connection,
+    *,
+    workout_id: str,
+    graph: ValidatedSaveGraph,
+) -> None:
+    """Replace a workout's writable metadata and child graph atomically.
+
+    This is the internal Stage 6b persistence primitive. It requires the
+    caller's already-open write transaction and a `ValidatedSaveGraph` produced
+    by `validate_save_graph` immediately beforehand on the same connection, so
+    every parent/catalog/id relationship is resolved before the first mutation
+    and no revalidation of a raw request happens here. It neither opens nor
+    commits a transaction, and it deliberately leaves `ended_at`, `revision`,
+    `last_save_id`, `last_save_hash`, and `updated_at` untouched — the public
+    save protocol owns those lifecycle/receipt fields in Stage 6c.
+
+    Reordering is unique-index safe (PLAN.md §5): for each parent, retained rows
+    first move to distinct temporary indexes above both the stored and final
+    ranges, then to their final dense positions, so two occupied positions are
+    never swapped directly. Omitted sets are deleted from retained exercises
+    before omitted exercises are deleted, and an omitted exercise's own sets are
+    left to its `ON DELETE CASCADE` backstop. Retained rows keep their parent,
+    catalog identity, and load snapshots; only new rows carry copied snapshots.
+    """
+    if not conn.in_transaction:
+        raise RuntimeError("applying a save graph requires an active transaction")
+
+    # Writable workout metadata only; the finish/lifecycle/receipt columns are
+    # Stage 6c's responsibility and are not written here.
+    conn.execute(
+        "UPDATE workouts SET name = :name, notes = :notes, bodyweight_kg = :bodyweight_kg "
+        "WHERE id = :id",
+        {
+            "name": graph.name,
+            "notes": graph.notes,
+            "bodyweight_kg": graph.bodyweight_kg,
+            "id": workout_id,
+        },
+    )
+
+    submitted_exercises = graph.exercises
+    submitted_exercise_ids = {exercise.id for exercise in submitted_exercises}
+
+    # Resolve the stored child state to delete omitted rows and to compute
+    # reordering bases. Read inside the same transaction after validation.
+    stored_exercise_index: dict[str, int] = {
+        str(row["id"]): int(row["order_index"])
+        for row in conn.execute(
+            "SELECT id, order_index FROM exercises WHERE workout_id = :id",
+            {"id": workout_id},
+        ).fetchall()
+    }
+
+    retained_exercises = [exercise for exercise in submitted_exercises if not exercise.is_new]
+    retained_exercise_ids = [exercise.id for exercise in retained_exercises]
+    # Stored sets per retained exercise: {exercise_id: {set_id: set_index}}.
+    stored_set_index: dict[str, dict[str, int]] = {
+        exercise_id: {} for exercise_id in retained_exercise_ids
+    }
+    if retained_exercise_ids:
+        placeholders = ", ".join("?" for _ in retained_exercise_ids)
+        for row in conn.execute(
+            f"SELECT id, exercise_id, set_index FROM sets WHERE exercise_id IN ({placeholders})",
+            retained_exercise_ids,
+        ).fetchall():
+            stored_set_index[str(row["exercise_id"])][str(row["id"])] = int(row["set_index"])
+
+    # 1. Delete omitted sets from retained exercises (their parents persist).
+    omitted_set_ids: list[str] = []
+    for exercise in retained_exercises:
+        submitted_set_ids = {item.id for item in exercise.sets}
+        omitted_set_ids.extend(
+            stored_id
+            for stored_id in stored_set_index[exercise.id]
+            if stored_id not in submitted_set_ids
+        )
+    if omitted_set_ids:
+        placeholders = ", ".join("?" for _ in omitted_set_ids)
+        conn.execute(f"DELETE FROM sets WHERE id IN ({placeholders})", omitted_set_ids)
+
+    # 2. Delete omitted exercises; FK cascade removes their descendant sets.
+    omitted_exercise_ids = [
+        stored_id for stored_id in stored_exercise_index if stored_id not in submitted_exercise_ids
+    ]
+    if omitted_exercise_ids:
+        placeholders = ", ".join("?" for _ in omitted_exercise_ids)
+        conn.execute(f"DELETE FROM exercises WHERE id IN ({placeholders})", omitted_exercise_ids)
+
+    # 3. Move retained exercises to distinct temporary indexes above both the
+    #    occupied stored indexes and the final dense range. With no stored row
+    #    the base is -1, so every temporary index stays nonnegative.
+    exercise_temp_base = (
+        max(
+            max(
+                (stored_exercise_index[exercise.id] for exercise in retained_exercises), default=-1
+            ),
+            len(submitted_exercises) - 1,
+        )
+        + 1
+    )
+    if retained_exercises:
+        conn.executemany(
+            "UPDATE exercises SET order_index = :temp WHERE id = :id",
+            [
+                {"temp": exercise_temp_base + position, "id": exercise.id}
+                for position, exercise in enumerate(retained_exercises)
+            ],
+        )
+
+    # 4. Move retained sets to distinct temporary indexes within each exercise.
+    set_temp_moves: list[dict[str, Any]] = []
+    for exercise in retained_exercises:
+        retained_sets = [item for item in exercise.sets if not item.is_new]
+        if not retained_sets:
+            continue
+        set_temp_base = (
+            max(
+                max(stored_set_index[exercise.id][item.id] for item in retained_sets),
+                len(exercise.sets) - 1,
+            )
+            + 1
+        )
+        set_temp_moves.extend(
+            {"temp": set_temp_base + position, "id": item.id}
+            for position, item in enumerate(retained_sets)
+        )
+    if set_temp_moves:
+        conn.executemany("UPDATE sets SET set_index = :temp WHERE id = :id", set_temp_moves)
+
+    # 5. Write retained content and final dense positions. Retained exercises
+    #    keep their parent, catalog identity, and snapshot; retained sets keep
+    #    their parent. Only notes/order and mutable set values change.
+    if retained_exercises:
+        conn.executemany(
+            "UPDATE exercises SET notes = :notes, order_index = :order_index WHERE id = :id",
+            [
+                {"notes": exercise.notes, "order_index": exercise.order_index, "id": exercise.id}
+                for exercise in retained_exercises
+            ],
+        )
+    retained_set_updates: list[dict[str, Any]] = [
+        {
+            "reps": item.reps,
+            "weight_kg": item.weight_kg,
+            "bw_percent_override": item.bw_percent_override,
+            "rpe": item.rpe,
+            "side": item.side,
+            "done": int(item.done),
+            "set_index": item.set_index,
+            "id": item.id,
+        }
+        for exercise in retained_exercises
+        for item in exercise.sets
+        if not item.is_new
+    ]
+    if retained_set_updates:
+        conn.executemany(
+            "UPDATE sets SET reps = :reps, weight_kg = :weight_kg, "
+            "bw_percent_override = :bw_percent_override, rpe = :rpe, side = :side, "
+            "done = :done, set_index = :set_index WHERE id = :id",
+            retained_set_updates,
+        )
+
+    # 6. Insert new exercises with the snapshots copied during validation.
+    new_exercise_inserts: list[dict[str, Any]] = [
+        {
+            "id": exercise.id,
+            "workout_id": workout_id,
+            "catalog_id": exercise.catalog_id,
+            "order_index": exercise.order_index,
+            "notes": exercise.notes,
+            "load_type": exercise.load_type,
+            "bodyweight_percent": exercise.bodyweight_percent,
+            "side_count": exercise.side_count,
+        }
+        for exercise in submitted_exercises
+        if exercise.is_new
+    ]
+    if new_exercise_inserts:
+        conn.executemany(
+            "INSERT INTO exercises (id, workout_id, catalog_id, order_index, notes, "
+            "load_type, bodyweight_percent, side_count) VALUES (:id, :workout_id, "
+            ":catalog_id, :order_index, :notes, :load_type, :bodyweight_percent, :side_count)",
+            new_exercise_inserts,
+        )
+
+    # 7. Insert new sets for both new and retained exercises (parents exist).
+    new_set_inserts: list[dict[str, Any]] = [
+        {
+            "id": item.id,
+            "exercise_id": exercise.id,
+            "set_index": item.set_index,
+            "reps": item.reps,
+            "weight_kg": item.weight_kg,
+            "bw_percent_override": item.bw_percent_override,
+            "rpe": item.rpe,
+            "side": item.side,
+            "done": int(item.done),
+        }
+        for exercise in submitted_exercises
+        for item in exercise.sets
+        if item.is_new
+    ]
+    if new_set_inserts:
+        conn.executemany(
+            "INSERT INTO sets (id, exercise_id, set_index, reps, weight_kg, "
+            "bw_percent_override, rpe, side, done) VALUES (:id, :exercise_id, :set_index, "
+            ":reps, :weight_kg, :bw_percent_override, :rpe, :side, :done)",
+            new_set_inserts,
+        )
 
 
 def create_request_hash(*, user_id: str, workout_id: str, started_at: str) -> str:

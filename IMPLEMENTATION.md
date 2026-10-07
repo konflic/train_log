@@ -230,9 +230,9 @@ acceptance checks**. Phases 2-3 are out of scope here.
     POST; request-id and problem-document conventions).
   - **Covers parts of acceptance checks 2, 6, and 10** (create-retry server
     half, foreign-id 404s, snapshot-vs-profile isolation).
-- **Completed on this branch (PR pending):** Stage 6a - Graph validation and
-  historical snapshots. Gate G6a passed locally on 2026-10-07; CI re-runs the
-  complete suite on the PR:
+- **Completed:** Stage 6a was merged to `master` in
+  [PR #8](https://github.com/konflic/train_log/pull/8) on 2026-10-07 (`dc16b59`).
+  Gate G6a passed locally and in GitHub CI on the PR:
   - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
     `pytest -q` (432 tests, +91), and `pip check` all green. No dependency,
     migration, frontend, or public API route was added.
@@ -261,8 +261,55 @@ acceptance checks**. Phases 2-3 are out of scope here.
     catalog defaults, owner visibility, parent/global collision handling,
     generic non-disclosure, all side/load/completion rules, and transaction
     enforcement.
-- **Next:** Stage 6b - Atomic graph replacement and reordering. It starts only
-  after Stage 6a is merged and keeps the write helper internal until Stage 6c.
+- **Completed on this branch (PR pending):** Stage 6b - Atomic graph replacement
+  and reordering. Gate G6b passed locally on 2026-10-07; CI re-runs the complete
+  suite on the PR:
+  - `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+    `pytest -q` (449 tests, +17), and `pip check` all green, and the isolated
+    migration + backup/verify check still passes. No dependency, migration,
+    frontend, schema, or public API route was added.
+  - `app/services/workouts.py`: internal `apply_validated_graph(conn, *,
+    workout_id, graph)` is the mutation half of bulk-save. It requires the
+    caller's active write transaction and a `ValidatedSaveGraph` from
+    `validate_save_graph` on the same connection, opens/commits no transaction,
+    revalidates no raw request, and returns no response graph. It writes only the
+    workout's `name`, `notes`, and `bodyweight_kg` plus the complete child graph,
+    and deliberately leaves `ended_at`, `revision`, `last_save_id`,
+    `last_save_hash`, and `updated_at` untouched for Stage 6c.
+  - Replacement resolves the stored child ids/indexes inside the transaction,
+    then mutates in order: delete omitted sets from retained exercises, delete
+    omitted exercises (FK cascade backstops their sets), move retained exercises
+    and then retained sets to distinct temporary indexes, write retained content
+    and final dense indexes, insert new exercises with their copied snapshots,
+    then insert new sets. No `INSERT OR REPLACE`/upsert is used, so a row can
+    never be reparented. Per parent, `temporary_base = max(max_existing_index,
+    final_count - 1) + 1` (base `-1` when nothing is stored) keeps every
+    temporary index nonnegative and above both the occupied and final ranges, so
+    a reorder never violates `UNIQUE(workout_id, order_index)` or
+    `UNIQUE(exercise_id, set_index)`. Retained rows are updated in place
+    (exercises: `notes`/`order_index`; sets: mutable values/`set_index`) and keep
+    their parent, catalog identity, and load snapshot. Set-oriented `executemany`
+    batches stay within the 6a graph bounds; no batching abstraction was added.
+  - Tests added (+17, `tests/test_workout_save_apply.py`): each opens a real
+    write transaction, runs 6a validation, calls the 6b helper, commits, and reads
+    the authoritative graph back. They cover the active-transaction guard; empty
+    replacement; add (including add-in-the-middle dense reindex); remove with
+    cascade; omitted-set deletion from a retained exercise; exercise swap and
+    reverse; set swap/reverse within an exercise; both levels plus add/remove in
+    one save; retained snapshot/catalog-identity preservation; retained set values
+    updated in place; new-instance snapshot copying; metadata/bodyweight persist
+    and clear; lifecycle/receipt fields never written; cross-parent set id and
+    global exercise id rejected before mutation (whole-database state unchanged);
+    and a deterministic mid-mutation rollback using a test-local `TEMP TRIGGER`
+    that raises on the final new-set insert after earlier deletes/moves/updates,
+    verifying the complete pre-save graph and metadata survive.
+  - **Covers the server-side graph-replacement half of acceptance check 7**
+    (reorder/remove/add exercises and sets under unique indexes); the public
+    receipt/revision/finish behavior and concurrency checks land in Stage 6c.
+- **Next:** Stage 6c - Public save protocol, concurrency, and finish. It starts
+  from merged 6b and adds the public `PUT /workouts/{id}`, revision and `save_id`
+  receipt handling, finish/lifecycle rules, and the two-connection concurrency
+  tests, keeping all 6a/6b checks green.
 
 ---
 
