@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+import app.auth as auth_module
 from app.auth import (
     LoginThrottle,
     authenticate,
@@ -19,6 +22,7 @@ from app.auth import (
     verify_password,
 )
 from app.db import connect
+from app.schemas.auth import MAX_EMAIL_LENGTH, normalize_email
 from app.services import users
 from app.services.users import DuplicateEmailError
 
@@ -111,10 +115,51 @@ def test_authenticate_verifies_credentials(migrated_db: Path) -> None:
     assert authenticate(migrated_db, email="ghost@example.com", password=PASSWORD) is None
 
 
+def test_authenticate_unknown_email_runs_dummy_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(auth_module, "get_user_by_email", lambda database_path, email: None)
+    monkeypatch.setattr(auth_module, "_timing_equalizer_hash", lambda: "dummy-hash")
+    monkeypatch.setattr(
+        auth_module,
+        "verify_password",
+        lambda password_hash, password: calls.append((password_hash, password)) or False,
+    )
+
+    assert authenticate("unused.db", email="ghost@example.com", password=PASSWORD) is None
+    assert calls == [("dummy-hash", PASSWORD)]
+
+
+@pytest.mark.parametrize("email", ["a", f"a@{'b' * MAX_EMAIL_LENGTH}.com"])
+def test_normalize_email_rejects_values_outside_length_bounds(email: str) -> None:
+    with pytest.raises(ValueError, match="email must be between"):
+        normalize_email(email)
+
+
 def test_create_user_rejects_duplicate_email(migrated_db: Path) -> None:
     users.create_user(migrated_db, email="a@example.com", password_hash=hash_password(PASSWORD))
     with pytest.raises(DuplicateEmailError):
         users.create_user(migrated_db, email="a@example.com", password_hash=hash_password(PASSWORD))
+
+
+def test_create_user_does_not_misclassify_other_integrity_errors(migrated_db: Path) -> None:
+    with pytest.raises(sqlite3.IntegrityError, match="users.password_hash"):
+        users.create_user(
+            migrated_db,
+            email="a@example.com",
+            password_hash=cast(str, None),
+        )
+
+
+def test_get_user_by_id_returns_only_the_requested_user(migrated_db: Path) -> None:
+    first = make_user(migrated_db)
+    make_user(migrated_db, email="other@example.com")
+
+    found = users.get_user_by_id(migrated_db, first.id)
+    assert found is not None
+    assert found.email == first.email
+    assert users.get_user_by_id(migrated_db, "no-such-id") is None
 
 
 def test_update_profile_whitelists_columns(migrated_db: Path) -> None:
@@ -175,3 +220,15 @@ def test_throttle_bounds_key_count() -> None:
     assert len(throttle._windows) <= 2
     # The oldest keys were evicted, so they are no longer throttled.
     assert throttle.check("key-0") is None
+
+
+def test_throttle_prunes_expired_keys_before_evicting_active_keys() -> None:
+    now = [1000.0]
+    throttle = LoginThrottle(max_attempts=1, window_seconds=60.0, max_keys=2, clock=lambda: now[0])
+    throttle.register_failure("expired")
+    now[0] += 61.0
+    throttle.register_failure("active")
+    throttle.register_failure("new")
+
+    assert set(throttle._windows) == {"active", "new"}
+    assert throttle.check("active") is not None
