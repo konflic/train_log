@@ -1,0 +1,647 @@
+/**
+ * Versioned IndexedDB storage for local workout drafts. Network requests and
+ * pending saves deliberately belong to later stages; this module only commits
+ * complete, account-scoped editable draft values.
+ */
+
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { LoadType, SaveExerciseInput } from './api';
+
+const DATABASE_NAME = 'basefit-drafts';
+const DATABASE_VERSION = 1;
+const DRAFT_STORE = 'drafts';
+
+export type DraftKey = [accountId: string, workoutId: string, draftId: string];
+
+export interface LoadSnapshot {
+  load_type: LoadType;
+  bodyweight_percent: number | null;
+  side_count: number;
+}
+
+/** The local-only data needed to build a later full-graph save request. */
+export interface EditableWorkoutContent {
+  name: string | null;
+  notes: string | null;
+  bodyweight_kg: number | null;
+  ended_at: string | null;
+  exercises: SaveExerciseInput[];
+  raw_fields: Record<string, string>;
+  recorded_load_snapshots: Record<string, LoadSnapshot>;
+  provisional_load_snapshots: Record<string, LoadSnapshot>;
+}
+
+export interface WorkoutDraft {
+  account_id: string;
+  workout_id: string;
+  draft_id: string;
+  base_detail_id: string;
+  base_revision: number;
+  started_at: string;
+  content: EditableWorkoutContent;
+  change_number: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftList {
+  drafts: WorkoutDraft[];
+  unavailable_count: number;
+  next_key: DraftKey | null;
+}
+
+export interface DraftPageOptions {
+  after?: DraftKey;
+  limit?: number;
+}
+
+export interface StoredDraftPage {
+  values: unknown[];
+  next_key: DraftKey | null;
+}
+
+export class DraftStorageError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'DraftStorageError';
+  }
+}
+
+export class MalformedDraftError extends Error {
+  constructor() {
+    super('A saved draft is malformed and cannot be recovered');
+    this.name = 'MalformedDraftError';
+  }
+}
+
+export interface DraftStorage {
+  put(draft: WorkoutDraft): Promise<void>;
+  get(key: DraftKey): Promise<unknown | undefined>;
+  listByAccount(
+    accountId: string,
+    options?: DraftPageOptions,
+  ): Promise<StoredDraftPage>;
+  listByAccountWorkout(
+    accountId: string,
+    workoutId: string,
+    options?: DraftPageOptions,
+  ): Promise<StoredDraftPage>;
+  delete(key: DraftKey): Promise<void>;
+  deleteAccount(accountId: string): Promise<void>;
+  close(): void;
+}
+
+interface DraftDatabaseSchema extends DBSchema {
+  drafts: {
+    key: DraftKey;
+    value: WorkoutDraft;
+    indexes: {
+      'by-account': string;
+      'by-account-workout': [string, string];
+    };
+  };
+}
+
+class IndexedDbDraftStorage implements DraftStorage {
+  constructor(private readonly database: IDBPDatabase<DraftDatabaseSchema>) {}
+
+  async put(draft: WorkoutDraft): Promise<void> {
+    await this.database.put(DRAFT_STORE, draft);
+  }
+
+  get(key: DraftKey): Promise<WorkoutDraft | undefined> {
+    return this.database.get(DRAFT_STORE, key);
+  }
+
+  listByAccount(
+    accountId: string,
+    options: DraftPageOptions = {},
+  ): Promise<StoredDraftPage> {
+    return this.page(accountId, undefined, options);
+  }
+
+  listByAccountWorkout(
+    accountId: string,
+    workoutId: string,
+    options: DraftPageOptions = {},
+  ): Promise<StoredDraftPage> {
+    return this.page(accountId, workoutId, options);
+  }
+
+  private async page(
+    accountId: string,
+    workoutId: string | undefined,
+    options: DraftPageOptions,
+  ): Promise<StoredDraftPage> {
+    const limit = options.limit ?? 100;
+    if (
+      !isNonEmptyString(accountId) ||
+      (workoutId !== undefined && !isNonEmptyString(workoutId)) ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      (options.after &&
+        (options.after.length !== 3 ||
+          !options.after.every(isNonEmptyString) ||
+          options.after[0] !== accountId ||
+          (workoutId !== undefined && options.after[1] !== workoutId)))
+    ) {
+      throw new DraftStorageError('Invalid recovery page');
+    }
+    // Compound primary keys give bounded, stable pagination even if a record's
+    // display timestamp changes. Never load every graph in an account at once.
+    const prefix =
+      workoutId === undefined ? [accountId] : [accountId, workoutId];
+    const range = IDBKeyRange.bound(
+      options.after ?? prefix,
+      [...prefix, []],
+      Boolean(options.after),
+      true,
+    );
+    const transaction = this.database.transaction(DRAFT_STORE);
+    const [values, keys] = await Promise.all([
+      transaction.store.getAll(range, limit + 1),
+      transaction.store.getAllKeys(range, limit + 1),
+    ]);
+    await transaction.done;
+    return {
+      values: values.slice(0, limit),
+      next_key: values.length > limit ? keys[limit - 1] : null,
+    };
+  }
+
+  async delete(key: DraftKey): Promise<void> {
+    await this.database.delete(DRAFT_STORE, key);
+  }
+
+  async deleteAccount(accountId: string): Promise<void> {
+    const transaction = this.database.transaction(DRAFT_STORE, 'readwrite');
+    const store = transaction.objectStore(DRAFT_STORE);
+    let cursor = await store.index('by-account').openCursor(accountId);
+    while (cursor) {
+      await cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await transaction.done;
+  }
+
+  close(): void {
+    this.database.close();
+  }
+}
+
+let openingStorage: Promise<DraftStorage> | null = null;
+
+/** Open lazily so server-side imports and tests never touch browser storage. */
+export function openDraftStorage(): Promise<DraftStorage> {
+  if (openingStorage === null) {
+    let cancelled = false;
+    const opening: Promise<DraftStorage> = new Promise<DraftStorage>(
+      (resolve, reject) => {
+        void openDB<DraftDatabaseSchema>(DATABASE_NAME, DATABASE_VERSION, {
+          upgrade(database, oldVersion) {
+            if (oldVersion < 1) {
+              const store = database.createObjectStore(DRAFT_STORE, {
+                keyPath: ['account_id', 'workout_id', 'draft_id'],
+              });
+              store.createIndex('by-account', 'account_id');
+              store.createIndex('by-account-workout', [
+                'account_id',
+                'workout_id',
+              ]);
+            }
+          },
+          blocked() {
+            cancelled = true;
+            reject(
+              new DraftStorageError(
+                'Local storage upgrade is blocked. Close other BaseFit tabs and retry.',
+              ),
+            );
+          },
+          blocking() {
+            void closeDraftStorage();
+          },
+          terminated() {
+            if (openingStorage === opening) openingStorage = null;
+          },
+        }).then((database) => {
+          if (cancelled) {
+            database.close();
+          } else {
+            resolve(new IndexedDbDraftStorage(database));
+          }
+        }, reject);
+      },
+    );
+    openingStorage = opening;
+    // A failed open must not leave a rejected singleton that makes a later
+    // explicit retry impossible.
+    void opening.catch(() => {
+      if (openingStorage === opening) {
+        openingStorage = null;
+      }
+    });
+  }
+  return openingStorage;
+}
+
+/** Tests and future upgrade handling may explicitly release the open handle. */
+export async function closeDraftStorage(): Promise<void> {
+  const storagePromise = openingStorage;
+  if (storagePromise === null) {
+    return;
+  }
+  openingStorage = null;
+  const storage = await storagePromise;
+  storage.close();
+}
+
+function draftKeyOf(draft: WorkoutDraft): DraftKey {
+  return [draft.account_id, draft.workout_id, draft.draft_id];
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 100;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && value.length <= 2000);
+}
+
+function isNullableSafeInteger(value: unknown): value is number | null {
+  return value === null || Number.isSafeInteger(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function fields(value: Record<string, unknown>, names: string): boolean {
+  const expected = names.split(' ');
+  return (
+    Object.keys(value).length === expected.length &&
+    expected.every((name) => Object.hasOwn(value, name))
+  );
+}
+
+function timestamp(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function validGraph(value: unknown): value is SaveExerciseInput[] {
+  if (!Array.isArray(value) || value.length > 25) return false;
+  const exerciseIds = new Set<string>();
+  const setIds = new Set<string>();
+  for (const exercise of value) {
+    if (
+      !isRecord(exercise) ||
+      !fields(exercise, 'id catalog_id notes sets') ||
+      !isNonEmptyString(exercise.id) ||
+      exerciseIds.has(exercise.id) ||
+      !isNonEmptyString(exercise.catalog_id) ||
+      !isNullableString(exercise.notes) ||
+      !Array.isArray(exercise.sets) ||
+      exercise.sets.length > 20
+    )
+      return false;
+    exerciseIds.add(exercise.id);
+    for (const set of exercise.sets) {
+      if (
+        !isRecord(set) ||
+        !fields(set, 'id reps weight_kg bw_percent_override rpe side done') ||
+        !isNonEmptyString(set.id) ||
+        setIds.has(set.id) ||
+        ![set.reps, set.weight_kg, set.bw_percent_override, set.rpe].every(
+          isNullableSafeInteger,
+        ) ||
+        (set.side !== 'left' &&
+          set.side !== 'right' &&
+          set.side !== 'bilateral') ||
+        typeof set.done !== 'boolean'
+      )
+        return false;
+      setIds.add(set.id);
+    }
+  }
+  return setIds.size <= 250;
+}
+
+function hasStringValues(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length <= 1100 &&
+    Object.entries(value).every(
+      ([key, item]) =>
+        key.length <= 150 && typeof item === 'string' && item.length <= 2000,
+    )
+  );
+}
+
+function hasLoadSnapshots(
+  value: unknown,
+): value is Record<string, LoadSnapshot> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    Object.keys(value).length <= 25 &&
+    Object.values(value).every(
+      (item) =>
+        isRecord(item) &&
+        fields(item, 'load_type bodyweight_percent side_count') &&
+        (item['load_type'] === 'single_weight' ||
+          item['load_type'] === 'split_weight' ||
+          item['load_type'] === 'bodyweight') &&
+        (item.bodyweight_percent === null ||
+          (typeof item.bodyweight_percent === 'number' &&
+            Number.isInteger(item.bodyweight_percent) &&
+            item.bodyweight_percent >= 1 &&
+            item.bodyweight_percent <= 100)) &&
+        (item.side_count === 1 ||
+          (item.load_type === 'split_weight' && item.side_count === 2)) &&
+        (item.load_type !== 'bodyweight' || item.bodyweight_percent !== null),
+    )
+  );
+}
+
+function snapshotsMatchGraph(
+  exercises: SaveExerciseInput[],
+  recorded: Record<string, LoadSnapshot>,
+  provisional: Record<string, LoadSnapshot>,
+): boolean {
+  const ids = new Set(exercises.map((exercise) => exercise.id));
+  return (
+    [...Object.keys(recorded), ...Object.keys(provisional)].every((id) =>
+      ids.has(id),
+    ) &&
+    exercises.every(
+      ({ id }) =>
+        Object.hasOwn(recorded, id) !== Object.hasOwn(provisional, id),
+    )
+  );
+}
+
+function isWorkoutDraft(value: unknown): value is WorkoutDraft {
+  if (!isRecord(value) || !isRecord(value['content'])) {
+    return false;
+  }
+  const content = value['content'];
+  const baseRevision = value['base_revision'];
+  const changeNumber = value['change_number'];
+  return (
+    fields(
+      value,
+      'account_id workout_id draft_id base_detail_id base_revision started_at content change_number created_at updated_at',
+    ) &&
+    fields(
+      content,
+      'name notes bodyweight_kg ended_at exercises raw_fields recorded_load_snapshots provisional_load_snapshots',
+    ) &&
+    isNonEmptyString(value['account_id']) &&
+    isNonEmptyString(value['workout_id']) &&
+    isNonEmptyString(value['draft_id']) &&
+    isNonEmptyString(value['base_detail_id']) &&
+    value.base_detail_id === value.workout_id &&
+    timestamp(value.started_at) &&
+    typeof baseRevision === 'number' &&
+    Number.isSafeInteger(baseRevision) &&
+    baseRevision >= 0 &&
+    typeof changeNumber === 'number' &&
+    Number.isSafeInteger(changeNumber) &&
+    changeNumber >= 0 &&
+    timestamp(value['created_at']) &&
+    timestamp(value['updated_at']) &&
+    isNullableString(content['name']) &&
+    isNullableString(content['notes']) &&
+    isNullableSafeInteger(content['bodyweight_kg']) &&
+    (content.ended_at === null || timestamp(content.ended_at)) &&
+    validGraph(content['exercises']) &&
+    hasStringValues(content['raw_fields']) &&
+    hasLoadSnapshots(content['provisional_load_snapshots']) &&
+    hasLoadSnapshots(content['recorded_load_snapshots']) &&
+    snapshotsMatchGraph(
+      content.exercises,
+      content.recorded_load_snapshots,
+      content.provisional_load_snapshots,
+    )
+  );
+}
+
+function copyDraft(draft: WorkoutDraft): WorkoutDraft {
+  try {
+    return structuredClone(draft);
+  } catch (error) {
+    throw new DraftStorageError('Draft data could not be persisted', {
+      cause: error,
+    });
+  }
+}
+
+function compareRecoveryDrafts(
+  left: WorkoutDraft,
+  right: WorkoutDraft,
+): number {
+  const updated = right.updated_at.localeCompare(left.updated_at);
+  if (updated !== 0) {
+    return updated;
+  }
+  return left.draft_id.localeCompare(right.draft_id);
+}
+
+/**
+ * Scoped draft operations with per-draft write serialization. A failed write
+ * does not poison the next explicit retry for that same draft.
+ */
+export class DraftRepository {
+  private readonly writes = new Map<string, Promise<void>>();
+
+  constructor(private readonly storage: DraftStorage) {}
+
+  async put(accountId: string, draft: WorkoutDraft): Promise<WorkoutDraft> {
+    if (!isWorkoutDraft(draft) || draft.account_id !== accountId) {
+      throw new MalformedDraftError();
+    }
+    const committedValue = copyDraft(draft);
+    const key = JSON.stringify(draftKeyOf(committedValue));
+    const previous = this.writes.get(key) ?? Promise.resolve();
+    const write = previous
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await this.storage.put(committedValue);
+        } catch (error) {
+          throw new DraftStorageError('Draft storage write failed', {
+            cause: error,
+          });
+        }
+      });
+    this.writes.set(key, write);
+    try {
+      await write;
+      return copyDraft(committedValue);
+    } finally {
+      if (this.writes.get(key) === write) {
+        this.writes.delete(key);
+      }
+    }
+  }
+
+  async get(
+    accountId: string,
+    workoutId: string,
+    draftId: string,
+  ): Promise<WorkoutDraft | null> {
+    let value: unknown | undefined;
+    try {
+      value = await this.storage.get([accountId, workoutId, draftId]);
+    } catch (error) {
+      throw new DraftStorageError('Draft storage read failed', {
+        cause: error,
+      });
+    }
+    if (value === undefined) {
+      return null;
+    }
+    if (
+      !isWorkoutDraft(value) ||
+      value.account_id !== accountId ||
+      value.workout_id !== workoutId ||
+      value.draft_id !== draftId
+    ) {
+      throw new MalformedDraftError();
+    }
+    return copyDraft(value);
+  }
+
+  async listByAccount(
+    accountId: string,
+    options?: DraftPageOptions,
+  ): Promise<DraftList> {
+    try {
+      return this.validList(
+        await this.storage.listByAccount(accountId, options),
+        accountId,
+      );
+    } catch (error) {
+      throw new DraftStorageError('Draft storage read failed', {
+        cause: error,
+      });
+    }
+  }
+
+  async listByAccountWorkout(
+    accountId: string,
+    workoutId: string,
+    options?: DraftPageOptions,
+  ): Promise<DraftList> {
+    try {
+      return this.validList(
+        await this.storage.listByAccountWorkout(accountId, workoutId, options),
+        accountId,
+        workoutId,
+      );
+    } catch (error) {
+      throw new DraftStorageError('Draft storage read failed', {
+        cause: error,
+      });
+    }
+  }
+
+  async delete(
+    accountId: string,
+    workoutId: string,
+    draftId: string,
+  ): Promise<void> {
+    try {
+      await this.storage.delete([accountId, workoutId, draftId]);
+    } catch (error) {
+      throw new DraftStorageError('Draft storage delete failed', {
+        cause: error,
+      });
+    }
+  }
+
+  async deleteAccount(accountId: string): Promise<void> {
+    try {
+      await this.storage.deleteAccount(accountId);
+    } catch (error) {
+      throw new DraftStorageError('Draft storage delete failed', {
+        cause: error,
+      });
+    }
+  }
+
+  private validList(
+    page: StoredDraftPage,
+    accountId: string,
+    workoutId?: string,
+  ): DraftList {
+    const drafts: WorkoutDraft[] = [];
+    let unavailableCount = 0;
+    for (const value of page.values) {
+      if (
+        isRecord(value) &&
+        (value.account_id !== accountId ||
+          (workoutId !== undefined && value.workout_id !== workoutId))
+      )
+        continue;
+      if (!isWorkoutDraft(value)) {
+        unavailableCount += 1;
+        continue;
+      }
+      drafts.push(copyDraft(value));
+    }
+    drafts.sort(compareRecoveryDrafts);
+    return {
+      drafts,
+      unavailable_count: unavailableCount,
+      next_key: page.next_key,
+    };
+  }
+}
+
+export class EditorAssociations {
+  private readonly activeByWorkout = new Map<string, string>();
+
+  associate(workoutId: string, draftId: string): void {
+    const activeDraftId = this.activeByWorkout.get(workoutId);
+    if (activeDraftId !== undefined && activeDraftId !== draftId) {
+      throw new Error('This tab already has an editor for the workout');
+    }
+    this.activeByWorkout.set(workoutId, draftId);
+  }
+
+  release(workoutId: string, draftId: string): void {
+    if (this.activeByWorkout.get(workoutId) === draftId) {
+      this.activeByWorkout.delete(workoutId);
+    }
+  }
+
+  activeDraftId(workoutId: string): string | null {
+    return this.activeByWorkout.get(workoutId) ?? null;
+  }
+}
+
+export function createDraftId(): string {
+  return crypto.randomUUID();
+}
+
+export function createRecoveryDraft(source: WorkoutDraft): WorkoutDraft {
+  const now = new Date().toISOString();
+  return {
+    ...copyDraft(source),
+    draft_id: createDraftId(),
+    change_number: 0,
+    created_at: now,
+    updated_at: now,
+  };
+}

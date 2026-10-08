@@ -1,6 +1,8 @@
 # Stage 11a - Local persistence and recovery
 
-Status: planned. Start after Gate G10 is merged.
+Status: implemented and reviewed on `stage-11a-local-persistence`.
+Post-review checks were not rerun at the user's explicit request. Gate G11a
+and CI remain pending for the revised implementation.
 
 Working estimate: part of Stage 11's 3 person-day budget.
 
@@ -170,6 +172,72 @@ Completion evidence and the Stage 11b marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, dependency review, IndexedDB schema,
-commands/test counts, browser reload/tab/failure observations, and Gate G11a
-acceptance mapping here before merge.
+Implemented and reviewed on `stage-11a-local-persistence` on 2026-10-08.
+
+- Added the only Stage 11a dependency, `idb@8.0.3` (npm exact version), with
+  a public-registry lockfile URL. The pre-review `npm ls` and `npm audit`
+  reported no unmet dependencies and 0 vulnerabilities.
+- `frontend/src/db.ts` opens `basefit-drafts` lazily at schema version 1. Its
+  `drafts` store has compound key `(account_id, workout_id, draft_id)` and
+  `by-account` plus `by-account-workout` indexes. Values retain the full graph,
+  raw form text, separate recorded/provisional load snapshots, immutable start
+  time, base detail/revision, local change number, and recovery timestamps.
+  Structural validation rejects unknown fields, malformed nested graphs,
+  duplicate IDs, invalid snapshots, unsafe integers, and oversized data.
+- Reads are account-scoped keyset pages of at most 100 values, ordered by
+  compound primary key across pages and by recovery timestamp/ID within each
+  page. Malformed records consume a page slot and surface as unavailable;
+  cursor continuation does not silently drop alternatives. Account deletion
+  iterates a scoped cursor instead of allocating every key at once. Logout
+  coordination remains Stage 11c/13 work.
+- Writes copy the complete value and serialize per draft. `LocalDraftEditor`
+  advances the editable change number immediately but advances the saved number
+  only after commit; an earlier completion never replaces later input or clears
+  its failure. The document-local registry allows an explicit continue action
+  after a component remount; recovery creates a new draft without deleting its
+  source. No editor identity is restored from sessionStorage.
+- A non-secret confirmed-account hint enables explicit local-only recovery
+  when startup `/auth/me` fails. A 401 clears eligibility; a different account
+  confirmed in another tab invalidates the old hint. The E2E harness now uses
+  the same guarded App/session retry state, with no API work or new-source
+  creation during local-only recovery. Production editor UI remains Stage 12a.
+- Failed opens can be retried. A blocked upgrade rejects visibly and closes any
+  late connection; version changes release the cached handle. The test-only
+  failure control aborts a real IndexedDB transaction after request success.
+  The harness displays persisted graph/snapshot data rather than hard-coded
+  snapshot labels.
+
+### Verification provenance
+
+The **pre-review** implementation passed these commands on 2026-10-08:
+
+  ```bash
+  cd frontend
+  npm run check       # 0 errors, 0 warnings
+  npm run lint        # clean
+  npm run test:unit   # 14 files, 154 tests passed
+  npm run build       # passed; no E2E harness/failure hook in dist
+  npm run test:e2e    # 19 Chromium tests passed
+  npm ls              # clean exact dependency tree
+  npm audit           # 0 vulnerabilities
+  ```
+
+Those results did not cover the review findings and are not evidence that the
+revised implementation passes. The prior Gate G11a completion claim is withdrawn
+until the revised checks pass. The user explicitly requested no rerun of checks
+during review; lint, typecheck, unit, browser, build, production-bundle exclusion,
+dependency checks, and CI have not been reconfirmed for the revised code.
+
+Added/strengthened regression cases (not executed after review):
+
+- Rapid edits with delayed storage, unique change numbers, latest-value retry,
+  acknowledgement only after commit, and graph/reference isolation.
+- Exact account scope on writes/reads, malformed nested records, unknown fields,
+  open failure retry, blocked-upgrade rejection, and late-handle closure.
+- Real-browser graph/raw/snapshot recovery, cloned sessionStorage with distinct
+  tab drafts, actual transaction abort, and bounded pagination with corrupt data.
+- Available-shell offline recovery, no API requests after explicit local-only
+  selection, and revocation when another tab confirms a different account.
+
+Next stage: Stage 11b - durable create requests and immutable pending saves,
+after Gate G11a validation and merge.
