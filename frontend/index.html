@@ -4,6 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BaseFit</title>
+    <script>
+      // Pre-paint theme bootstrap. Applies the saved explicit choice (or the
+      // system dark preference, light fallback) to the document root before
+      // application CSS paints. The key and values must stay synchronized
+      // with src/lib/theme.ts; blocked storage or media APIs must not prevent
+      // boot, so every access is guarded.
+      (function () {
+        var KEY = 'basefit.theme';
+        var theme = null;
+        try {
+          var saved = localStorage.getItem(KEY);
+          if (saved === 'light' || saved === 'dark') {
+            theme = saved;
+          }
+        } catch (e) {
+          /* blocked storage: fall through to the system preference */
+        }
+        if (theme === null) {
+          try {
+            theme =
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          } catch (e) {
+            theme = 'light';
+          }
+        }
+        var root = document.documentElement;
+        root.classList.remove(theme === 'dark' ? 'light' : 'dark');
+        root.classList.add(theme);
+        try {
+          root.style.colorScheme = theme;
+        } catch (e) {
+          /* color-scheme is a progressive enhancement here */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

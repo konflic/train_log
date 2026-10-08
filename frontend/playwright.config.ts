@@ -51,27 +51,35 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: `${findBackendPython()} -m uvicorn app.main:app --host 127.0.0.1 --port ${BACKEND_PORT}`,
+      // Migrate the disposable database explicitly before API startup.
+      // APP_ORIGIN pins the CSRF check to the frontend test origin and
+      // COOKIE_SECURE=false is the local-HTTP test setting; inheriting
+      // development settings would invalidate isolation and CSRF checks.
+      command: `${findBackendPython()} migrate.py && ${findBackendPython()} -m uvicorn app.main:app --host 127.0.0.1 --port ${BACKEND_PORT}`,
       cwd: backendDir,
       env: {
         ...processEnv(),
         DATABASE_PATH: join(dataDir, 'e2e.db'),
         APP_ENV: 'test',
+        APP_ORIGIN: FRONTEND_ORIGIN,
+        COOKIE_SECURE: 'false',
         PYTHONUNBUFFERED: '1',
       },
       url: `${BACKEND_ORIGIN}/api/v1/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort`,
+      // The e2e-mode build exposes the real API helpers to the browser spec
+      // (window.__basefitApi); production builds never include the hook.
+      command: `npm run build -- --mode e2e && npm run preview -- --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort`,
       cwd: configDir,
       env: {
         ...processEnv(),
         BACKEND_ORIGIN,
       },
       url: `${FRONTEND_ORIGIN}/`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       stdout: 'pipe',
       timeout: 120_000,
     },
