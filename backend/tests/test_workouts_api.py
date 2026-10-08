@@ -78,7 +78,12 @@ def update_profile(client: TestClient, **fields: object):
 
 
 def finish_workout(database_path: Path, workout_id: str, ended_at: str) -> None:
-    """Mark a workout finished directly (the PUT endpoint arrives in Stage 6)."""
+    """Seed a finished workout directly for the read-side history filters.
+
+    These Stage 5 list tests exercise status/date filtering, not the save
+    protocol, so they set `ended_at` directly rather than going through the
+    (now available) `PUT /workouts/{id}` finish path covered in Stage 6c.
+    """
     with connect(database_path) as conn, write_transaction(conn):
         conn.execute(
             "UPDATE workouts SET ended_at = :ended_at WHERE id = :id",
