@@ -85,7 +85,7 @@
     >
   {:else if items.length === 0}
     <p class="mt-2 text-sm text-muted">
-      No active workouts. Quick start arrives with the workout editor.
+      No active workouts. Start a workout from Home.
     </p>
   {:else}
     <ul class="mt-2 flex flex-col gap-2">
@@ -93,6 +93,11 @@
         <li class="rounded-md border border-edge px-3 py-2">
           <p class="font-medium">{workout.name ?? 'Unnamed workout'}</p>
           <p class="text-sm text-muted">Started {startedAt(workout)}</p>
+          <a
+            href={`#/workouts/${workout.id}`}
+            class="mt-2 inline-flex min-h-11 items-center rounded-md border border-edge px-3 text-sm font-medium"
+            >Resume workout</a
+          >
         </li>
       {/each}
     </ul>

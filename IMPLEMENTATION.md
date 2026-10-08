@@ -57,16 +57,19 @@ remain out of scope.
   and preserves newer local changes. Gate G11b passed locally on 2026-10-08:
   check/lint, 173 unit tests, production build, 25 Chromium tests, `npm ls`, and
   `npm audit` are green. Detailed evidence is in the Stage 11b contract.
-- **Stage 11c delivery:** implementation is in progress on the current working
-  tree. The coordinator now resumes a durable create through GET before any
-  later work, retries an exact pending save first, requires the currently
-  authenticated account, pauses with a classified recovery state, and offers
-  explicit server-copy/replacement preparation. Delayed responses after an
-  account change cannot mutate the old draft. Unit coverage is added; the
-  contract's dedicated two-tab/session-expiry/deletion browser matrix remains
-  required before Gate G11c can be claimed.
-- **Next:** finish the Stage 11c browser recovery matrix and record Gate G11c
-  evidence before beginning Stage 12a.
+- **Stage 11c delivery:** merged to `master` in [PR #18](https://github.com/konflic/train_log/pull/18)
+  on 2026-10-08 (`9c180af`). The coordinator resumes a durable create through
+  GET before later work, retries an exact pending save first, requires the
+  currently authenticated account, pauses with a classified recovery state,
+  and offers explicit server-copy/replacement preparation.
+- **Stage 12a delivery:** implemented on branch
+  `stage-12a-locally-persistent-editor`. The production shell now has durable
+  quick start and active-workout resume routes, explicit per-workout recovery
+  selection, local-only offline recovery, catalog-backed graph editing, strict
+  raw-integer preservation, provisional completed-set totals, and visible
+  local-storage status/retry. It sends no graph PUT or finish request. Gate
+  evidence is recorded in the Stage 12a contract.
+- **Next:** Stage 12b synchronization, reauthentication, and finish.
 
 ## Documentation ownership
 
@@ -343,6 +346,9 @@ repeat-last draft copying. Implement 12a -> 12b -> 12c with a visible
 demonstration at each gate.
 
 #### Stage 12a - Locally persistent editor
+
+**Status:** implemented on branch `stage-12a-locally-persistent-editor`; Gate
+G12a passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-12a-locally-persistent-editor.md`](implementation/stage-12a-locally-persistent-editor.md).

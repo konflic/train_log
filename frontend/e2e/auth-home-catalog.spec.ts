@@ -107,11 +107,9 @@ test.describe('read-only home', () => {
       /\d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2} \(UTC\+0\)/,
     );
 
-    // Stage 10 exposes no workout actions on Home.
     await expect(
-      page.getByRole('button', { name: /quick start/i }),
-    ).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /resume/i })).toHaveCount(0);
+      page.getByRole('link', { name: 'Quick start workout' }),
+    ).toHaveAttribute('href', '#/workouts/new');
   });
 });
 
