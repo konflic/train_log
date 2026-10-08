@@ -50,14 +50,23 @@ remain out of scope.
   on 2026-10-08 (`3dc92d5`). Gate G11a's reviewed implementation was
   revalidated as part of the Stage 11b frontend gate: 173 unit and 25 Chromium
   tests pass locally. The temporary recovery harness remains E2E-build-only.
-- **Stage 11b delivery:** implemented on the current working tree (pending
-  review/merge). IndexedDB schema version 2 adds account/draft-scoped immutable
+- **Stage 11b delivery:** merged to `master` in [PR #17](https://github.com/konflic/train_log/pull/17)
+  on 2026-10-08 (`833c2b0`). IndexedDB schema version 2 adds account/draft-scoped immutable
   `pending_creates` and `pending_saves`; the coordinator persists before send,
   retries exact request identities, atomically acknowledges matching responses,
   and preserves newer local changes. Gate G11b passed locally on 2026-10-08:
   check/lint, 173 unit tests, production build, 25 Chromium tests, `npm ls`, and
   `npm audit` are green. Detailed evidence is in the Stage 11b contract.
-- **Next:** review and merge Stage 11b before beginning Stage 11c.
+- **Stage 11c delivery:** implementation is in progress on the current working
+  tree. The coordinator now resumes a durable create through GET before any
+  later work, retries an exact pending save first, requires the currently
+  authenticated account, pauses with a classified recovery state, and offers
+  explicit server-copy/replacement preparation. Delayed responses after an
+  account change cannot mutate the old draft. Unit coverage is added; the
+  contract's dedicated two-tab/session-expiry/deletion browser matrix remains
+  required before Gate G11c can be claimed.
+- **Next:** finish the Stage 11c browser recovery matrix and record Gate G11c
+  evidence before beginning Stage 12a.
 
 ## Documentation ownership
 

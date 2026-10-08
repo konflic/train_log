@@ -270,6 +270,7 @@
         prepared.draft_id,
         operations,
         { create: createWorkout, get: getWorkout, save: saveWorkout },
+        () => accountId,
       );
       await next.prepareCreate(prepared);
       status = 'Create request stored. Sending…';
