@@ -27,7 +27,10 @@ remain out of scope.
   `PLAN.md` and the merged backend. Their verification matrices cover tab/account
   isolation, durable recovery, finish ordering, deletion, and logout failures;
   these are implementation requirements, not completed frontend gate evidence.
-- **Next:** begin Stage 9 from the merged Stage 8b baseline.
+- **Next:** Stage 10 on the same `stage-9-10-frontend` branch (the user asked
+  for Stages 9 and 10 plus container packaging in one delivery); Stage 9 is
+  implemented there with Gate G9 evidence recorded in
+  [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md).
 
 ## Documentation ownership
 
@@ -180,6 +183,9 @@ remains green; Milestone B exits with the full client-facing API contract.
 ## Milestone C - Frontend against the live API
 
 ### Stage 9 - Frontend foundation
+
+**Status:** implemented on branch `stage-9-10-frontend` (pending merge); Gate
+G9 passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md).

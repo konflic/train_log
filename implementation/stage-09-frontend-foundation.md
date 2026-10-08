@@ -1,6 +1,7 @@
 # Stage 9 - Frontend foundation
 
-Status: planned. Start from the merged Stage 8b baseline.
+Status: implemented on branch `stage-9-10-frontend` (pending merge). Started
+from the merged Stage 8b baseline (`ff424fc`).
 
 Estimate: 2 person-days.
 
@@ -189,6 +190,52 @@ Completion evidence and the Stage 10 marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, dependency review, changed public
-surface, commands/results, test counts, browser observations, and Gate G9
-acceptance mapping here before merge.
+Recorded 2026-10-08 on branch `stage-9-10-frontend` (delivered in the same
+branch/PR as Stage 10 at the user's request).
+
+- **Dependencies:** added exactly two libraries, pinned: `tailwindcss@4.3.3`
+  with `@tailwindcss/vite@4.3.3` (build-time) and `svelte-spa-router@5.1.1`
+  (hash routing). `npm ls` shows no other direct dependency change and no
+  unused additions; `npm audit` reports 0 vulnerabilities. No theme, request,
+  state, validation, icon, or component library was added; `idb` stays out
+  (Stage 11).
+- **Changed public surface:** frontend only, no backend change. New:
+  `src/lib/theme.ts` (resolve/apply/initialize/setPreferredTheme with
+  `basefit.theme` storage key), `src/lib/numbers.ts` (BigInt floor division
+  with remainder correction, safe-range checks on operands, intermediates, and
+  results, full `calculateSetLoad` mirroring `backend/app/numbers.py`),
+  `src/api.ts` (local snake_case types for the completed auth/exercise/workout/
+  previous-performance/statistics schemas; focused fetch helpers; typed problem
+  shape with status/code/detail/request id/validation errors/current revision/
+  Retry-After; malformed-response fallback; HTTP vs network/abort separation),
+  and five route components under `src/routes/`. Modified: `index.html`
+  (guarded pre-paint theme bootstrap), `App.svelte` (route host, single-column
+  shell, 44px bottom nav with `aria-current`), `app.css` (Tailwind plus the
+  semantic token set for both themes and global focus-visible styles),
+  `playwright.config.ts` (migrations before API startup, `APP_ORIGIN` pinned
+  to the frontend test origin, `COOKIE_SECURE=false`, `reuseExistingServer`
+  disabled for both servers, e2e-mode build), `e2e/shell.spec.ts`,
+  `vite.config.ts` (Tailwind plugin).
+- **Test-only browser flow:** `vite build --mode e2e` exposes the real
+  `api.ts` helpers on `window.__basefitApi`; production builds statically drop
+  the branch (verified: `__basefitApi` absent from the production bundle).
+- **Commands/results (local):** `npm run check` 0 errors/0 warnings;
+  `npm run lint` clean; `npm run test:unit` 63 passed (numbers incl. every
+  shared fixture case read directly from `tests/fixtures/numeric_examples.json`,
+  theme, api, shell/routing); `npm run build` green (46.07 kB JS gzip 17.84);
+  `npm run test:e2e` 9 passed against the isolated migrated real backend;
+  `npm ls` / `npm audit` clean.
+- **Browser observations (Chromium):** with all bundled assets aborted, the
+  inline bootstrap still applied the saved dark theme and `color-scheme`
+  before/independent of app JS; system-dark and invalid-stored-value fallbacks
+  verified; hash routing, not-found route, `aria-current` movement, and
+  keyboard-operable nav verified; register/login (real browser mutations
+  setting the HttpOnly cookie) and an authenticated catalog read ran through
+  the actual `api.ts` helpers over the Vite `/api` proxy; a failed login
+  surfaced as the typed 401 problem.
+- **Gate G9 mapping:** production shell routes correctly; theme applies before
+  first paint and persists through the shared module; API helpers authenticate
+  and call the live test backend; frontend arithmetic matches all shared
+  backend fixtures; all frontend checks are green locally (CI green pending on
+  the PR).
+

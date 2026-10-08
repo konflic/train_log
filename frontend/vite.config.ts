@@ -1,5 +1,6 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 
 // Dev/preview servers proxy API calls to the backend. Override the target
@@ -15,7 +16,7 @@ const apiProxy = {
 };
 
 export default defineConfig({
-  plugins: [svelte(), svelteTesting()],
+  plugins: [svelte(), svelteTesting(), tailwindcss()],
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   test: {
