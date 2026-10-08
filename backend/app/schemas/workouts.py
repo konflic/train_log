@@ -19,6 +19,12 @@ completion) are resolved against stored/catalog rows by the service.
 Read responses are explicit: the detail shape carries the recorded load inputs
 (workout bodyweight plus each exercise's immutable snapshot) and the ordering
 indexes; derived loads are computed by clients from these inputs (PLAN.md §3).
+Stage 8a adds one additive read-only member, `previous_performance`, per
+exercise: the paired occurrence of the most recent eligible earlier session with
+its recorded inputs and the server-computed integer comparisons (PLAN.md §7).
+Comparison values are historical facts about two recorded sessions, not
+provisional client-side display values, so they are calculated on the server
+from the same recorded inputs; display percentages remain a client calculation.
 """
 
 from __future__ import annotations
@@ -241,8 +247,93 @@ class SetResponse(BaseModel):
     done: bool
 
 
+class SetValuesResponse(BaseModel):
+    """Reported integer values for one compared set; `null` means unknown.
+
+    One shape serves a previous occurrence's derived values and the current,
+    previous, and delta members of a pair, so a client renders any of them the
+    same way. A `null` load-based value is either an unknown recorded input or
+    an incompatible comparison; `load_compatible` distinguishes the two.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reps: int | None
+    external_load_kg: int | None
+    effective_load_kg: int | None
+    volume_kg_reps: int | None
+    estimated_1rm_kg: int | None
+
+
+class PreviousSetResponse(BaseModel):
+    """One completed set of the paired previous occurrence (PLAN.md §7).
+
+    Recorded inputs plus the values derived from that session's own recorded
+    bodyweight and exercise snapshot. Only `done=true` sets appear; unfinished
+    history never contributes performance.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    set_index: int
+    side: Side
+    reps: int | None
+    weight_kg: int | None
+    bw_percent_override: int | None
+    values: SetValuesResponse
+
+
+class PreviousSetPairResponse(BaseModel):
+    """One side-aware comparison between a current and a previous completed set.
+
+    Pairs are matched by side and per-side ordinal and listed in current set
+    order; both set ids are echoed so a client never relies on positions. An
+    unmatched current set has no entry and therefore no delta. When
+    `load_compatible` is false, only `reps` is compared and every load-based
+    value is `null` on all three members, so a later catalog edit cannot
+    fabricate progression.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_set_id: str
+    previous_set_id: str
+    load_compatible: StrictBool
+    current: SetValuesResponse
+    previous: SetValuesResponse
+    delta: SetValuesResponse
+
+
+class PreviousPerformanceResponse(BaseModel):
+    """The selected previous session occurrence paired with one current exercise.
+
+    `sets` is the previous occurrence's complete completed-set list, so an
+    active workout can show "last time" before any current set is done; `pairs`
+    holds only the matched comparisons. All values come from that session's
+    recorded bodyweight and immutable exercise snapshot.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workout_id: str
+    started_at: str
+    bodyweight_kg: int | None
+    exercise_id: str
+    order_index: int
+    load_type: LoadType
+    bodyweight_percent: int | None
+    side_count: int
+    sets: list[PreviousSetResponse]
+    pairs: list[PreviousSetPairResponse]
+
+
 class ExerciseNodeResponse(BaseModel):
-    """One workout exercise: catalog reference plus its immutable snapshot."""
+    """One workout exercise: catalog reference plus its immutable snapshot.
+
+    `previous_performance` is additive and `null` when no eligible previous
+    session occurrence pairs with this exercise.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -254,6 +345,7 @@ class ExerciseNodeResponse(BaseModel):
     bodyweight_percent: int | None
     side_count: int
     sets: list[SetResponse]
+    previous_performance: PreviousPerformanceResponse | None
 
 
 class WorkoutSummaryResponse(BaseModel):

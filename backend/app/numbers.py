@@ -10,6 +10,10 @@ from typing import Literal
 MAX_SAFE_INTEGER = (1 << 53) - 1
 MIN_SAFE_INTEGER = -MAX_SAFE_INTEGER
 
+# Above this rep count an external-load 1RM estimate is not meaningful
+# (PLAN.md §7 Metrics); the value is reported as unknown instead.
+MAX_ESTIMATED_ONE_REP_REPS = 10
+
 LoadType = Literal["single_weight", "split_weight", "bodyweight"]
 
 
@@ -55,6 +59,33 @@ def external_load(weight_kg: int, multiplier: int) -> int:
     return _checked_result(weight_kg * multiplier)
 
 
+def recorded_external_load(
+    *,
+    weight_kg: int | None,
+    load_type: LoadType,
+    side_count: int,
+) -> int | None:
+    """Return the external load implied by one set's recorded inputs.
+
+    A pure-bodyweight set has no external weight and contributes zero; the
+    `weight_kg` field is not multiplied (PLAN.md §4). A weighted set whose
+    weight was never recorded stays unknown rather than becoming zero.
+    """
+    if weight_kg is not None:
+        weight_kg = require_safe_integer(weight_kg, name="weight_kg")
+    side_count = require_safe_integer(side_count, name="side_count")
+
+    if load_type == "bodyweight":
+        return 0
+    if weight_kg is None:
+        return None
+    if load_type == "single_weight":
+        return external_load(weight_kg, 1)
+    if load_type == "split_weight":
+        return external_load(weight_kg, side_count)
+    raise ValueError(f"unsupported load_type: {load_type!r}")
+
+
 def effective_load(
     *,
     weight_kg: int | None,
@@ -64,25 +95,16 @@ def effective_load(
     bodyweight_percent: int | None,
 ) -> int | None:
     """Calculate effective load from the recorded exercise and workout inputs."""
-    if weight_kg is not None:
-        weight_kg = require_safe_integer(weight_kg, name="weight_kg")
-    side_count = require_safe_integer(side_count, name="side_count")
+    external = recorded_external_load(
+        weight_kg=weight_kg, load_type=load_type, side_count=side_count
+    )
     if bodyweight_kg is not None:
         bodyweight_kg = require_safe_integer(bodyweight_kg, name="bodyweight_kg")
     if bodyweight_percent is not None:
         bodyweight_percent = require_safe_integer(bodyweight_percent, name="bodyweight_percent")
 
-    if load_type == "bodyweight":
-        external = 0
-    elif weight_kg is None:
+    if external is None:
         return None
-    elif load_type == "single_weight":
-        external = external_load(weight_kg, 1)
-    elif load_type == "split_weight":
-        external = external_load(weight_kg, side_count)
-    else:
-        raise ValueError(f"unsupported load_type: {load_type!r}")
-
     if bodyweight_percent is None:
         return external
     if bodyweight_kg is None:
@@ -99,12 +121,54 @@ def set_volume(reps: int | None, effective_load_kg: int | None) -> int | None:
     return _checked_result(reps * effective_load_kg)
 
 
+def estimated_one_rep_max(
+    *,
+    external_load_kg: int | None,
+    reps: int | None,
+    load_type: LoadType,
+    bodyweight_percent: int | None,
+) -> int | None:
+    """Return the floored 1RM estimate for an external-load-only set.
+
+    Only weighted exercises without a bodyweight contribution have an estimate:
+    one rep is the external load itself, 2 through
+    `MAX_ESTIMATED_ONE_REP_REPS` reps use `external_load * (30 + reps) // 30`,
+    and higher rep counts are unknown. Pure-bodyweight and weighted-bodyweight
+    sets are always unknown, because the bodyweight share is an estimate rather
+    than a measured external load (PLAN.md §7).
+    """
+    if load_type == "bodyweight" or bodyweight_percent is not None:
+        return None
+    if external_load_kg is None or reps is None:
+        return None
+    external_load_kg = require_safe_integer(external_load_kg, name="external_load_kg")
+    reps = require_safe_integer(reps, name="reps")
+    if reps < 1:
+        return None
+    if reps == 1:
+        return external_load_kg
+    if reps > MAX_ESTIMATED_ONE_REP_REPS:
+        return None
+    return floor_divide(external_load_kg * (30 + reps), 30)
+
+
+def integer_delta(current: int | None, previous: int | None) -> int | None:
+    """Return `current - previous`, keeping an unknown operand unknown."""
+    if current is None or previous is None:
+        return None
+    current = require_safe_integer(current, name="current")
+    previous = require_safe_integer(previous, name="previous")
+    return _checked_result(current - previous)
+
+
 @dataclass(frozen=True, slots=True)
 class SetLoad:
-    """The derived loads for one set, with ``None`` representing unknown."""
+    """The derived values for one set, with ``None`` representing unknown."""
 
+    external_load_kg: int | None
     effective_load_kg: int | None
     volume_kg_reps: int | None
+    estimated_1rm_kg: int | None
 
 
 def calculate_set_load(
@@ -116,7 +180,15 @@ def calculate_set_load(
     bodyweight_kg: int | None,
     bodyweight_percent: int | None,
 ) -> SetLoad:
-    """Calculate effective load then volume in the documented order."""
+    """Calculate external load, effective load, volume, and 1RM estimate.
+
+    `bodyweight_percent` is the set's effective percentage (its override when
+    one is recorded, otherwise the exercise snapshot), so one call resolves the
+    complete documented calculation order for one set.
+    """
+    external = recorded_external_load(
+        weight_kg=weight_kg, load_type=load_type, side_count=side_count
+    )
     result_load = effective_load(
         weight_kg=weight_kg,
         load_type=load_type,
@@ -124,4 +196,14 @@ def calculate_set_load(
         bodyweight_kg=bodyweight_kg,
         bodyweight_percent=bodyweight_percent,
     )
-    return SetLoad(result_load, set_volume(reps, result_load))
+    return SetLoad(
+        external_load_kg=external,
+        effective_load_kg=result_load,
+        volume_kg_reps=set_volume(reps, result_load),
+        estimated_1rm_kg=estimated_one_rep_max(
+            external_load_kg=external,
+            reps=reps,
+            load_type=load_type,
+            bodyweight_percent=bodyweight_percent,
+        ),
+    )

@@ -14,20 +14,21 @@ remain out of scope.
 
 ## Current status
 
-- **Completed baseline:** Stages 0 through 6c are merged to `master`. Stage 6c
-  merged in [PR #10](https://github.com/konflic/train_log/pull/10) on
-  2026-10-08 (`37eeb9c`), with Gate G6c/G6 completing the revisioned bulk-save,
-  receipt, concurrency, and finish protocol.
-- **Completed on branch `stage-7-delete-lifecycle` (PR pending):** Stage 7 -
-  Delete and lifecycle. Gate G7 passed locally on 2026-10-08; the detailed
-  completion evidence is recorded in
-  [`implementation/stage-07-delete-lifecycle.md`](implementation/stage-07-delete-lifecycle.md).
-  The backend suite is green (510 tests, +18) with no dependency, migration, or
-  schema change; the only new public surface is
-  `DELETE /workouts/{id}?revision=N`.
-- **Next:** Stage 8a - Inline previous performance, starting from merged
-  Stage 7. Its detailed file retains explicit contract questions that must be
-  resolved before implementation; Stage 8b-8c then complete the backend API.
+- **Completed baseline:** Stages 0 through 7 are merged to `master`. Stage 7
+  merged in [PR #12](https://github.com/konflic/train_log/pull/12) on
+  2026-10-08 (`a5fa210`), with Gate G7 completing revision-checked deletion and
+  the post-delete lifecycle.
+- **Completed on branch `stage-8a-previous-performance` (PR pending):**
+  Stage 8a - Inline previous performance. Gate G8a passed locally on
+  2026-10-08; the detailed completion evidence is recorded in
+  [`implementation/stage-08a-previous-performance.md`](implementation/stage-08a-previous-performance.md).
+  The backend suite is green (592 tests, +82) with no dependency or request-body
+  change. One internal migration stores the latest PUT's bounded
+  previous-performance receipt; the only new public surface is the additive
+  nullable `previous_performance` member of the workout detail exercise shape.
+- **Next:** Stage 8b - Statistics summary, starting from merged Stage 8a. Its
+  detailed file retains explicit contract questions that must be resolved before
+  implementation; Stage 8c then completes the backend API.
 
 ## Documentation ownership
 
@@ -87,8 +88,7 @@ development or production database.
 
 | MS | Stage | Deliverable | Primary verification | Current est. days |
 |----|-------|-------------|----------------------|------------------:|
-| B. Backend API | **7** | DELETE + lifecycle rules | Lifecycle API/service tests | 0.5 |
-| B | **8a-8c** | Previous performance -> stats summary -> JSON export | Three separate backend gates | 2.5 |
+| B. Backend API | **8b-8c** | Stats summary -> JSON export | Two separate backend gates | 1.5 |
 | C. Frontend | **9** | Frontend foundation, theme, router, API and integer helpers | Component/unit tests against backend | 2 |
 | C | **10** | Auth, read-only Home, Catalog | Component + Playwright | 2.5 |
 | C | **11a-11c** | IndexedDB drafts, durable pending work, recovery/account handling | Three coordinator/browser gates | 3 |
@@ -97,10 +97,10 @@ development or production database.
 | D. Operations | **14** | Minimal admin API/panel, account controls, audit | Admin API/security + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence and production deployment smoke | Full CI + deployment/restart checks | 4 |
 
-Remaining implementation and verification total **24 person-days**. Reserve
-**5 additional contingency days**, concentrated in Stage 8 comparison/calendar
+Remaining implementation and verification total **22.5 person-days**. Reserve
+**5 additional contingency days**, concentrated in Stage 8b comparison/calendar
 rules, Stages 11-12 synchronization, and Stage 15 deployment smoke. Remaining
-planning budget: **29 person-days**. Estimates are planning inputs, not gate
+planning budget: **27.5 person-days**. Estimates are planning inputs, not gate
 deadlines.
 
 ---
@@ -109,8 +109,9 @@ deadlines.
 
 ### Stage 7 - Delete and lifecycle
 
-**Status:** completed on branch `stage-7-delete-lifecycle` (PR pending); Gate
-G7 passed locally on 2026-10-08.
+**Status:** merged to `master` in
+[PR #12](https://github.com/konflic/train_log/pull/12) on 2026-10-08
+(`a5fa210`); Gate G7 passed locally on 2026-10-08.
 
 **Detailed plan and completion evidence:**
 [`implementation/stage-07-delete-lifecycle.md`](implementation/stage-07-delete-lifecycle.md).
@@ -133,12 +134,27 @@ substage.
 
 #### Stage 8a - Inline previous performance
 
-**Detailed plan:**
+**Status:** completed on branch `stage-8a-previous-performance` (PR pending);
+Gate G8a passed locally on 2026-10-08.
+
+**Detailed plan and completion evidence:**
 [`implementation/stage-08a-previous-performance.md`](implementation/stage-08a-previous-performance.md).
 
 Bounded previous-session selection, occurrence and side-aware set pairing,
 snapshot-compatible integer comparisons, and estimated 1RM in workout detail
 responses.
+
+**Gate G8a:** the additive nullable `previous_performance` member is explicit in
+the detail schema; selection uses finished, strictly earlier, owner-scoped
+sessions with a completed set for the catalog id under the
+`(started_at DESC, id DESC)` total order; occurrences pair in workout order and
+completed sets by side and per-side ordinal without ever crossing sides;
+recorded snapshots and bodyweights make catalog and profile edits unable to
+fabricate progression; GET, POST, an accepted PUT, and an exact retry return
+equal detail representations from one transaction snapshot; the query count stays
+bounded independently of graph size; the complete backend suite passes.
+
+**Acceptance coverage:** the server half of checks 8, 9, and 10.
 
 #### Stage 8b - Statistics summary
 
@@ -420,10 +436,10 @@ UTC-offset handling are proved in Stage 15.
 
 ## Active risk notes
 
-- **S8a previous-performance pairing:** occurrence order, side ordinals, and
-  snapshot compatibility require focused fixtures.
 - **S8b offset grouping/streaks:** Monday-start half-open ranges and the ongoing
-  current-week rule require explicit boundary fixtures.
+  current-week rule require explicit boundary fixtures. Stage 8a's
+  previous-performance fixtures already fix the eligibility rules (finished
+  workouts, completed sets only) that 8b's counts must reuse.
 - **S11 draft/sync protocol:** offline, multi-tab, response-loss, and
   acknowledgement ordering need coordinator tests, not only UI coverage.
 - **S14 authorization/audit:** account disabling and immutable evidence must stay
