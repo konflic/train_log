@@ -21,6 +21,14 @@ or owner details), or 422 `validation_error` (field paths, never values).
 Conflict responses never embed the graph; clients re-GET when they need the
 server copy. The Stage 3 conventions apply unchanged: problem+json errors,
 request ids, Origin/JSON CSRF checks on mutating verbs, and body size limits.
+
+`DELETE /workouts/{id}?revision=N` hard-deletes an active or finished workout
+at its exact stored revision and answers with an empty 204. Missing, already
+deleted, and foreign ids share one 404; a revision mismatch is a 409
+`revision_conflict` carrying only `current_revision`. There is no delete
+receipt or tombstone: later reads and writes (GET, PUT, a repeated DELETE)
+return 404 without recreating the workout, and a retry of a successful but
+unobserved deletion is resolved by an owner-scoped GET that also returns 404.
 """
 
 from __future__ import annotations
@@ -34,6 +42,7 @@ from pydantic import BeforeValidator
 from app.auth import CurrentUser
 from app.config import Settings
 from app.errors import ConflictError, NotFoundError, UnprocessableEntityError
+from app.numbers import MAX_SAFE_INTEGER
 from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.workouts import (
     MAX_HISTORY_DATE,
@@ -67,6 +76,22 @@ router = APIRouter(prefix="/workouts", tags=["workouts"])
 PageNumber = Annotated[int, Query(ge=1, le=MAX_PAGE_NUMBER)]
 PageSize = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE, alias="pageSize")]
 StatusFilter = Annotated[WorkoutStatus, Query()]
+
+
+def _parse_revision(value: object) -> int:
+    """Accept only an ASCII decimal integer from the query string."""
+    if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
+        raise ValueError("revision must be a decimal integer")
+    return int(value)
+
+
+# DELETE requires the client's base revision, bounded to the shared nonnegative
+# JSON-safe integer range like every other revision in the API.
+RevisionQuery = Annotated[
+    int,
+    BeforeValidator(_parse_revision),
+    Query(ge=0, le=MAX_SAFE_INTEGER),
+]
 
 
 def _parse_history_date(value: object) -> date:
@@ -296,3 +321,35 @@ def save_workout(
             members={"errors": [{"field": exc.field, "message": exc.message}]},
         ) from None
     return _detail_response(graph)
+
+
+@router.delete("/{workout_id}", status_code=204)
+def delete_workout(
+    workout_id: str, request: Request, user: CurrentUser, revision: RevisionQuery
+) -> Response:
+    """Hard-delete the owned workout at its exact stored revision (empty 204).
+
+    Active and finished workouts are both deletable; exercises and sets are
+    removed by the existing foreign-key cascades. Missing, already-deleted, and
+    foreign ids are indistinguishable 404s, and a revision mismatch is a 409
+    carrying only `current_revision`. The success response has no JSON body and
+    no delete receipt: an uncertain retry is resolved by an owner-scoped GET
+    that also returns 404.
+    """
+    try:
+        workouts.delete_workout(
+            _settings(request).database_path,
+            owner_id=user.id,
+            workout_id=workout_id,
+            revision=revision,
+        )
+    except WorkoutNotFoundError:
+        raise NotFoundError("Workout not found") from None
+    except RevisionConflictError as exc:
+        # The same stable shape PUT uses; never a resource representation.
+        raise ConflictError(
+            "The workout has moved past this revision",
+            code="revision_conflict",
+            members={"current_revision": exc.current_revision},
+        ) from None
+    return Response(status_code=204)
