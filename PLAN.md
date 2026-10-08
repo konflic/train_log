@@ -20,8 +20,8 @@ when a second client or a measured deployment need justifies them.
 
 ### Permanent Product Rules
 
-- **Metric only** across the UI, API, storage, and exports, including future
-  features. No imperial units, unit-system preference, or unit selector.
+- **Metric only** across the UI, API, storage, and future features. No imperial
+  units, unit-system preference, or unit selector.
 - **Dark/light theme switch in Settings**, available from Phase 1.
 
 ### Non-Goals for the MVP
@@ -35,9 +35,9 @@ when a second client or a measured deployment need justifies them.
 - PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
 - Automatic conflict merging, background sync, and starting new workouts offline.
 - Templates, a native app, and advanced charts.
-- Admin impersonation, password viewing/reset, workout inspection/editing,
-  user-data export, and default-catalog management. The Phase 1 admin panel is
-  limited to account operations.
+- Admin impersonation, password viewing/reset, workout inspection/editing, and
+  default-catalog management. The Phase 1 admin panel is limited to account
+  operations.
 - Email verification and password recovery for the initial private/small
   deployment; resolve account recovery before a public multi-user launch.
 
@@ -214,7 +214,7 @@ zero denominators produce `null`, not an exception or fabricated percentage.
   override, and whether it was actually completed.
 - **AdminAuditEvent**: immutable record of an administrative actor, target,
   action, required reason, request ID, and timestamp. It contains no password,
-  session token, workout content, or exported user data.
+  session token, or workout content.
 - Later: **BodyweightEntry**, **WorkoutTemplate**, **TemplateExercise**, and
   **TemplateSet**. Do not create their tables or endpoints in Phase 1.
 
@@ -301,10 +301,10 @@ not pair a left set with a right set.
 - Record successful and rejected mutations attempted by an authorized admin in
   an append-only audit log without secrets or user workout content. There is no
   API to update/delete audit records. Keep stable ordering and an ID tie-breaker
-  for audit pagination. User data exports never include roles or admin audit data.
+  for audit pagination.
 - Admins cannot impersonate users, read or edit workouts, view/reset passwords,
-  access user exports, delete users, or edit the default exercise catalog in
-  Phase 1. QA fixture/reset tooling is separate and is never an admin feature.
+  delete users, or edit the default exercise catalog in Phase 1. QA fixture/reset
+  tooling is separate and is never an admin feature.
 
 ---
 
@@ -460,7 +460,6 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 | PATCH | /exercises/{id} | Edit own custom entry for future instances |
 | DELETE | /exercises/{id} | Delete own unreferenced entry |
 | GET | /stats/summary | Basic eligible workout/set counts and volume |
-| GET | /export | User-owned training data as versioned JSON, excluding auth secrets |
 | GET | /admin/users | Bounded user search/list with account metadata only |
 | POST | /admin/users/{id}/disable | Disable an account and revoke its sessions atomically |
 | POST | /admin/users/{id}/enable | Re-enable an account without restoring sessions |
@@ -554,16 +553,16 @@ This bounded receipt avoids a generic idempotency service or operation log.
   first, and fetch current state before sending other pending work. Do not
   advance a draft's base revision just because a newer server revision exists.
 - On conflict, stop automatic saves and retain the local draft. Offer to use
-  the server copy, export/copy the local draft into a new workout, or explicitly
-  replace the server copy using a newly fetched revision where lifecycle permits.
-  No automatic merging or per-set last-write-wins.
+  the server copy, copy the local draft into a new workout, or explicitly replace
+  the server copy using a newly fetched revision where lifecycle permits. No
+  automatic merging or per-set last-write-wins.
 - Sync runs while the app is open, on edits and reconnection. Phase 1 can continue
   an already loaded workout offline and recover drafts after relaunch when the
   app loads. Cold-starting the entire app without a network requires the later
   PWA app-shell cache. Background sync is deferred.
 - Expired sessions pause upload without deleting drafts. On logout, offer to
-  sync/export/discard pending changes, then clear that account's local data;
-  never upload an old account's draft under a newly logged-in user.
+  sync or discard pending changes, then clear that account's local data; never
+  upload an old account's draft under a newly logged-in user.
 
 ---
 
@@ -635,11 +634,11 @@ This bounded receipt avoids a generic idempotency service or operation log.
 5. **Catalog/picker**: search, muscle filters, default/custom labels, and
    creation/editing of own custom entries.
 6. **Settings**: dark/light theme switch, display name, default bodyweight,
-   UTC offset picker (hour steps, e.g. −3 h … +3 h), JSON export, logout.
-   Units are always metric, with no unit selector.
+   UTC offset picker (hour steps, e.g. −3 h … +3 h), and logout. Units are
+   always metric, with no unit selector.
 7. **Admin**: role-gated user search, account status, disable/enable, session
    revocation, and audit history. Require reason/confirmation for mutations;
-   expose no workout content, impersonation, password controls, or user exports.
+   expose no workout content, impersonation, or password controls.
 8. Later: templates and dedicated statistics charts.
 
 Mobile rules: single-column layouts, bottom navigation, touch targets of at
@@ -702,9 +701,6 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   bounded save receipts, atomic save-and-finish, history, deletion, repeat-last.
 - Record bodyweight/load inputs from day one. Show basic completed-set totals,
   summary stats, and inline previous performance.
-- JSON export of saved training data plus local-draft export for recovery.
-  Include format version, recorded inputs, and referenced catalog data. Import
-  is separate future work; JSON export does not replace database backup.
 - Minimal audited administration: securely bootstrap admins, search users,
   disable/enable accounts, revoke sessions, and review admin actions without
   impersonation or access to workout content.
@@ -730,12 +726,12 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 11. Expire a session, switch accounts, and retry after deletion: preserve or
     explicitly discard drafts without cross-account uploads or silent recreation.
 12. Verify CSRF protection, cookie expiry, logout revocation, and exclusion of
-    session/password data from API output and export.
+    session/password data from API output.
 13. Restore a backup and upgrade an older schema: data, indexes, and foreign keys
     remain valid. No requirement for PostgreSQL tests in this phase.
 14. Switch between dark and light in Settings, navigate, and reload: the chosen
     theme persists and controls remain legible. Verify metric units throughout
-    the UI, API, and export, with no unit selector or imperial option.
+    the UI, API, and storage, with no unit selector or imperial option.
 15. Verify non-admins cannot access admin data/actions; disabling an account
     atomically revokes its sessions and blocks login; enabling it restores only
     login eligibility; self/last-admin safeguards hold; successful and rejected
@@ -820,8 +816,8 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - **Integer-only, always floor**: whole kg, integer RPE, integer bodyweight
   percentages, explicit calculation order. No fractional measurements in the
   MVP; unknown values remain `null`.
-- **Metric only, permanently**: fixed metric units across clients, API, storage,
-  and exports; no imperial support or user-selectable unit system.
+- **Metric only, permanently**: fixed metric units across clients, API, and
+  storage; no imperial support or user-selectable unit system.
 - **UTC storage + fixed user UTC offset**: every stored instant is canonical
   UTC; the user picks a fixed offset (integer minutes, default 0) in Settings
   for display and calendar grouping. Removes zoneinfo/tzdata deployment
@@ -843,10 +839,19 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   expiry, and logout; introduce native transport when the native client exists.
 - **Draft persistence before background sync**: keep recovery reliable while the
   app is open; define offline limits and surface conflicts rather than hiding them.
-- **Progress feedback and export early**: repeat-last, completed-set totals,
-  previous performance, and recoverable data matter before elaborate charts.
+- **Progress feedback early**: repeat-last, completed-set totals, and previous
+  performance matter before elaborate charts.
 - **Svelte without speculative packages**: built-in reactivity, local fetch
   helpers, and a small IndexedDB wrapper; dependencies must remove actual work.
 - **Minimal, non-impersonating administration**: operational account controls
   require explicit roles, reauthentication, confirmation, and immutable audit
-  records. Admin status does not grant access to workouts, exports, or passwords.
+  records. Admin status does not grant access to workouts or passwords.
+
+---
+
+## 13. Future Development
+
+- Reconsider user-controlled data export after the MVP when there is demonstrated
+  demand for portability or offline recovery. Design server-saved-data and local-
+  draft exports together with explicit versioning, ownership boundaries, secret
+  exclusion, consistency and size limits, and a separate decision about import.

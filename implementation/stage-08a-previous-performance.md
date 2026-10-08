@@ -237,7 +237,6 @@ cd backend
   (Phase 2).
 - Percentage deltas, PRs, streaks, calendar grouping, and any summary statistic
   (Stage 8b).
-- Export of previous performance (Stage 8c).
 - Any client-side rendering of comparisons (Stages 12-13).
 
 ## Resolved decisions

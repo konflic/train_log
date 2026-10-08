@@ -464,18 +464,18 @@ checks join CI in their owning stage rather than waiting until Stage 15.
 | B | **5** | Workout create (+fingerprint/retry) + history list + GET graph | workout read/create tests | 1.5 |
 | B | **6a–6c** | **PUT bulk-save**: validation → graph persistence → receipt/concurrency/finish | three separate exit gates | 4 |
 | B | **7** | DELETE + lifecycle rules (finished read-only, PUT-after-delete) | lifecycle tests | 0.5 |
-| B | **8a–8c** | Previous performance → stats summary → JSON export | three separate exit gates | 3.5 |
+| B | **8a–8b** | Previous performance → stats summary | two separate exit gates | 3 |
 | C. Frontend | **9** | FE scaffold, theme, router, `api.ts`, BigInt helper | component/unit tests vs backend | 2 |
 | C | **10** | Auth + read-only Home + Catalog screens | component + Playwright login/browse | 3 |
-| C | **11a–11c** | Local drafts/export → durable create/save → reconnect/conflict/account handling | three separate exit gates | 3 |
+| C | **11a–11c** | Local drafts → durable create/save → reconnect/conflict/account handling | three separate exit gates | 3 |
 | C | **12a–12c** | Local editor → synchronization/finish → repeat-last/conflict UI | three separate exit gates | 4 |
-| C | **13** | History/detail + Settings + export UI + logout flow | Playwright settings/theme/export/acct-switch | 2.5 |
+| C | **13** | History/detail + Settings + logout flow | Playwright settings/theme/acct-switch | 2.5 |
 | D. Operations | **14** | Minimal admin API/panel + account controls + audit log | admin API/security tests + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence + production deployment smoke | full CI + deployment/restart checks | 5 |
 
-The table totals **39.5 person-days**, including implementation and verification
+The table totals **39 person-days**, including implementation and verification
 within each stage. Reserve **8.5 additional days of contingency**, for a planning
-budget of **48 person-days** (about ten five-day working weeks for one developer).
+budget of **47.5 person-days** (about ten five-day working weeks for one developer).
 These are estimates, not gate deadlines; re-estimate after Stages 6c and 11c.
 Lettered substages divide their parent's estimate rather than adding effort
 again. Milestones: **A** = foundation, **B** = complete tested API, **C** = full
@@ -524,7 +524,7 @@ lint/format/type configs (ruff, mypy strict, eslint, svelte-check, prettier),
 **Verification:** backend checks, frontend checks/build, and browser smoke tests
 exit 0 with tests collected; CI runs those same checks.
 **Gate G0:** fresh clone → documented dependency installation → smoke checks
-green locally and in CI. No feature API, migration, or export is required yet.
+green locally and in CI. No feature API or migration is required yet.
 
 ### Stage 1 - Database foundation and migrations
 **Purpose:** correct, versioned, STRICT schema with safe ops. (`PLAN.md` §5)
@@ -608,8 +608,6 @@ size limits), auth throttling.
 expired-session rejection; logout revocation; Origin mismatch/absent rejected on
 mutating verbs; throttling triggers; public auth JSON contains no password/hash/
 session token; profile reads/writes affect only the authenticated account.
-Session cookies are the intended token delivery channel. Export secret exclusion
-is verified when export exists in Stage 8.
 **Gate G3:** auth solid. **Covers checks 12 (CSRF/cookie/logout/no-secrets) and
 part of 6, 11.**
 
@@ -872,9 +870,9 @@ without recreation. Stage 6c's finished-workout and exact-retry behavior remains
 unchanged.
 **Gate G7:** lifecycle rules enforced. **Covers part of checks 2, 11.**
 
-### Stage 8 - Stats, previous performance, export (8a-8c)
-**Purpose:** useful comparisons + recoverable data. (`PLAN.md` §7, §6)
-Implement Stage 8 as three sequential mergeable increments within its 2.5-day
+### Stage 8 - Stats and previous performance (8a-8b)
+**Purpose:** useful comparisons. (`PLAN.md` §7)
+Implement Stage 8 as two sequential mergeable increments within its 2-day
 post-Stage-6 estimate:
 
 - **8a - Inline previous performance:** bounded previous-session selection,
@@ -885,13 +883,9 @@ post-Stage-6 estimate:
   volume, fixed-offset day/week grouping, muscle-group frequency, and streaks.
   Detailed plan:
   [`stage-08b-stats-summary.md`](stage-08b-stats-summary.md).
-- **8c - Saved-data export:** versioned owner-scoped JSON with recorded inputs
-  and catalog context, excluding secrets. Detailed plan:
-  [`stage-08c-export.md`](stage-08c-export.md).
-
 Each substage updates this status section with its own completion evidence and
-next-stage marker before merge. Stage 8a-8c cover checks 8 (server half), 9,
-10, and 12 (export secrets). **Gate G8:** all three detailed gates pass and the
+next-stage marker before merge. Stage 8a-8b cover checks 8 (server half), 9,
+and 10. **Gate G8:** both detailed gates pass and the
 complete backend suite remains green.
 
 > **Remote deployment checkpoint:** after this stage we can start testing an
@@ -946,22 +940,17 @@ Implement **11a → 11b → 11c** without requiring the editor UI. Use coordinat
 tests for state transitions and a small browser harness for real IndexedDB,
 reload, and multiple-tab behavior; integrate user controls in Stage 12.
 
-#### Stage 11a - Local persistence, draft recovery, and export
+#### Stage 11a - Local persistence and draft recovery
 - Partition by **account ID + workout ID + editor/draft ID**; keep one editor
   per workout per tab. Recover stored drafts explicitly rather than silently
   selecting or overwriting another tab's draft.
 - Persist each edit before reporting "locally saved". Surface storage failures
   and do not promise recovery of data actually evicted by the browser.
-- Implement a versioned **local-draft export** containing latest edits,
-  recorded/provisional load inputs with their status, referenced catalog data,
-  and recovery metadata. Exclude credentials. It must work offline or after
-  session expiry, without fetching the server's saved copy.
 **Verification:** real IndexedDB survives reload; separate tabs retain distinct
-drafts; failed writes do not report success; local export contains unsynced
-edits and can be downloaded without network/authentication. Use an available
-app shell for offline reload tests; cold offline app startup remains Phase 2.
+drafts; failed writes do not report success. Use an available app shell for
+offline reload tests; cold offline app startup remains Phase 2.
 **Gate G11a:** locally acknowledged edits survive reload, draft selection is
-explicit, and a versioned local export preserves the latest content.
+explicit, and storage failures remain visible.
 
 #### Stage 11b - Durable create requests and immutable pending saves
 - Before online POST, persist the create UUID and immutable request locally.
@@ -979,8 +968,8 @@ explicit, and a versioned local export preserves the latest content.
 **Verification:** lose POST/PUT/finish responses **after server commit**, reload,
 and recover without duplicate rows, new create IDs, or double increments; crash
 after response arrival but before local acknowledgement persistence; edit while
-PUT is in flight; export those newer edits; simulate local acknowledgement-write
-failure. A deleted uncertain create must not silently reappear.
+PUT is in flight; preserve those newer edits; simulate local acknowledgement-
+write failure. A deleted uncertain create must not silently reappear.
 **Gate G11b:** creation and saves survive uncertain responses and reload; newer
 edits remain intact and later saves use only durably acknowledged revisions.
 
@@ -989,16 +978,16 @@ edits remain intact and later saves use only durably acknowledged revisions.
   first, and fetch current state before other pending work. A newer server
   revision does not silently advance a local draft's base revision.
 - Stop automatic saves on conflict and retain the draft. Expose coordinator
-  actions for use-server, local export/copy-to-new, and explicit replacement
+  actions for use-server, copy-to-new, and explicit replacement
   using a freshly fetched revision only where lifecycle permits.
 - Session expiry pauses uploads without deleting drafts. A 404 after deletion
   retains the draft and requires explicit recovery; PUT never recreates it.
 - Guard all queued work and delayed responses by account/draft identity. Logout
-  clears account-local data only after the selected sync/export action succeeds
-  or discard is explicitly confirmed; failed/cancelled actions preserve data.
+  clears account-local data only after synchronization succeeds or discard is
+  explicitly confirmed; failed/cancelled actions preserve data.
 **Verification:** two tabs create a stale-revision conflict and both drafts
   survive reload; session expiry/reauthentication, account switching with an
-  in-flight request, deleted workout, and failed export/sync during logout.
+  in-flight request, deleted workout, and failed sync during logout.
 **Gate G11c / G11:** recovery and account isolation pass coordinator/browser
 tests. **Covers checks 1–4 and 11 at the persistence/coordinator layer; full
 editor flows are verified in Stage 12.**
@@ -1017,8 +1006,8 @@ Implement **12a → 12b → 12c** with a user-visible demonstration at each gate
 - Use stable keyed IDs for focus; distinguish local persistence success from
   server acknowledgement. Keep save/finish controls for 12b.
 **Verification:** create/load → edit locally → reload → recover every locally
-acknowledged edit; add/remove/reorder without focus jumps; local export contains
-the current edits; storage failures remain visible.
+acknowledged edit; add/remove/reorder without focus jumps; storage failures
+remain visible.
 **Gate G12a:** usable local editor backed by Stage 11 persistence.
 
 #### Stage 12b - Synchronization, reauthentication, and finish
@@ -1040,7 +1029,7 @@ response overwrites input and no unacknowledged finish discards the draft.
   bodyweight/catalog defaults; add a blank draft set when none were completed.
   Flag unavailable or now-incompatible catalog settings instead of silently
   producing invalid references/overrides. Persist through normal bulk-save.
-- Expose conflict recovery: use-server, local export/copy-to-new, or explicit
+- Expose conflict recovery: use-server, copy-to-new, or explicit
   replacement at a fresh revision where lifecycle allows it. Preserve the
   source draft until the selected recovery action has succeeded.
 **Verification:** two real tabs conflict and retain recoverable drafts; each
@@ -1056,23 +1045,20 @@ historical totals; unavailable/changed catalog entries are handled visibly.
 > separate from both production and automated E2E data. Stage 15 remains the
 > production release gate.
 
-### Stage 13 - History/detail, Settings, export UI
-**Purpose:** review + preferences + data recovery. (`PLAN.md` §8)
-**Scope:** `features/history`, `features/settings`, export/download.
+### Stage 13 - History/detail, Settings, and logout
+**Purpose:** review, preferences, and account-safe logout. (`PLAN.md` §8)
+**Scope:** `features/history`, `features/settings`.
 **Tasks:** History/detail with previous-session comparison (deltas from S8);
 Settings (dark/light switch, display name, default bodyweight, UTC offset
-picker, JSON export, logout); expose saved-data export and local-draft recovery
-as distinct
-actions. Logout offers **sync/export/discard** pending changes and clears that
-account's local data only after the chosen action succeeds (or explicit discard);
-failed/cancelled actions retain drafts. Never upload an old account's draft under
-a new user; metric-only labels, no unit selector.
+picker, logout). Logout offers **sync/discard** for pending changes and clears
+that account's local data only after synchronization succeeds or discard is
+explicitly confirmed; failed/cancelled actions retain drafts. Never upload an
+old account's draft under a new user; metric-only labels, no unit selector.
 **Verification:** Playwright: view finished workout + comparison; toggle theme →
 navigate → reload (persists, legible); change profile/catalog defaults →
-existing workout totals unchanged; saved-data and local-draft exports download
-valid versioned JSON without secrets; the local export contains newer unsynced
-edits; failed sync/export during logout preserves data; switch accounts with a
-pending draft → no cross-account upload or delayed-response contamination.
+existing workout totals unchanged; failed sync during logout preserves data;
+switch accounts with a pending draft → no cross-account upload or delayed-
+response contamination.
 **Gate G13:** full user feature set. **Covers checks 10, 11, 12, 14.**
 
 > **Milestone C exit:** complete client against the live API.
@@ -1110,13 +1096,13 @@ and components, append-only audit reads/writes.
   Expose no endpoint that updates or deletes audit records.
 - Add a role-gated admin screen for user search, status, disable/enable, session
   revocation, and audit history. It has no impersonation, password reset/view,
-  workout/content inspection, user export/delete, or default-catalog controls.
+  workout/content inspection, user deletion, or default-catalog controls.
 **Verification:** migration preserves existing users and defaults them safely;
 bootstrap/last-admin guards; non-admin and disabled-session rejection; generic
 disabled-login response; atomic disable + revocation; enable requires a fresh
 login; self-disable refused; reauthentication/CSRF checks; stable bounded lists;
-successful and rejected mutations audited without credentials, tokens, exports,
-or workout content. Playwright covers admin login → search → disable/revoke →
+successful and rejected mutations audited without credentials, tokens, or
+workout content. Playwright covers admin login → search → disable/revoke →
 blocked target → enable → fresh target login, and verifies ordinary users cannot
 open the admin UI or API.
 **Gate G14:** minimal administration is authorized, audited, and cannot access
@@ -1188,15 +1174,15 @@ required.
 | 9 | Reject fractional/string/bool/out-of-range; floor + negative/unknown cases | 2, 4-7, 8a–8b, 9, 15 |
 | 10 | Profile/catalog edits don't rewrite recorded totals | 5, 8a–8b, 13, 15 |
 | 11 | Expire session, switch accounts, retry after delete: preserve/discard safely | 3, 7, 11b–11c, 12b, 13, 15 |
-| 12 | CSRF, cookie expiry, logout revocation, no secrets in output/export | 3, 8c, 13, 14, 15 |
+| 12 | CSRF, cookie expiry, logout revocation, no secrets in output | 3, 13, 14, 15 |
 | 13 | Restore backup + upgrade older schema: data/indexes/FKs valid | 1, 14, 15 |
 | 14 | Dark/light persists + legible; metric-only everywhere, no unit selector | 9, 13, 15 |
 | 15 | Admin authorization, disable/revoke, safeguards, audit, no training-data access | 14, 15 |
 
-Additional Phase 1 deliverables beyond the numbered checks: versioned local
-draft export is proved in 11a/11b and exposed in 12a/13; production same-origin
-serving, persistent storage across restart, and UTC-offset handling are proved
-in 15. Keep those gates even though they do not have separate acceptance numbers.
+Additional Phase 1 deliverables beyond the numbered checks: production same-
+origin serving, persistent storage across restart, and UTC-offset handling are
+proved in 15. Keep those gates even though they do not have separate acceptance
+numbers.
 
 ## Risk notes (where stages most often slip)
 

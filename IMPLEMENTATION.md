@@ -31,9 +31,8 @@ remain out of scope.
   or request-body change. The new public surface is the authenticated
   `GET /api/v1/stats/summary` endpoint with its two response components; the
   history-date query parser moved unchanged into a shared API helper.
-- **Next:** Stage 8c - Saved-data export, starting from merged Stage 8b. Its
-  detailed file retains explicit content questions that must be resolved
-  before implementation; Stage 8c completes the backend API and Gate G8.
+- **Next:** merge Stage 8b, which completes the backend API and Gate G8, then
+  begin Stage 9 from the merged Stage 8b baseline.
 
 ## Documentation ownership
 
@@ -93,19 +92,19 @@ development or production database.
 
 | MS | Stage | Deliverable | Primary verification | Current est. days |
 |----|-------|-------------|----------------------|------------------:|
-| B. Backend API | **8b-8c** | Stats summary -> JSON export | Two separate backend gates | 1.5 |
+| B. Backend API | **8b** | Statistics summary | Backend gate | 1 |
 | C. Frontend | **9** | Frontend foundation, theme, router, API and integer helpers | Component/unit tests against backend | 2 |
 | C | **10** | Auth, read-only Home, Catalog | Component + Playwright | 2.5 |
 | C | **11a-11c** | IndexedDB drafts, durable pending work, recovery/account handling | Three coordinator/browser gates | 3 |
 | C | **12a-12c** | Editor, synchronization/finish, repeat/conflict recovery | Three editor/E2E gates | 4 |
-| C | **13** | History/detail, Settings, export UI, logout | Playwright | 2.5 |
+| C | **13** | History/detail, Settings, logout | Playwright | 2.5 |
 | D. Operations | **14** | Minimal admin API/panel, account controls, audit | Admin API/security + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence and production deployment smoke | Full CI + deployment/restart checks | 4 |
 
-Remaining implementation and verification total **22.5 person-days**. Reserve
+Remaining implementation and verification total **22 person-days**. Reserve
 **5 additional contingency days**, concentrated in Stage 8b comparison/calendar
 rules, Stages 11-12 synchronization, and Stage 15 deployment smoke. Remaining
-planning budget: **27.5 person-days**. Estimates are planning inputs, not gate
+planning budget: **27 person-days**. Estimates are planning inputs, not gate
 deadlines.
 
 ---
@@ -131,11 +130,10 @@ after deletion do not recreate the workout; the complete backend suite passes.
 
 **Acceptance coverage:** parts of checks 2 and 11.
 
-### Stage 8 - Previous performance, statistics, and export
+### Stage 8 - Previous performance and statistics
 
-Implement Stage 8 as three sequential mergeable increments within its 2.5-day
-budget. Resolve each detailed file's open questions before starting that
-substage.
+Implement Stage 8 as two sequential mergeable increments. Resolve each detailed
+file's open questions before starting that substage.
 
 #### Stage 8a - Inline previous performance
 
@@ -173,18 +171,10 @@ Gate G8b passed locally on 2026-10-08.
 Eligible workout/set counts, complete or partial volume, fixed-offset calendar
 grouping, muscle-group frequency, and weekly streaks.
 
-#### Stage 8c - Saved-data export
-
-**Detailed plan:**
-[`implementation/stage-08c-export.md`](implementation/stage-08c-export.md).
-
-Versioned, owner-scoped JSON with recorded inputs and catalog context while
-excluding credentials, sessions, internal request hashes, and other users' data.
-
-**Gate G8:** G8a, G8b, and G8c pass independently; the complete backend suite
+**Gate G8:** G8a and G8b pass independently; the complete backend suite
 remains green; Milestone B exits with the full client-facing API contract.
 
-**Acceptance coverage:** checks 8 (server half), 9, 10, and 12 (export secrets).
+**Acceptance coverage:** checks 8 (server half), 9, and 10.
 
 > **Remote deployment checkpoint:** after Stage 8, API-only remote testing may
 > begin under a private QA origin/process and separate `DATABASE_PATH`. It must
@@ -243,16 +233,13 @@ summaries. Full history/detail navigation arrives in Stage 13.
 Implement 11a -> 11b -> 11c without requiring the editor UI. Use coordinator
 tests and a browser harness for real IndexedDB, reload, and multiple tabs.
 
-#### Stage 11a - Local persistence, recovery, and export
+#### Stage 11a - Local persistence and recovery
 
 - Partition by account ID, workout ID, and editor/draft ID; keep one editor per
   workout per tab and require explicit recovery selection.
 - Persist every edit before reporting it locally saved; surface storage failures.
-- Export the latest local draft as versioned JSON without network or auth,
-  including unsynced edits and recovery metadata but no credentials.
-
 **Gate G11a:** locally acknowledged edits survive reload, draft selection is
-explicit, and a versioned local export preserves latest content.
+explicit, and storage failures remain visible.
 
 #### Stage 11b - Durable create requests and immutable pending saves
 
@@ -271,12 +258,12 @@ duplicates or double increments; newer edits remain intact.
 
 - Authenticate the same account, resume uncertain work first, and fetch current
   state before later work; never silently advance a local base revision.
-- Stop automatic saves on conflict and expose use-server, export/copy-to-new, and
+- Stop automatic saves on conflict and expose use-server, copy-to-new, and
   explicit replacement actions where lifecycle permits.
 - Pause on session expiry, retain drafts after server deletion, and guard queued
   work/responses by account and draft identity.
-- Logout clears account-local data only after selected sync/export succeeds or
-  discard is explicitly confirmed.
+- Logout clears account-local data only after selected sync succeeds or discard
+  is explicitly confirmed.
 
 **Gate G11c / G11:** recovery and account isolation pass coordinator/browser
 tests. Covers checks 1-4 and 11 at the persistence layer.
@@ -296,8 +283,8 @@ picker, large integer inputs, add/remove/reorder, done flags, stable keyed IDs,
 and labeled provisional totals. Distinguish local persistence from server
 acknowledgement.
 
-**Gate G12a:** a usable local editor survives reload, preserves focus, exports
-current edits, and exposes storage failures.
+**Gate G12a:** a usable local editor survives reload, preserves focus, and
+exposes storage failures.
 
 #### Stage 12b - Synchronization, reauthentication, and finish
 
@@ -323,20 +310,18 @@ Covers checks 1-5, 8, and editor reauthentication from check 11.
 > tested with invited QA/beta users on a dedicated human-QA database separate
 > from production and automated E2E. Stage 15 remains the production gate.
 
-### Stage 13 - History/detail, Settings, and export UI
+### Stage 13 - History/detail, Settings, and logout
 
-**Purpose:** review, preferences, and data recovery. (`PLAN.md` section 8)
+**Purpose:** review, preferences, and account-safe logout. (`PLAN.md` section 8)
 
 Implement history/detail with previous-session comparisons; Settings with theme,
-profile bodyweight, UTC offset, saved-data export, and logout; and distinct
-saved-data/local-draft recovery actions. Logout offers sync/export/discard and
-clears local data only after the selected action succeeds or discard is
-confirmed. Keep units metric-only.
+profile bodyweight, UTC offset, and logout. Logout offers sync or discard for
+pending changes and clears local data only after synchronization succeeds or
+discard is confirmed. Keep units metric-only.
 
 **Verification:** Playwright covers detail comparisons, theme persistence and
-legibility, historical snapshot stability after profile/catalog edits, both
-exports without secrets, failed logout recovery actions, and account switching
-with pending work.
+legibility, historical snapshot stability after profile/catalog edits, failed
+logout recovery actions, and account switching with pending work.
 
 **Gate G13:** full user feature set. Covers checks 10-12 and 14.
 
@@ -366,7 +351,7 @@ role-gated UI, and append-only audit log.
 - Audit successful and rejected authorized mutations without secrets or workout
   content.
 - Add the limited admin UI; no impersonation, password controls, workout
-  inspection, user export/delete, or default-catalog editing.
+  inspection, user deletion, or default-catalog editing.
 
 **Verification:** migration preservation, bootstrap and last-admin guards,
 authorization and disabled-session rejection, atomic disable/revocation, fresh
@@ -434,14 +419,13 @@ as they merge.
 | 9 | Strict integers, floor arithmetic, negative/unknown cases | 2, 4-7, 8a-8b, 9, 15 |
 | 10 | Profile/catalog edits do not rewrite recorded totals | 5, 8a-8b, 13, 15 |
 | 11 | Session expiry/account switch/delete recovery preserves or explicitly discards drafts | 3, 7, 11b-11c, 12b, 13, 15 |
-| 12 | CSRF/cookies/logout and secret-free output/export | 3, 8c, 13-15 |
+| 12 | CSRF/cookies/logout and secret-free output | 3, 13-15 |
 | 13 | Backup restore and older-schema upgrade preserve data/indexes/FKs | 1, 14, 15 |
 | 14 | Persistent legible themes and metric-only UX | 9, 13, 15 |
 | 15 | Admin authorization, account controls, safeguards, and safe audit | 14, 15 |
 
-Additional Phase 1 deliverables: local-draft export is proved in 11a-11b and
-exposed in 12a/13; production same-origin serving, restart persistence, and
-UTC-offset handling are proved in Stage 15.
+Additional Phase 1 deliverables: production same-origin serving, restart
+persistence, and UTC-offset handling are proved in Stage 15.
 
 ## Active risk notes
 

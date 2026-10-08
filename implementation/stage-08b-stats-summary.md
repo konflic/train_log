@@ -212,8 +212,8 @@ missing-data rules, fixed-offset grouping and streak boundaries are correct,
 owner scoping and snapshot-based load calculations are tested, and the full
 backend suite is green locally and in CI.
 
-Completion evidence and the Stage 8c marker must be recorded in
-`IMPLEMENTATION.md` in the Stage 8b branch before merge.
+Completion evidence, the Gate G8 milestone exit, and the Stage 9 marker must be
+recorded in `IMPLEMENTATION.md` in the Stage 8b branch before merge.
 
 ## Completion evidence
 
