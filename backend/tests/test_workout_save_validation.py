@@ -22,6 +22,7 @@ from helpers import (
 )
 
 from app.db import connect, write_transaction
+from app.numbers import MAX_SAFE_INTEGER
 from app.schemas.workouts import SaveWorkoutRequest
 from app.services.workouts import (
     CatalogUnavailableError,
@@ -526,6 +527,18 @@ def test_completed_sets_require_complete_load_inputs(
             ),
         )
     assert excinfo.value.field == f"exercises.0.sets.0.{field}"
+
+
+def test_set_derivations_must_stay_in_the_safe_integer_range(save_db: Path) -> None:
+    with pytest.raises(GraphValidationError) as excinfo:
+        validate(
+            save_db,
+            save_payload(
+                exercises=[exercise_payload(sets=[set_payload(reps=2, weight_kg=MAX_SAFE_INTEGER)])]
+            ),
+        )
+    assert excinfo.value.field == "exercises.0.sets.0"
+    assert "safe integer range" in str(excinfo.value)
 
 
 def test_drafts_and_completed_bodyweight_with_unknown_workout_weight_are_valid(

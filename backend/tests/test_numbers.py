@@ -11,10 +11,14 @@ from pydantic import ValidationError
 from app.numbers import (
     MAX_SAFE_INTEGER,
     NumericRangeError,
+    SetLoad,
     bodyweight_load,
     calculate_set_load,
+    estimated_one_rep_max,
     external_load,
     floor_divide,
+    integer_delta,
+    recorded_external_load,
     require_safe_integer,
     set_volume,
 )
@@ -60,6 +64,145 @@ def test_calculations_reject_unsafe_intermediate_or_output(
 ) -> None:
     with pytest.raises(NumericRangeError):
         calculation(*args)  # type: ignore[operator]
+
+
+@pytest.mark.parametrize(
+    ("weight_kg", "load_type", "side_count", "expected"),
+    [
+        (100, "single_weight", 1, 100),
+        (0, "single_weight", 1, 0),
+        (12, "split_weight", 2, 24),
+        (12, "split_weight", 1, 12),
+        # A pure-bodyweight set has no external weight and contributes zero...
+        (None, "bodyweight", 1, 0),
+        # ...while a weighted set without a recorded weight stays unknown.
+        (None, "single_weight", 1, None),
+        (None, "split_weight", 2, None),
+    ],
+)
+def test_recorded_external_load_keeps_zero_and_unknown_apart(
+    weight_kg: int | None, load_type: str, side_count: int, expected: int | None
+) -> None:
+    result = recorded_external_load(
+        weight_kg=weight_kg,
+        load_type=load_type,  # type: ignore[arg-type]
+        side_count=side_count,
+    )
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("reps", "expected"),
+    [(None, None), (0, None), (1, 100), (2, 106), (5, 116), (10, 133), (11, None), (30, None)],
+)
+def test_estimated_one_rep_max_uses_floored_rep_boundaries(
+    reps: int | None, expected: int | None
+) -> None:
+    assert (
+        estimated_one_rep_max(
+            external_load_kg=100, reps=reps, load_type="single_weight", bodyweight_percent=None
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("load_type", ["single_weight", "split_weight"])
+def test_estimated_one_rep_max_requires_no_bodyweight_contribution(load_type: str) -> None:
+    assert (
+        estimated_one_rep_max(
+            external_load_kg=100,
+            reps=5,
+            load_type=load_type,  # type: ignore[arg-type]
+            bodyweight_percent=None,
+        )
+        == 116
+    )
+    # Any bodyweight share makes the estimate inapplicable, however small.
+    assert (
+        estimated_one_rep_max(
+            external_load_kg=100,
+            reps=5,
+            load_type=load_type,  # type: ignore[arg-type]
+            bodyweight_percent=1,
+        )
+        is None
+    )
+
+
+def test_estimated_one_rep_max_is_unknown_without_external_load() -> None:
+    assert (
+        estimated_one_rep_max(
+            external_load_kg=0, reps=5, load_type="bodyweight", bodyweight_percent=100
+        )
+        is None
+    )
+    assert (
+        estimated_one_rep_max(
+            external_load_kg=None, reps=5, load_type="single_weight", bodyweight_percent=None
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("current", "previous", "expected"),
+    [
+        (5, 3, 2),
+        (3, 5, -2),
+        (0, 0, 0),
+        (-100, 3, -103),
+        (None, 3, None),
+        (3, None, None),
+        (None, None, None),
+    ],
+)
+def test_integer_delta_preserves_unknown_operands(
+    current: int | None, previous: int | None, expected: int | None
+) -> None:
+    assert integer_delta(current, previous) == expected
+
+
+def test_stage_eight_calculations_reject_unsafe_intermediate_or_output() -> None:
+    with pytest.raises(NumericRangeError):
+        recorded_external_load(weight_kg=MAX_SAFE_INTEGER, load_type="split_weight", side_count=2)
+    with pytest.raises(NumericRangeError):
+        estimated_one_rep_max(
+            external_load_kg=MAX_SAFE_INTEGER,
+            reps=10,
+            load_type="single_weight",
+            bodyweight_percent=None,
+        )
+    with pytest.raises(NumericRangeError):
+        integer_delta(MAX_SAFE_INTEGER, -1)
+
+
+def test_calculate_set_load_reports_every_derived_value() -> None:
+    assert calculate_set_load(
+        reps=8,
+        weight_kg=100,
+        load_type="single_weight",
+        side_count=1,
+        bodyweight_kg=None,
+        bodyweight_percent=None,
+    ) == SetLoad(
+        external_load_kg=100,
+        effective_load_kg=100,
+        volume_kg_reps=800,
+        # 100 * (30 + 8) // 30
+        estimated_1rm_kg=126,
+    )
+    # A bodyweight contribution is part of the effective load but removes the
+    # external-load-only 1RM estimate.
+    assert calculate_set_load(
+        reps=8,
+        weight_kg=20,
+        load_type="single_weight",
+        side_count=1,
+        bodyweight_kg=80,
+        bodyweight_percent=50,
+    ) == SetLoad(
+        external_load_kg=20, effective_load_kg=60, volume_kg_reps=480, estimated_1rm_kg=None
+    )
 
 
 @pytest.mark.parametrize(

@@ -12,8 +12,9 @@ History listing filters by status and by local calendar dates resolved through
 the user's fixed UTC offset into half-open canonical-UTC ranges; stored
 timestamps share one fixed-width format, so text comparison is chronological.
 The order `(started_at DESC, id DESC)` is a total order and therefore stable
-across pages. Graph reads use exactly three queries (workout, exercises, sets)
-regardless of graph size — never one query per set (PLAN.md §5).
+across pages. Graph reads use three queries (workout, exercises, sets) plus at
+most three more for inline previous performance, all independent of graph size —
+never one query per set (PLAN.md §5).
 
 Stage 6a adds the read-only, transaction-bound validation half of bulk-save.
 It classifies every submitted nested id as retained under its exact parent or
@@ -39,6 +40,18 @@ Stage 7 adds `delete_workout`, the revision-checked hard delete behind
 compares the submitted revision to the stored owner-scoped row and removes it,
 cascading to exercises and sets. Both active and finished workouts are
 deletable, and nothing is retained: no receipt, tombstone, or timestamp update.
+
+Stage 8a attaches inline previous performance to every graph read. For each
+distinct catalog id in the viewed workout it selects the most recent finished,
+strictly earlier, owner-scoped session that has at least one completed set for
+that catalog id, pairs occurrences by workout order and completed sets by side
+and per-side ordinal, and derives every reported value from the recorded
+workout bodyweights and exercise snapshots — never from the current profile or
+catalog. Comparison values are nulled when the recorded load settings differ, so
+a later catalog edit cannot fabricate progression. Derived arithmetic is checked
+when a graph is saved; legacy rows with unsafe derived values remain readable
+with null load metrics. The latest PUT's previous-performance tuple is stored as
+part of its bounded receipt so exact retries remain stable (PLAN.md §7).
 """
 
 from __future__ import annotations
@@ -46,13 +59,14 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from app.db import connect, write_transaction
-from app.numbers import MAX_SAFE_INTEGER
+from app.numbers import MAX_SAFE_INTEGER, NumericRangeError, calculate_set_load, integer_delta
 from app.schemas.common import LoadType
 from app.schemas.workouts import SaveSetRequest, SaveWorkoutRequest, Side
 from app.timestamps import now_timestamp, to_timestamp
@@ -197,11 +211,166 @@ class ExerciseRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviousSession:
+    """The selected previous workout for one catalog id (PLAN.md §7)."""
+
+    id: str
+    started_at: str
+    bodyweight_kg: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class SetValues:
+    """Reported integer values for one set; ``None`` means unknown.
+
+    Used for a previous occurrence's completed sets and for both sides plus the
+    delta of one compared pair, so every reported value shares one shape.
+    """
+
+    reps: int | None
+    external_load_kg: int | None
+    effective_load_kg: int | None
+    volume_kg_reps: int | None
+    estimated_1rm_kg: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreviousSet:
+    """One completed set of a paired previous occurrence with derived values."""
+
+    id: str
+    set_index: int
+    side: str
+    reps: int | None
+    weight_kg: int | None
+    bw_percent_override: int | None
+    values: SetValues
+
+
+@dataclass(frozen=True, slots=True)
+class PreviousSetPair:
+    """One side-aware pairing of a current set with a previous completed set."""
+
+    current_set_id: str
+    previous_set_id: str
+    load_compatible: bool
+    current: SetValues
+    previous: SetValues
+    delta: SetValues
+
+
+@dataclass(frozen=True, slots=True)
+class ExercisePreviousPerformance:
+    """The paired previous occurrence of one current workout exercise.
+
+    `sets` is the previous occurrence's complete completed-set list (visible
+    before any current set is done), while `pairs` carries only the matched
+    comparisons; an unmatched set has no pair and therefore no delta.
+    """
+
+    workout_id: str
+    started_at: str
+    bodyweight_kg: int | None
+    exercise_id: str
+    order_index: int
+    load_type: str
+    bodyweight_percent: int | None
+    side_count: int
+    sets: tuple[PreviousSet, ...]
+    pairs: tuple[PreviousSetPair, ...]
+
+
+def _encode_previous_performance(
+    records: tuple[ExercisePreviousPerformance | None, ...],
+) -> str:
+    """Serialize the latest PUT's derived history for exact receipt retries."""
+    return json.dumps(
+        [None if record is None else asdict(record) for record in records],
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+
+
+def _decode_set_values(value: Any) -> SetValues:
+    if not isinstance(value, dict):
+        raise TypeError("set values must be an object")
+    return SetValues(
+        reps=value["reps"],
+        external_load_kg=value["external_load_kg"],
+        effective_load_kg=value["effective_load_kg"],
+        volume_kg_reps=value["volume_kg_reps"],
+        estimated_1rm_kg=value["estimated_1rm_kg"],
+    )
+
+
+def _decode_previous_performance(
+    serialized: str,
+) -> tuple[ExercisePreviousPerformance | None, ...]:
+    """Restore an internal receipt snapshot; malformed storage is fatal."""
+    try:
+        value = json.loads(serialized)
+        if not isinstance(value, list):
+            raise TypeError("previous performance must be an array")
+        records: list[ExercisePreviousPerformance | None] = []
+        for item in value:
+            if item is None:
+                records.append(None)
+                continue
+            if not isinstance(item, dict):
+                raise TypeError("previous performance entry must be an object")
+            sets = tuple(
+                PreviousSet(
+                    id=previous_set["id"],
+                    set_index=previous_set["set_index"],
+                    side=previous_set["side"],
+                    reps=previous_set["reps"],
+                    weight_kg=previous_set["weight_kg"],
+                    bw_percent_override=previous_set["bw_percent_override"],
+                    values=_decode_set_values(previous_set["values"]),
+                )
+                for previous_set in item["sets"]
+            )
+            pairs = tuple(
+                PreviousSetPair(
+                    current_set_id=pair["current_set_id"],
+                    previous_set_id=pair["previous_set_id"],
+                    load_compatible=pair["load_compatible"],
+                    current=_decode_set_values(pair["current"]),
+                    previous=_decode_set_values(pair["previous"]),
+                    delta=_decode_set_values(pair["delta"]),
+                )
+                for pair in item["pairs"]
+            )
+            records.append(
+                ExercisePreviousPerformance(
+                    workout_id=item["workout_id"],
+                    started_at=item["started_at"],
+                    bodyweight_kg=item["bodyweight_kg"],
+                    exercise_id=item["exercise_id"],
+                    order_index=item["order_index"],
+                    load_type=item["load_type"],
+                    bodyweight_percent=item["bodyweight_percent"],
+                    side_count=item["side_count"],
+                    sets=sets,
+                    pairs=pairs,
+                )
+            )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError("stored previous-performance receipt is invalid") from exc
+    return tuple(records)
+
+
+@dataclass(frozen=True, slots=True)
 class WorkoutGraph:
-    """A workout row plus its complete ordered exercise/set graph."""
+    """A workout row plus its complete ordered exercise/set graph.
+
+    `previous_performance` is parallel to `exercises`: one entry per exercise,
+    `None` when that occurrence has no comparable previous session.
+    """
 
     workout: WorkoutRecord
     exercises: tuple[ExerciseRecord, ...]
+    previous_performance: tuple[ExercisePreviousPerformance | None, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +449,7 @@ def _validate_set_for_snapshot(
     load_type: LoadType,
     bodyweight_percent: int | None,
     side_count: int,
+    bodyweight_kg: int | None,
 ) -> None:
     """Validate rules that depend on a retained or newly copied snapshot."""
     allowed_sides: set[Side]
@@ -306,6 +476,24 @@ def _validate_set_for_snapshot(
         raise GraphValidationError(
             f"{field_prefix}.weight_kg", "completed weighted sets require weight_kg"
         )
+    effective_percent = (
+        submitted_set.bw_percent_override
+        if submitted_set.bw_percent_override is not None
+        else bodyweight_percent
+    )
+    try:
+        calculate_set_load(
+            reps=submitted_set.reps,
+            weight_kg=submitted_set.weight_kg,
+            load_type=load_type,
+            side_count=side_count,
+            bodyweight_kg=bodyweight_kg,
+            bodyweight_percent=effective_percent,
+        )
+    except NumericRangeError:
+        raise GraphValidationError(
+            field_prefix, "derived set values exceed the safe integer range"
+        ) from None
 
 
 def validate_save_graph(
@@ -401,6 +589,7 @@ def validate_save_graph(
                 load_type=load_type,
                 bodyweight_percent=bodyweight_percent,
                 side_count=side_count,
+                bodyweight_kg=payload.bodyweight_kg,
             )
             validated_sets.append(
                 ValidatedSet(
@@ -454,8 +643,9 @@ def apply_validated_graph(
     every parent/catalog/id relationship is resolved before the first mutation
     and no revalidation of a raw request happens here. It neither opens nor
     commits a transaction, and it deliberately leaves `ended_at`, `revision`,
-    `last_save_id`, `last_save_hash`, and `updated_at` untouched — the public
-    save protocol owns those lifecycle/receipt fields in Stage 6c.
+    `last_save_id`, `last_save_hash`, the derived-history receipt, and
+    `updated_at` untouched — the public save protocol owns those
+    lifecycle/receipt fields.
 
     Reordering is unique-index safe (PLAN.md §5): for each parent, retained rows
     first move to distinct temporary indexes above both the stored and final
@@ -698,11 +888,11 @@ def save_workout(
     receipt (exact retry vs. `save_id_conflict`), enforce the revision match,
     the finished-workout guard, revision exhaustion, and the finish-time rules,
     re-resolve all Stage 6a invariants against transaction rows, apply the
-    Stage 6b replacement, and record the incremented revision, receipt,
-    `ended_at`, and one transaction timestamp as `updated_at` in the same
-    commit. The response graph is read back on the write connection before the
-    commit and returned only after it succeeds, so a second writer cannot
-    replace it between commit and response.
+    Stage 6b replacement, and record the incremented revision, request receipt,
+    derived-history snapshot, `ended_at`, and one transaction timestamp as
+    `updated_at` in the same commit. The response graph is read back on the write
+    connection before the commit and returned only after it succeeds, so a
+    second writer cannot replace it between commit and response.
     """
     # Database-independent fingerprinting happens before taking the writer lock.
     request_hash = save_request_hash(owner_id=owner_id, workout_id=workout_id, payload=payload)
@@ -718,11 +908,23 @@ def save_workout(
 
         # Receipt resolution precedes every other check: an exact retry of the
         # latest accepted save (including the accepted finish) returns the
-        # stored graph with no validation, mutation, or revision increment.
+        # stored graph and derived-history snapshot with no validation,
+        # mutation, or revision increment.
         if payload.save_id == stored.last_save_id:
             if request_hash != stored.last_save_hash:
                 raise SaveIdConflictError(stored.revision)
-            retry_graph = _read_workout_graph(conn, workout_id, user_id=owner_id)
+            snapshot_row = conn.execute(
+                "SELECT snapshot FROM workout_save_previous_performance WHERE workout_id = ?",
+                (workout_id,),
+            ).fetchone()
+            retry_graph = _read_workout_graph(
+                conn,
+                workout_id,
+                user_id=owner_id,
+                previous_performance_snapshot=(
+                    None if snapshot_row is None else str(snapshot_row["snapshot"])
+                ),
+            )
             if retry_graph is None:
                 raise RuntimeError("workout vanished inside its own save transaction")
             return retry_graph
@@ -771,6 +973,15 @@ def save_workout(
         saved_graph = _read_workout_graph(conn, workout_id, user_id=owner_id)
         if saved_graph is None:
             raise RuntimeError("workout vanished inside its own save transaction")
+        conn.execute(
+            "INSERT INTO workout_save_previous_performance (workout_id, snapshot) "
+            "VALUES (:id, :snapshot) ON CONFLICT (workout_id) DO UPDATE "
+            "SET snapshot = excluded.snapshot",
+            {
+                "snapshot": _encode_previous_performance(saved_graph.previous_performance),
+                "id": workout_id,
+            },
+        )
         return saved_graph
 
 
@@ -979,14 +1190,351 @@ def list_workouts(
     return WorkoutPage(items=[row_to_workout(row) for row in rows], total=int(total_row["total"]))
 
 
+def _row_to_set(row: sqlite3.Row) -> SetRecord:
+    return SetRecord(
+        id=str(row["id"]),
+        exercise_id=str(row["exercise_id"]),
+        set_index=int(row["set_index"]),
+        reps=row["reps"],
+        weight_kg=row["weight_kg"],
+        bw_percent_override=row["bw_percent_override"],
+        rpe=row["rpe"],
+        side=str(row["side"]),
+        done=bool(row["done"]),
+    )
+
+
+def _row_to_exercise(row: sqlite3.Row, sets: tuple[SetRecord, ...]) -> ExerciseRecord:
+    return ExerciseRecord(
+        id=str(row["id"]),
+        catalog_id=str(row["catalog_id"]),
+        order_index=int(row["order_index"]),
+        notes=row["notes"],
+        load_type=str(row["load_type"]),
+        bodyweight_percent=row["bodyweight_percent"],
+        side_count=int(row["side_count"]),
+        sets=sets,
+    )
+
+
+def _effective_bodyweight_percent(record: SetRecord, exercise: ExerciseRecord) -> int | None:
+    """A set's percentage: its override replaces the exercise snapshot."""
+    if record.bw_percent_override is not None:
+        return record.bw_percent_override
+    return exercise.bodyweight_percent
+
+
+def _set_values(
+    record: SetRecord, *, exercise: ExerciseRecord, bodyweight_kg: int | None
+) -> SetValues:
+    """Derive one set's reported values from recorded inputs only (PLAN.md §3).
+
+    The workout bodyweight is the one recorded for the set's own workout, so a
+    later profile edit never rewrites a historical calculation.
+    """
+    try:
+        loads = calculate_set_load(
+            reps=record.reps,
+            weight_kg=record.weight_kg,
+            load_type=cast(LoadType, exercise.load_type),
+            side_count=exercise.side_count,
+            bodyweight_kg=bodyweight_kg,
+            bodyweight_percent=_effective_bodyweight_percent(record, exercise),
+        )
+    except NumericRangeError:
+        # Databases created before Stage 8 may contain individually valid inputs
+        # whose derived values exceed the shared safe range. Keep those rows
+        # readable without emitting an unsafe integer; new saves are rejected.
+        return SetValues(
+            reps=record.reps,
+            external_load_kg=None,
+            effective_load_kg=None,
+            volume_kg_reps=None,
+            estimated_1rm_kg=None,
+        )
+    return SetValues(
+        reps=record.reps,
+        external_load_kg=loads.external_load_kg,
+        effective_load_kg=loads.effective_load_kg,
+        volume_kg_reps=loads.volume_kg_reps,
+        estimated_1rm_kg=loads.estimated_1rm_kg,
+    )
+
+
+def _without_load_values(values: SetValues) -> SetValues:
+    """Reduce a comparison to reps when the recorded load settings differ."""
+    return SetValues(
+        reps=values.reps,
+        external_load_kg=None,
+        effective_load_kg=None,
+        volume_kg_reps=None,
+        estimated_1rm_kg=None,
+    )
+
+
+def _values_delta(current: SetValues, previous: SetValues) -> SetValues:
+    return SetValues(
+        reps=integer_delta(current.reps, previous.reps),
+        external_load_kg=integer_delta(current.external_load_kg, previous.external_load_kg),
+        effective_load_kg=integer_delta(current.effective_load_kg, previous.effective_load_kg),
+        volume_kg_reps=integer_delta(current.volume_kg_reps, previous.volume_kg_reps),
+        estimated_1rm_kg=integer_delta(current.estimated_1rm_kg, previous.estimated_1rm_kg),
+    )
+
+
+def _pair_sets(
+    current: ExerciseRecord,
+    previous: ExerciseRecord,
+    *,
+    current_bodyweight_kg: int | None,
+    previous_bodyweight_kg: int | None,
+) -> tuple[PreviousSetPair, ...]:
+    """Pair completed sets by side and per-side ordinal, never across sides.
+
+    Sets are already in `set_index` order on both sides, so the ordinal of a
+    completed set within its own side is its comparison position. An unmatched
+    current set is simply absent from the result and therefore has no delta.
+    """
+    previous_by_side: dict[str, list[SetRecord]] = {}
+    for record in previous.sets:
+        if record.done:
+            previous_by_side.setdefault(record.side, []).append(record)
+
+    snapshots_comparable = (
+        current.load_type == previous.load_type and current.side_count == previous.side_count
+    )
+    ordinals: dict[str, int] = {}
+    pairs: list[PreviousSetPair] = []
+    for record in current.sets:
+        if not record.done:
+            continue
+        ordinal = ordinals.get(record.side, 0)
+        ordinals[record.side] = ordinal + 1
+        candidates = previous_by_side.get(record.side)
+        if candidates is None or ordinal >= len(candidates):
+            continue
+        matched = candidates[ordinal]
+        current_values = _set_values(record, exercise=current, bodyweight_kg=current_bodyweight_kg)
+        previous_values = _set_values(
+            matched, exercise=previous, bodyweight_kg=previous_bodyweight_kg
+        )
+        # Side equality comes from the pairing itself; the recorded load type,
+        # side count, and effective percentages decide whether the load-based
+        # numbers mean the same thing on both sides.
+        load_compatible = snapshots_comparable and _effective_bodyweight_percent(
+            record, current
+        ) == _effective_bodyweight_percent(matched, previous)
+        if not load_compatible:
+            current_values = _without_load_values(current_values)
+            previous_values = _without_load_values(previous_values)
+        pairs.append(
+            PreviousSetPair(
+                current_set_id=record.id,
+                previous_set_id=matched.id,
+                load_compatible=load_compatible,
+                current=current_values,
+                previous=previous_values,
+                delta=_values_delta(current_values, previous_values),
+            )
+        )
+    return tuple(pairs)
+
+
+def _exercise_previous_performance(
+    current: ExerciseRecord,
+    previous: ExerciseRecord,
+    *,
+    session: PreviousSession,
+    current_bodyweight_kg: int | None,
+) -> ExercisePreviousPerformance:
+    return ExercisePreviousPerformance(
+        workout_id=session.id,
+        started_at=session.started_at,
+        bodyweight_kg=session.bodyweight_kg,
+        exercise_id=previous.id,
+        order_index=previous.order_index,
+        load_type=previous.load_type,
+        bodyweight_percent=previous.bodyweight_percent,
+        side_count=previous.side_count,
+        sets=tuple(
+            PreviousSet(
+                id=record.id,
+                set_index=record.set_index,
+                side=record.side,
+                reps=record.reps,
+                weight_kg=record.weight_kg,
+                bw_percent_override=record.bw_percent_override,
+                values=_set_values(record, exercise=previous, bodyweight_kg=session.bodyweight_kg),
+            )
+            for record in previous.sets
+        ),
+        pairs=_pair_sets(
+            current,
+            previous,
+            current_bodyweight_kg=current_bodyweight_kg,
+            previous_bodyweight_kg=session.bodyweight_kg,
+        ),
+    )
+
+
+def _select_previous_sessions(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    workout_id: str,
+    started_at: str,
+    catalog_ids: Sequence[str],
+) -> dict[str, PreviousSession]:
+    """One query selecting the previous session for every distinct catalog id.
+
+    Candidates are the caller's own finished workouts that started strictly
+    earlier than the viewed workout (which is excluded by id, so an equal
+    `started_at` can never select itself) and that hold at least one completed
+    set for the catalog id. `ROW_NUMBER` over the documented total order
+    `(started_at DESC, id DESC)` keeps one winner per catalog id, so the row
+    count is bounded by the graph rather than by the training history.
+    """
+    placeholders = ", ".join("?" for _ in catalog_ids)
+    rows = conn.execute(
+        "SELECT catalog_id, workout_id, started_at, bodyweight_kg FROM ("
+        "SELECT e.catalog_id AS catalog_id, w.id AS workout_id, "
+        "w.started_at AS started_at, w.bodyweight_kg AS bodyweight_kg, "
+        "ROW_NUMBER() OVER (PARTITION BY e.catalog_id "
+        "ORDER BY w.started_at DESC, w.id DESC) AS position "
+        "FROM exercises e JOIN workouts w ON w.id = e.workout_id "
+        "WHERE w.user_id = ? AND w.id <> ? AND w.ended_at IS NOT NULL "
+        "AND w.started_at < ? "
+        f"AND e.catalog_id IN ({placeholders}) "
+        "AND EXISTS (SELECT 1 FROM sets s WHERE s.exercise_id = e.id AND s.done = 1)"
+        ") WHERE position = 1",
+        [user_id, workout_id, started_at, *catalog_ids],
+    ).fetchall()
+    return {
+        str(row["catalog_id"]): PreviousSession(
+            id=str(row["workout_id"]),
+            started_at=str(row["started_at"]),
+            bodyweight_kg=row["bodyweight_kg"],
+        )
+        for row in rows
+    }
+
+
+def _select_previous_occurrences(
+    conn: sqlite3.Connection,
+    *,
+    catalog_ids: Sequence[str],
+    session_ids: Sequence[str],
+) -> dict[tuple[str, str], tuple[ExerciseRecord, ...]]:
+    """Two queries fetching the selected sessions' occurrences and their sets.
+
+    Occurrences come back in `(workout_id, order_index)` order and completed
+    sets in `set_index` order, so both the workout-order occurrence pairing and
+    the per-side ordinals are positional. Only completed sets are read:
+    unfinished history never contributes performance (PLAN.md §7). The
+    `(workout_id, catalog_id)` pairs that actually selected a session are
+    matched by the caller, so a session chosen for one catalog id cannot leak
+    another catalog id's occurrences into a pairing.
+    """
+    session_placeholders = ", ".join("?" for _ in session_ids)
+    catalog_placeholders = ", ".join("?" for _ in catalog_ids)
+    exercise_rows = conn.execute(
+        f"SELECT e.workout_id, {', '.join(f'e.{name}' for name in EXERCISE_COLUMNS)} "
+        "FROM exercises e "
+        f"WHERE e.workout_id IN ({session_placeholders}) "
+        f"AND e.catalog_id IN ({catalog_placeholders}) "
+        "ORDER BY e.workout_id, e.order_index",
+        [*session_ids, *catalog_ids],
+    ).fetchall()
+
+    exercise_ids = [str(row["id"]) for row in exercise_rows]
+    sets_by_exercise: dict[str, list[SetRecord]] = {exercise_id: [] for exercise_id in exercise_ids}
+    if exercise_ids:
+        placeholders = ", ".join("?" for _ in exercise_ids)
+        for row in conn.execute(
+            f"SELECT {', '.join(f's.{name}' for name in SET_COLUMNS)} FROM sets s "
+            f"WHERE s.exercise_id IN ({placeholders}) AND s.done = 1 ORDER BY s.set_index",
+            exercise_ids,
+        ).fetchall():
+            sets_by_exercise[str(row["exercise_id"])].append(_row_to_set(row))
+
+    occurrences: dict[tuple[str, str], list[ExerciseRecord]] = {}
+    for row in exercise_rows:
+        key = (str(row["workout_id"]), str(row["catalog_id"]))
+        occurrences.setdefault(key, []).append(
+            _row_to_exercise(row, tuple(sets_by_exercise[str(row["id"])]))
+        )
+    return {key: tuple(value) for key, value in occurrences.items()}
+
+
+def _read_previous_performance(
+    conn: sqlite3.Connection,
+    workout: WorkoutRecord,
+    exercises: tuple[ExerciseRecord, ...],
+    *,
+    user_id: str,
+) -> tuple[ExercisePreviousPerformance | None, ...]:
+    """Attach previous-session data to each exercise, parallel to `exercises`.
+
+    At most three additional queries independent of graph size; occurrence
+    pairing is positional within each catalog id, so a current occurrence beyond
+    the previous session's occurrence count has no comparison.
+    """
+    catalog_ids = list(dict.fromkeys(exercise.catalog_id for exercise in exercises))
+    if not catalog_ids:
+        return tuple(None for _ in exercises)
+
+    sessions = _select_previous_sessions(
+        conn,
+        user_id=user_id,
+        workout_id=workout.id,
+        started_at=workout.started_at,
+        catalog_ids=catalog_ids,
+    )
+    if not sessions:
+        return tuple(None for _ in exercises)
+
+    occurrences = _select_previous_occurrences(
+        conn,
+        catalog_ids=catalog_ids,
+        session_ids=list(dict.fromkeys(session.id for session in sessions.values())),
+    )
+
+    positions: dict[str, int] = {}
+    result: list[ExercisePreviousPerformance | None] = []
+    for exercise in exercises:
+        position = positions.get(exercise.catalog_id, 0)
+        positions[exercise.catalog_id] = position + 1
+        session = sessions.get(exercise.catalog_id)
+        paired = None if session is None else occurrences.get((session.id, exercise.catalog_id), ())
+        if session is None or paired is None or position >= len(paired):
+            result.append(None)
+            continue
+        result.append(
+            _exercise_previous_performance(
+                exercise,
+                paired[position],
+                session=session,
+                current_bodyweight_kg=workout.bodyweight_kg,
+            )
+        )
+    return tuple(result)
+
+
 def _read_workout_graph(
-    conn: sqlite3.Connection, workout_id: str, *, user_id: str
+    conn: sqlite3.Connection,
+    workout_id: str,
+    *,
+    user_id: str,
+    previous_performance_snapshot: str | None = None,
 ) -> WorkoutGraph | None:
-    """Build the owner-scoped graph from three queries on the caller's connection.
+    """Build the owner-scoped graph from bounded queries on the caller's connection.
 
     The caller owns transaction control: `get_workout_graph` wraps this in a
     deferred read transaction, and `save_workout` calls it inside its write
-    transaction so the response graph is captured before the commit.
+    transaction so the response graph is captured before the commit. Previous
+    performance is assembled on that same snapshot, which keeps GET and PUT
+    detail responses equal and prevents racing a second read after commit. An
+    exact retry may supply its stored derived-history snapshot instead.
     """
     workout_row = conn.execute(
         f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts WHERE id = :id AND user_id = :user_id",
@@ -1008,33 +1556,23 @@ def _read_workout_graph(
 
     sets_by_exercise: dict[str, list[SetRecord]] = {str(row["id"]): [] for row in exercise_rows}
     for row in set_rows:
-        sets_by_exercise[str(row["exercise_id"])].append(
-            SetRecord(
-                id=str(row["id"]),
-                exercise_id=str(row["exercise_id"]),
-                set_index=int(row["set_index"]),
-                reps=row["reps"],
-                weight_kg=row["weight_kg"],
-                bw_percent_override=row["bw_percent_override"],
-                rpe=row["rpe"],
-                side=str(row["side"]),
-                done=bool(row["done"]),
-            )
-        )
+        sets_by_exercise[str(row["exercise_id"])].append(_row_to_set(row))
     exercises = tuple(
-        ExerciseRecord(
-            id=str(row["id"]),
-            catalog_id=str(row["catalog_id"]),
-            order_index=int(row["order_index"]),
-            notes=row["notes"],
-            load_type=str(row["load_type"]),
-            bodyweight_percent=row["bodyweight_percent"],
-            side_count=int(row["side_count"]),
-            sets=tuple(sets_by_exercise[str(row["id"])]),
-        )
-        for row in exercise_rows
+        _row_to_exercise(row, tuple(sets_by_exercise[str(row["id"])])) for row in exercise_rows
     )
-    return WorkoutGraph(workout=row_to_workout(workout_row), exercises=exercises)
+    workout = row_to_workout(workout_row)
+    previous_performance = (
+        _read_previous_performance(conn, workout, exercises, user_id=user_id)
+        if previous_performance_snapshot is None
+        else _decode_previous_performance(previous_performance_snapshot)
+    )
+    if len(previous_performance) != len(exercises):
+        raise RuntimeError("stored previous-performance receipt does not match workout graph")
+    return WorkoutGraph(
+        workout=workout,
+        exercises=exercises,
+        previous_performance=previous_performance,
+    )
 
 
 def get_workout_graph(
@@ -1042,11 +1580,13 @@ def get_workout_graph(
 ) -> WorkoutGraph | None:
     """Fetch the owned workout and its full graph; foreign/unknown are `None`.
 
-    Exactly three queries regardless of graph size: the workout row, its
-    exercises in stored order, and all their sets joined through the exercises
-    in `(order_index, set_index)` order.
+    Three queries regardless of graph size — the workout row, its exercises in
+    stored order, and all their sets joined through the exercises in
+    `(order_index, set_index)` order — plus at most three more for inline
+    previous performance, also independent of graph size.
     """
     with connect(database_path) as conn, conn:
-        # All three graph queries must describe the same committed revision.
+        # Every graph and previous-performance query must describe the same
+        # committed revision.
         conn.execute("BEGIN")
         return _read_workout_graph(conn, workout_id, user_id=user_id)
