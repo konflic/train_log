@@ -1,7 +1,8 @@
 # Stage 8b - Statistics summary
 
-Status: implemented on branch `stage-8b-stats-summary` (PR pending). Gate G8b
-passed locally on 2026-10-08; see Completion evidence below.
+Status: merged to `master` in
+[PR #14](https://github.com/konflic/train_log/pull/14) on 2026-10-08 (`bf5033c`).
+Gate G8b passed locally on 2026-10-08; see Completion evidence below.
 
 Working estimate: 1 person-day within Stage 8's 2.5-day post-Stage-6 budget.
 
