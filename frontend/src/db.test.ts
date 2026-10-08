@@ -22,6 +22,7 @@ function draft(overrides: Partial<WorkoutDraft> = {}): WorkoutDraft {
     base_revision: 2,
     started_at: '2026-10-08T10:00:00Z',
     change_number: 0,
+    acknowledged_change_number: 0,
     created_at: '2026-10-08T10:00:00.000Z',
     updated_at: '2026-10-08T10:00:00.000Z',
     content: {
@@ -274,12 +275,17 @@ describe('DraftRepository', () => {
   });
 
   it('copies recovery source data into a fresh independent editor draft', () => {
-    const source = draft();
+    const source = draft({
+      change_number: 4,
+      acknowledged_change_number: 2,
+    });
     const recovery = createRecoveryDraft(source);
     recovery.content.raw_fields['set-1.reps'] = '12.5';
 
     expect(recovery.draft_id).not.toBe(source.draft_id);
     expect(recovery.base_revision).toBe(source.base_revision);
+    expect(recovery.change_number).toBe(4);
+    expect(recovery.acknowledged_change_number).toBe(2);
     expect(source.content.raw_fields['set-1.reps']).toBe('');
     expect(recovery.content.provisional_load_snapshots['exercise-1']).toEqual(
       source.content.provisional_load_snapshots['exercise-1'],

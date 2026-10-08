@@ -33,7 +33,7 @@
   async function recover(source: WorkoutDraft): Promise<void> {
     if (!repository) return;
     try {
-      const draft = createRecoveryDraft(source);
+      const draft = createRecoveryDraft($state.snapshot(source));
       await repository.put(accountId, draft);
       const key = editorKey(accountId, draft.workout_id);
       editorAssociations.associate(key, draft.draft_id);

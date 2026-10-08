@@ -47,6 +47,7 @@ export interface WorkoutDraft {
   started_at: string;
   content: EditableWorkoutContent;
   change_number: number;
+  acknowledged_change_number: number;
   created_at: string;
   updated_at: string;
 }
@@ -149,6 +150,7 @@ export interface DurableDraftStorage {
   getSave(accountId: string, draftId: string): Promise<PendingSave | undefined>;
   acknowledgeCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void>;
   acknowledgeSave(draft: WorkoutDraft, pending: PendingSave): Promise<void>;
+  acknowledgeFinish(pending: PendingSave): Promise<void>;
   adoptServer(draft: WorkoutDraft): Promise<void>;
   replaceSave(draft: WorkoutDraft, pending: PendingSave): Promise<void>;
   discardPending(accountId: string, draftId: string): Promise<void>;
@@ -325,7 +327,39 @@ class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
       transaction.abort();
       throw new DraftStorageError('The pending save no longer matches');
     }
-    await transaction.objectStore(DRAFT_STORE).put(draft);
+    const draftStore = transaction.objectStore(DRAFT_STORE);
+    const storedDraft = await draftStore.get([
+      pending.account_id,
+      pending.workout_id,
+      pending.draft_id,
+    ]);
+    const acknowledged =
+      isWorkoutDraft(storedDraft) &&
+      storedDraft.change_number > draft.change_number
+        ? mergeAcknowledgedDraft(copyDraft(storedDraft), draft)
+        : draft;
+    await draftStore.put(acknowledged);
+    await pendingStore.delete([pending.account_id, pending.draft_id]);
+    await transaction.done;
+  }
+
+  async acknowledgeFinish(pending: PendingSave): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    const pendingStore = transaction.objectStore(PENDING_SAVE_STORE);
+    const stored = await pendingStore.get([
+      pending.account_id,
+      pending.draft_id,
+    ]);
+    if (!samePendingSave(stored, pending)) {
+      transaction.abort();
+      throw new DraftStorageError('The pending finish no longer matches');
+    }
+    await transaction
+      .objectStore(DRAFT_STORE)
+      .delete([pending.account_id, pending.workout_id, pending.draft_id]);
     await pendingStore.delete([pending.account_id, pending.draft_id]);
     await transaction.done;
   }
@@ -601,11 +635,16 @@ function isWorkoutDraft(value: unknown): value is WorkoutDraft {
   const content = value['content'];
   const baseRevision = value['base_revision'];
   const changeNumber = value['change_number'];
+  const acknowledgedChangeNumber = value['acknowledged_change_number'] ?? 0;
   return (
-    fields(
+    (fields(
       value,
-      'account_id workout_id draft_id base_detail_id base_revision started_at content change_number created_at updated_at',
-    ) &&
+      'account_id workout_id draft_id base_detail_id base_revision started_at content change_number acknowledged_change_number created_at updated_at',
+    ) ||
+      fields(
+        value,
+        'account_id workout_id draft_id base_detail_id base_revision started_at content change_number created_at updated_at',
+      )) &&
     fields(
       content,
       'name notes bodyweight_kg ended_at exercises raw_fields recorded_load_snapshots provisional_load_snapshots',
@@ -622,6 +661,10 @@ function isWorkoutDraft(value: unknown): value is WorkoutDraft {
     typeof changeNumber === 'number' &&
     Number.isSafeInteger(changeNumber) &&
     changeNumber >= 0 &&
+    typeof acknowledgedChangeNumber === 'number' &&
+    Number.isSafeInteger(acknowledgedChangeNumber) &&
+    acknowledgedChangeNumber >= 0 &&
+    acknowledgedChangeNumber <= changeNumber &&
     timestamp(value['created_at']) &&
     timestamp(value['updated_at']) &&
     isNullableString(content['name']) &&
@@ -642,7 +685,10 @@ function isWorkoutDraft(value: unknown): value is WorkoutDraft {
 
 function copyDraft(draft: WorkoutDraft): WorkoutDraft {
   try {
-    return structuredClone(draft);
+    return structuredClone({
+      ...draft,
+      acknowledged_change_number: draft.acknowledged_change_number ?? 0,
+    });
   } catch (error) {
     throw new DraftStorageError('Draft data could not be persisted', {
       cause: error,
@@ -658,6 +704,33 @@ function copyPending<T extends PendingCreate | PendingSave>(pending: T): T {
       cause: error,
     });
   }
+}
+
+function mergeAcknowledgedDraft(
+  current: WorkoutDraft,
+  acknowledged: WorkoutDraft,
+): WorkoutDraft {
+  const visible = new Set(current.content.exercises.map(({ id }) => id));
+  const recorded = { ...current.content.recorded_load_snapshots };
+  const provisional = { ...current.content.provisional_load_snapshots };
+  for (const [id, snapshot] of Object.entries(
+    acknowledged.content.recorded_load_snapshots,
+  )) {
+    if (!visible.has(id)) continue;
+    recorded[id] = snapshot;
+    delete provisional[id];
+  }
+  return {
+    ...current,
+    base_detail_id: acknowledged.base_detail_id,
+    base_revision: acknowledged.base_revision,
+    acknowledged_change_number: acknowledged.acknowledged_change_number,
+    content: {
+      ...current.content,
+      recorded_load_snapshots: recorded,
+      provisional_load_snapshots: provisional,
+    },
+  };
 }
 
 function validSavePayload(value: unknown): value is SaveWorkoutInput {
@@ -1095,6 +1168,22 @@ export class PendingDraftRepository {
     }
   }
 
+  async acknowledgeFinish(pending: PendingSave): Promise<void> {
+    if (!isPendingSave(pending) || pending.payload.ended_at === null) {
+      throw new MalformedDraftError();
+    }
+    try {
+      await this.storage.acknowledgeFinish(copyPending(pending));
+    } catch (error) {
+      throw new DraftStorageError(
+        'Could not acknowledge the finished workout',
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   /** Replace local content with a fetched server copy and retire pending work. */
   async adoptServer(draft: WorkoutDraft): Promise<void> {
     if (!isWorkoutDraft(draft) || draft.account_id.length === 0) {
@@ -1171,7 +1260,6 @@ export function createRecoveryDraft(source: WorkoutDraft): WorkoutDraft {
   return {
     ...copyDraft(source),
     draft_id: createDraftId(),
-    change_number: 0,
     created_at: now,
     updated_at: now,
   };

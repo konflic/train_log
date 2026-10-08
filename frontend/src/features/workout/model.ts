@@ -80,6 +80,7 @@ export function draftFromDetail(
     started_at: detail.started_at,
     content: contentFromDetail(detail),
     change_number: 0,
+    acknowledged_change_number: 0,
     created_at: now,
     updated_at: now,
   };
@@ -235,4 +236,35 @@ export function setError(
   )
     return 'This set covers both sides.';
   return null;
+}
+
+export function contentError(content: EditableWorkoutContent): string | null {
+  const bodyweightRaw = content.raw_fields['workout.bodyweight_kg'];
+  if (
+    bodyweightRaw !== undefined &&
+    bodyweightRaw !== '' &&
+    strictInteger(bodyweightRaw) === null
+  )
+    return 'Recorded bodyweight must be a whole number.';
+  if (content.bodyweight_kg !== null && content.bodyweight_kg < 1)
+    return 'Recorded bodyweight must be greater than zero.';
+  if ((content.name?.length ?? 0) > 100 || (content.notes?.length ?? 0) > 2000)
+    return 'Workout text is too long.';
+  if (content.exercises.length > MAX_EXERCISES)
+    return `A workout can contain at most ${MAX_EXERCISES} exercises.`;
+  let setCount = 0;
+  for (const exercise of content.exercises) {
+    if (exercise.notes !== null && exercise.notes.length > 300)
+      return 'Exercise notes are too long.';
+    if (exercise.sets.length > MAX_SETS_PER_EXERCISE)
+      return `An exercise can contain at most ${MAX_SETS_PER_EXERCISE} sets.`;
+    setCount += exercise.sets.length;
+    for (const set of exercise.sets) {
+      const error = setError(content, exercise, set);
+      if (error !== null) return error;
+    }
+  }
+  return setCount > MAX_SETS
+    ? `A workout can contain at most ${MAX_SETS} sets.`
+    : null;
 }

@@ -1,6 +1,7 @@
 # Stage 12b - Synchronization, reauthentication, and finish
 
-Status: planned. Start after Gate G12a is merged.
+Status: implemented on `stage-12b-sync-reauth-finish`. Gate G12b passed locally
+on 2026-10-08; merge/CI review is pending.
 
 Working estimate: part of Stage 12's 4 person-day budget.
 
@@ -175,6 +176,39 @@ Completion evidence and the Stage 12c marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, status/finish behavior, commands/test
-counts, response-loss/offline/reauth/browser observations, and Gate G12b
-acceptance mapping here before merge.
+Implemented on `stage-12b-sync-reauth-finish` from merged Stage 12a.
+
+- A foreground controller coalesces locally committed edits, keeps one immutable
+  pending PUT, retries it before constructing newer work, and persists an
+  acknowledged change number so reload can distinguish local-only edits from
+  server-acknowledged content. Legacy drafts without that additive member load
+  with the conservative value zero. Save acknowledgements atomically retain any
+  newer persisted graph and the editor rebases without replacing newer visible
+  input.
+- The editor visibly distinguishes local saving, locally saved, syncing, synced,
+  offline, authentication-required, conflict, correction, storage-error, and
+  finish-pending states. It offers explicit foreground retry/Save now actions,
+  reacts to online/offline events, and presents same-account login in context
+  without leaving or retagging the draft. Conflicts lock the editor with the
+  losing local copy retained for Stage 12c recovery controls.
+- Finish stops autosave, locks editing, validates and persists one canonical
+  finish timestamp with the latest graph, and retries the exact save ID/content
+  after response loss or reauthentication. The active draft and pending request
+  are deleted together only after the matching server receipt; a local
+  acknowledgement failure leaves both recoverable.
+- Secondary editor actions use dependency-free SVG icons with accessible names
+  and 44 px targets. The bottom navigation now participates in the flex layout
+  as a sticky element instead of combining `fixed` positioning with oversized
+  main padding, so short pages have no artificial viewport overflow while long
+  pages retain the bottom navigation.
+- Verification passed locally on 2026-10-08: `npm run check`, `npm run lint`,
+  `npm run test:unit` (186 tests), `npm run build`, `npm run test:e2e` (33
+  Chromium tests), `npm ls`, and `npm audit` (zero vulnerabilities). Real-backend
+  browser coverage proves acknowledged revision display, newer edits during a
+  delayed PUT, ordinary and finish response-loss exact retries without double
+  increment, offline shell reload/reconnect, same-account reauthentication,
+  finish with the latest unsynced graph, finish blocking during an ordinary PUT,
+  retained two-tab conflict drafts, and no overflow on a short shell page.
+- Gate G12b covers the editor portions of acceptance checks 1-5 and the
+  reauthentication portion of check 11. Stage 12c is the next marker and owns
+  repeat-last plus the explicit use-server/copy/replace conflict UI.

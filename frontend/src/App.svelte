@@ -96,7 +96,7 @@
 <div class="flex min-h-dvh flex-col">
   <main
     class="mx-auto w-full max-w-2xl flex-1 px-4 pt-4 {showChrome
-      ? 'pb-28'
+      ? 'pb-4'
       : 'pb-8'}"
   >
     {#if session.status === 'loading'}
@@ -156,7 +156,7 @@
   {#if showChrome}
     <nav
       aria-label="Primary"
-      class="fixed inset-x-0 bottom-0 border-t border-edge bg-surface"
+      class="sticky inset-x-0 bottom-0 shrink-0 border-t border-edge bg-surface"
     >
       <ul class="mx-auto flex w-full max-w-2xl">
         {#each navItems as item (item.path)}

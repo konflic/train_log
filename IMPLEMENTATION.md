@@ -62,14 +62,22 @@ remain out of scope.
   GET before later work, retries an exact pending save first, requires the
   currently authenticated account, pauses with a classified recovery state,
   and offers explicit server-copy/replacement preparation.
-- **Stage 12a delivery:** implemented on branch
-  `stage-12a-locally-persistent-editor`. The production shell now has durable
+- **Stage 12a delivery:** merged to `master` in
+  [PR #19](https://github.com/konflic/train_log/pull/19) on 2026-10-08
+  (`0f9526b`). The production shell now has durable
   quick start and active-workout resume routes, explicit per-workout recovery
   selection, local-only offline recovery, catalog-backed graph editing, strict
   raw-integer preservation, provisional completed-set totals, and visible
   local-storage status/retry. It sends no graph PUT or finish request. Gate
   evidence is recorded in the Stage 12a contract.
-- **Next:** Stage 12b synchronization, reauthentication, and finish.
+- **Stage 12b delivery:** implemented on branch
+  `stage-12b-sync-reauth-finish`. The editor now coalesces durable foreground
+  saves, retries exact pending payloads before newer work, preserves edits across
+  delayed/lost responses and offline reloads, reauthenticates in place, pauses
+  on conflicts, and retires a finished draft only in the matching local
+  acknowledgement transaction. Gate G12b passed locally on 2026-10-08 with 186
+  unit and 33 Chromium tests; detailed evidence is in the Stage 12b contract.
+- **Next:** Stage 12c repeat-last and explicit conflict recovery choices.
 
 ## Documentation ownership
 
@@ -347,8 +355,9 @@ demonstration at each gate.
 
 #### Stage 12a - Locally persistent editor
 
-**Status:** implemented on branch `stage-12a-locally-persistent-editor`; Gate
-G12a passed locally on 2026-10-08.
+**Status:** merged to `master` in
+[PR #19](https://github.com/konflic/train_log/pull/19) on 2026-10-08
+(`0f9526b`); Gate G12a passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-12a-locally-persistent-editor.md`](implementation/stage-12a-locally-persistent-editor.md).
@@ -362,6 +371,9 @@ acknowledgement.
 exposes storage failures.
 
 #### Stage 12b - Synchronization, reauthentication, and finish
+
+**Status:** implemented on branch `stage-12b-sync-reauth-finish`; Gate G12b
+passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-12b-sync-reauth-finish.md`](implementation/stage-12b-sync-reauth-finish.md).
