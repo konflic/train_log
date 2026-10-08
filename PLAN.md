@@ -375,6 +375,10 @@ workouts
   updated_at TEXT NOT NULL
   # index: (user_id, started_at, id)
 
+workout_save_previous_performance
+  workout_id TEXT PK FK workouts(id) ON DELETE CASCADE
+  snapshot TEXT NOT NULL                 # latest PUT's bounded derived-history receipt
+
 exercises
   id TEXT PK                          # client-generated UUID
   workout_id TEXT NOT NULL FK workouts(id) ON DELETE CASCADE
@@ -500,13 +504,14 @@ Server processing, within one write transaction:
 1. Authenticate and load the owned workout; PUT never creates a missing workout.
 2. Validate the request and fingerprint its canonical validated content.
 3. If `save_id` equals `last_save_id`, require the same fingerprint and return
-   the saved graph/revision without applying it again. Different content with
-   the same ID returns 409.
+   the saved graph/revision and its stored derived-history snapshot without
+   applying it again. Different content with the same ID returns 409.
 4. Otherwise require an exact revision match. A mismatch returns 409 with a
    conflict code/current revision and changes nothing.
-5. Validate lifecycle, nested ownership, catalog visibility, and all invariants;
-   save the graph and metadata atomically, increment the revision, and record
-   `last_save_id`/`last_save_hash` in the same commit.
+5. Validate lifecycle, nested ownership, catalog visibility, arithmetic bounds,
+   and all invariants; save the graph and metadata atomically, increment the
+   revision, and record `last_save_id`/`last_save_hash` plus the bounded latest
+   previous-performance snapshot in the same commit.
 6. Return the authoritative graph, revision, and last save ID.
 
 Only the last accepted save receipt is retained, for the lifetime of that

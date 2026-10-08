@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "sessions",
     "exercise_catalog",
     "workouts",
+    "workout_save_previous_performance",
     "exercises",
     "sets",
     "schema_migrations",
@@ -41,7 +42,11 @@ def _write(directory: Path, filename: str, sql: str) -> None:
 def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> None:
     database_path = tmp_path / "basefit.db"
     applied = migrate.migrate(database_path)
-    assert [m.name for m in applied] == ["0001_initial_schema", "0002_seed_catalog"]
+    assert [m.name for m in applied] == [
+        "0001_initial_schema",
+        "0002_seed_catalog",
+        "0003_save_previous_performance_receipt",
+    ]
 
     with connect(database_path) as conn:
         tables = {
@@ -71,7 +76,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2]
+        assert versions == [1, 2, 3]
 
         seed = conn.execute(
             "SELECT COUNT(*) AS n FROM exercise_catalog WHERE is_default = 1 AND created_by IS NULL"
@@ -245,7 +250,7 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         insert_exercise(txn, catalog_id="cat-custom-1")
         insert_set(txn, reps=8, weight_kg=12, done=1)
 
-    assert [m.version for m in migrate.migrate(database_path)] == [2]
+    assert [m.version for m in migrate.migrate(database_path)] == [2, 3]
 
     with connect(database_path) as conn:
         user = conn.execute(
@@ -287,4 +292,4 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2]
+        assert versions == [1, 2, 3]

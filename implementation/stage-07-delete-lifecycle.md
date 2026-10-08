@@ -1,7 +1,9 @@
 # Stage 7 - Delete and lifecycle
 
-Status: implemented on branch `stage-7-delete-lifecycle` (PR pending). Gate G7
-passed locally on 2026-10-08; see Completion evidence below.
+Status: merged to `master` in
+[PR #12](https://github.com/konflic/train_log/pull/12) on 2026-10-08
+(`a5fa210`). Gate G7 passed locally on 2026-10-08; see Completion evidence
+below.
 
 Estimate: 0.5 person-day.
 
