@@ -1,7 +1,9 @@
 # Stage 8a - Inline previous performance
 
-Status: implemented on branch `stage-8a-previous-performance` (PR pending). Gate
-G8a passed locally on 2026-10-08; see Completion evidence below.
+Status: merged to `master` in
+[PR #13](https://github.com/konflic/train_log/pull/13) on 2026-10-08
+(`b13261e`). Gate G8a passed locally on 2026-10-08; see Completion evidence
+below.
 
 Working estimate: 1 person-day within Stage 8's 2.5-day post-Stage-6 budget.
 
