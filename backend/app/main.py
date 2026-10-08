@@ -9,12 +9,15 @@ The health endpoint remains for smoke tests and E2E readiness checks.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import BaseRoute, Match
+from starlette.staticfiles import StaticFiles
 
 from app.api.auth import router as auth_router
 from app.api.exercises import router as exercises_router
@@ -23,7 +26,7 @@ from app.api.workouts import router as workouts_router
 from app.auth import LoginThrottle
 from app.config import Settings, load_settings
 from app.db import DatabaseBusyError, validate_sqlite_runtime
-from app.errors import ApiError, ServiceBusyError, problem_response
+from app.errors import ApiError, NotFoundError, ServiceBusyError, problem_response
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.csrf import CsrfMiddleware
 from app.middleware.request_id import RequestIdMiddleware, request_id_from_scope
@@ -149,6 +152,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_api_v1_router())
     register_error_handlers(app)
+    if resolved.static_dir:
+        # Single-origin serving of the built SPA next to the API
+        # (PLAN.md §2, Stage 15). The frontend uses hash routes, so no SPA
+        # rewrite rule is needed: index.html at `/` plus plain static files.
+        # Routes are matched in registration order, so `/api/v1` wins.
+        static_path = Path(resolved.static_dir)
+        if not static_path.is_dir():
+            raise ValueError(f"STATIC_DIR does not exist: {resolved.static_dir}")
+
+        @app.api_route(
+            "/api/v1/{rest_of_path:path}",
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+            include_in_schema=False,
+        )
+        def unknown_api_route(request: Request, rest_of_path: str) -> None:
+            # Unknown API paths keep the problem+json contract instead of
+            # falling through to the static mount's plain 404. Preserve the
+            # normal 405 response when an earlier API route matched the path
+            # but not the method.
+            del rest_of_path
+            allowed_methods: set[str] = set()
+
+            def collect_partial_methods(routes: list[BaseRoute]) -> None:
+                for route in routes:
+                    match, _ = route.matches(request.scope)
+                    if match is Match.PARTIAL:
+                        allowed_methods.update(getattr(route, "methods", ()))
+                    included = getattr(route, "original_router", None)
+                    if included is not None:
+                        collect_partial_methods(included.routes)
+
+            collect_partial_methods(app.routes)
+            if allowed_methods:
+                raise StarletteHTTPException(
+                    status_code=405,
+                    detail="Method Not Allowed",
+                    headers={"Allow": ", ".join(sorted(allowed_methods))},
+                )
+            raise NotFoundError("Not found")
+
+        app.mount("/", StaticFiles(directory=static_path, html=True), name="spa")
     return app
 
 

@@ -18,6 +18,9 @@ DEFAULT_DATABASE_PATH = "data/basefit.db"
 DEFAULT_SESSION_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_APP_ORIGIN = "http://localhost:5173"
 DEFAULT_APP_ENV = "development"
+# Empty disables static serving; single-origin deployments (PLAN.md §2,
+# Stage 15) point this at the built SPA directory.
+DEFAULT_STATIC_DIR = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +32,7 @@ class Settings:
     app_origin: str
     cookie_secure: bool
     app_env: str
+    static_dir: str = DEFAULT_STATIC_DIR
 
 
 def _get(source: Mapping[str, str], name: str, default: str) -> str:
@@ -70,4 +74,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         app_origin=_get(source, "APP_ORIGIN", DEFAULT_APP_ORIGIN),
         cookie_secure=_parse_bool("COOKIE_SECURE", _get(source, "COOKIE_SECURE", "false")),
         app_env=_get(source, "APP_ENV", DEFAULT_APP_ENV),
+        static_dir=_get(source, "STATIC_DIR", DEFAULT_STATIC_DIR),
     )

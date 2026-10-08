@@ -27,7 +27,26 @@ remain out of scope.
   `PLAN.md` and the merged backend. Their verification matrices cover tab/account
   isolation, durable recovery, finish ordering, deletion, and logout failures;
   these are implementation requirements, not completed frontend gate evidence.
-- **Next:** begin Stage 9 from the merged Stage 8b baseline.
+- **Stage 9-10 delivery:** at the user's request, Stages 9 and 10 plus
+  container packaging are delivered in one branch, `stage-9-10-frontend`.
+  Both gates passed locally: Gate G9 (shell/theme/API/numeric parity) and
+  Gate G10 (register → login → guarded shell, read-only Home, catalog
+  browse/create/edit) with evidence in
+  [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md)
+  and
+  [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
+  Container packaging (ahead of the Stage 15 production gate, which still
+  owns the ship evidence): optional backend `STATIC_DIR` single-origin SPA
+  serving (+6 backend tests, 643 total green), multi-stage `Dockerfile`
+  (node build → python runtime, non-root, migrations in the entrypoint,
+  stdlib healthcheck), `docker-compose.yml` for real-host deployment behind
+  a TLS proxy with a persistent volume, `docker-compose.test.yml` with a
+  disposable tmpfs database, `docker/smoke.sh` public-API deployment smoke,
+  `DEPLOYMENT.md`, and a CI `docker` job. Verified locally: disposable and
+  production-topology stacks healthy, smoke green, restart preserves
+  sessions/data with a no-op migration run, and the production bundle in
+  the image contains no e2e-only hook.
+- **Next:** begin Stage 11a after this branch merges.
 
 ## Documentation ownership
 
@@ -181,6 +200,9 @@ remains green; Milestone B exits with the full client-facing API contract.
 
 ### Stage 9 - Frontend foundation
 
+**Status:** implemented on branch `stage-9-10-frontend` (pending merge); Gate
+G9 passed locally on 2026-10-08.
+
 **Detailed plan:**
 [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md).
 
@@ -205,6 +227,9 @@ frontend arithmetic matches the backend. Covers check 9 (frontend half) and part
 of check 14.
 
 ### Stage 10 - Auth, Home, and Catalog screens
+
+**Status:** implemented on branch `stage-9-10-frontend` (pending merge); Gate
+G10 passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).

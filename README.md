@@ -122,6 +122,16 @@ variable explicitly.
 | `APP_ORIGIN`          | `http://localhost:5173`  | Allowed browser origin (CSRF checks)      |
 | `COOKIE_SECURE`       | `false`                  | Secure cookie flag; must be `true` unless `APP_ENV` is `development`/`test` |
 | `APP_ENV`             | `development`            | Environment label (`development`, `test`, `qa`, `production`) |
+| `STATIC_DIR`          | _(empty, disabled)_      | Built SPA directory served next to the API under one origin |
+
+## Container deployment
+
+`Dockerfile` packages the built SPA and the API into one single-origin
+container (migrations run in the entrypoint before serving).
+`docker-compose.yml` deploys it on a real host behind a TLS reverse proxy;
+`docker-compose.test.yml` runs a disposable test instance whose tmpfs
+database is destroyed with the container. `docker/smoke.sh` verifies a
+deployment through the public API only. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Authentication and cookies
 

@@ -1,0 +1,41 @@
+# BaseFit deployment stack for a real host (PLAN.md §2, DEPLOYMENT.md).
+#
+# One container serves the built SPA and the API under a single origin with
+# one process and a persistent SQLite volume. Migrations run automatically in
+# the entrypoint before the API starts. HTTPS is terminated by the host's
+# reverse proxy; APP_ORIGIN must be the exact public origin the browser uses
+# (CSRF checks compare against it) and COOKIE_SECURE must stay true.
+
+name: basefit
+
+services:
+  basefit:
+    build:
+      context: .
+    image: basefit:latest
+    restart: unless-stopped
+    ports:
+      # Bind to loopback by default and let the reverse proxy face the network.
+      - "${BASEFIT_BIND:-127.0.0.1:8000}:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_ORIGIN: ${APP_ORIGIN:?set APP_ORIGIN to the public origin, e.g. https://fit.example.com}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-86400}
+      DATABASE_PATH: /data/basefit.db
+      STATIC_DIR: /app/static
+    volumes:
+      - basefit-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  basefit-data:

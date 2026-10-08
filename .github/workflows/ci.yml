@@ -84,3 +84,40 @@ jobs:
       - name: E2E smoke tests
         run: npm run test:e2e
         working-directory: frontend
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build single-origin image
+        run: docker build -t basefit:ci .
+      - name: Run container against a disposable database
+        run: |
+          docker run -d --rm --name basefit-ci -p 127.0.0.1:8080:8000 \
+            -e APP_ENV=test \
+            -e APP_ORIGIN=http://127.0.0.1:8080 \
+            -e COOKIE_SECURE=false \
+            -e DATABASE_PATH=/data/basefit.db \
+            -e STATIC_DIR=/app/static \
+            basefit:ci
+      - name: Wait for health
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs basefit-ci
+          exit 1
+      - name: Deployment smoke through the public API
+        run: ./docker/smoke.sh http://127.0.0.1:8080
+      - name: Production build contains no e2e-only hook
+        run: |
+          docker create --name basefit-inspect basefit:ci
+          docker cp basefit-inspect:/app/static /tmp/static
+          docker rm basefit-inspect
+          ! grep -r '__basefitApi' /tmp/static
+      - name: Stop container
+        if: always()
+        run: docker stop basefit-ci || true

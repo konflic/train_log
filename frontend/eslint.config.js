@@ -25,7 +25,9 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.svelte'],
+    // Runes modules (`.svelte.ts`) are TypeScript parsed inside the Svelte
+    // parser, exactly like `.svelte` components.
+    files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: {
       parserOptions: {
         parser: tseslint.parser,

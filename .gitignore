@@ -31,6 +31,7 @@ data/
 backups/
 .env
 .env.*
+!.env.example
 
 # Editors / OS
 .idea/
