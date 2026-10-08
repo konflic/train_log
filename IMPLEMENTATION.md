@@ -27,10 +27,15 @@ remain out of scope.
   `PLAN.md` and the merged backend. Their verification matrices cover tab/account
   isolation, durable recovery, finish ordering, deletion, and logout failures;
   these are implementation requirements, not completed frontend gate evidence.
-- **Next:** Stage 10 on the same `stage-9-10-frontend` branch (the user asked
-  for Stages 9 and 10 plus container packaging in one delivery); Stage 9 is
-  implemented there with Gate G9 evidence recorded in
-  [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md).
+- **Stage 9-10 delivery:** at the user's request, Stages 9 and 10 plus
+  container packaging are delivered in one branch, `stage-9-10-frontend`.
+  Both gates passed locally: Gate G9 (shell/theme/API/numeric parity) and
+  Gate G10 (register → login → guarded shell, read-only Home, catalog
+  browse/create/edit) with evidence in
+  [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md)
+  and
+  [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
+- **Next:** begin Stage 11a after this branch merges.
 
 ## Documentation ownership
 
@@ -211,6 +216,9 @@ frontend arithmetic matches the backend. Covers check 9 (frontend half) and part
 of check 14.
 
 ### Stage 10 - Auth, Home, and Catalog screens
+
+**Status:** implemented on branch `stage-9-10-frontend` (pending merge); Gate
+G10 passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
