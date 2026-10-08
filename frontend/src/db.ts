@@ -149,6 +149,9 @@ export interface DurableDraftStorage {
   getSave(accountId: string, draftId: string): Promise<PendingSave | undefined>;
   acknowledgeCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void>;
   acknowledgeSave(draft: WorkoutDraft, pending: PendingSave): Promise<void>;
+  adoptServer(draft: WorkoutDraft): Promise<void>;
+  replaceSave(draft: WorkoutDraft, pending: PendingSave): Promise<void>;
+  discardPending(accountId: string, draftId: string): Promise<void>;
 }
 
 class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
@@ -324,6 +327,50 @@ class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
     }
     await transaction.objectStore(DRAFT_STORE).put(draft);
     await pendingStore.delete([pending.account_id, pending.draft_id]);
+    await transaction.done;
+  }
+
+  async adoptServer(draft: WorkoutDraft): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_CREATE_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    await transaction.objectStore(DRAFT_STORE).put(draft);
+    await transaction
+      .objectStore(PENDING_CREATE_STORE)
+      .delete([draft.account_id, draft.draft_id]);
+    await transaction
+      .objectStore(PENDING_SAVE_STORE)
+      .delete([draft.account_id, draft.draft_id]);
+    await transaction.done;
+  }
+
+  async replaceSave(draft: WorkoutDraft, pending: PendingSave): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_CREATE_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    await transaction.objectStore(DRAFT_STORE).put(draft);
+    await transaction
+      .objectStore(PENDING_CREATE_STORE)
+      .delete([draft.account_id, draft.draft_id]);
+    const saves = transaction.objectStore(PENDING_SAVE_STORE);
+    await saves.delete([draft.account_id, draft.draft_id]);
+    await saves.put(pending);
+    await transaction.done;
+  }
+
+  async discardPending(accountId: string, draftId: string): Promise<void> {
+    const transaction = this.database.transaction(
+      [PENDING_CREATE_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    await transaction
+      .objectStore(PENDING_CREATE_STORE)
+      .delete([accountId, draftId]);
+    await transaction
+      .objectStore(PENDING_SAVE_STORE)
+      .delete([accountId, draftId]);
     await transaction.done;
   }
 }
@@ -933,6 +980,25 @@ export class PendingDraftRepository {
     }
   }
 
+  /** Atomically supersede explicitly rejected work with a fresh save attempt. */
+  async replaceSave(
+    accountId: string,
+    draft: WorkoutDraft,
+  ): Promise<PendingSave> {
+    if (!isWorkoutDraft(draft) || draft.account_id !== accountId) {
+      throw new MalformedDraftError();
+    }
+    const pending = pendingSaveFor(accountId, draft);
+    try {
+      await this.storage.replaceSave(copyDraft(draft), copyPending(pending));
+      return copyPending(pending);
+    } catch (error) {
+      throw new DraftStorageError('Could not replace the save request', {
+        cause: error,
+      });
+    }
+  }
+
   async getCreate(
     accountId: string,
     draftId: string,
@@ -1028,6 +1094,50 @@ export class PendingDraftRepository {
       });
     }
   }
+
+  /** Replace local content with a fetched server copy and retire pending work. */
+  async adoptServer(draft: WorkoutDraft): Promise<void> {
+    if (!isWorkoutDraft(draft) || draft.account_id.length === 0) {
+      throw new MalformedDraftError();
+    }
+    try {
+      await this.storage.adoptServer(copyDraft(draft));
+    } catch (error) {
+      throw new DraftStorageError('Could not store the server recovery copy', {
+        cause: error,
+      });
+    }
+  }
+
+  /** Only a confirmed recovery action may retire an immutable failed request. */
+  async discardPending(accountId: string, draftId: string): Promise<void> {
+    try {
+      await this.storage.discardPending(accountId, draftId);
+    } catch (error) {
+      throw new DraftStorageError('Could not discard the pending request', {
+        cause: error,
+      });
+    }
+  }
+}
+
+function pendingSaveFor(accountId: string, draft: WorkoutDraft): PendingSave {
+  return {
+    account_id: accountId,
+    draft_id: draft.draft_id,
+    workout_id: draft.workout_id,
+    change_number: draft.change_number,
+    payload: {
+      revision: draft.base_revision,
+      save_id: createDraftId(),
+      name: draft.content.name,
+      notes: draft.content.notes,
+      bodyweight_kg: draft.content.bodyweight_kg,
+      ended_at: draft.content.ended_at,
+      exercises: draft.content.exercises,
+    },
+    created_at: new Date().toISOString(),
+  };
 }
 
 export class EditorAssociations {

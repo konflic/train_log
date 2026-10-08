@@ -1,6 +1,6 @@
 # Stage 11c - Reconnect, conflict, and account handling
 
-Status: planned. Start after Gate G11b is merged.
+Status: in progress. Gate G11b merged in PR #17 on 2026-10-08.
 
 Working estimate: part of Stage 11's 3 person-day budget.
 
@@ -188,6 +188,14 @@ Completion evidence and the Stage 12a marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, finalized coordinator transitions,
-commands/test counts, two-tab/session/deletion/account observations, and Gate
-G11 evidence here before merge.
+The current working tree adds account-guarded coordinator resume ordering,
+classified paused recovery states, explicit use-server and replacement
+preparation commands, atomic local adoption of a server copy, and stale-response
+protection after an account transition. Targeted coordinator tests cover
+pending-first create recovery, exact pending-save retry, account mismatch,
+conflict classification, use-server persistence, and delayed account-switch
+responses.
+
+Gate G11c is not yet claimed. Add the required real-browser two-tab,
+session-expiry, deletion, and logout-preparation observations plus the finalized
+branch and command evidence before merge.
