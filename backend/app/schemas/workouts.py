@@ -30,7 +30,7 @@ from the same recorded inputs; display percentages remain a client calculation.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
@@ -45,12 +45,6 @@ from app.schemas.common import (
     WeightKg,
 )
 from app.timestamps import to_timestamp
-
-# History date filters are local calendar dates; the bounds keep the UTC
-# boundary arithmetic (±1 day, ±14 h offset) inside years that format as
-# canonical four-digit UTC text.
-MIN_HISTORY_DATE = date(1900, 1, 1)
-MAX_HISTORY_DATE = date(9998, 12, 31)
 
 # Full-state bulk-save limits (IMPLEMENTATION.md Stage 6). They leave headroom
 # within the shared 256 KiB request limit and bound SQL batches below SQLite's

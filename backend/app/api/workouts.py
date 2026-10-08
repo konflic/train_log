@@ -42,20 +42,18 @@ percentages stay a client calculation over the shared BigInt floor helper.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import BeforeValidator
 
+from app.api.common import HistoryDate
 from app.auth import CurrentUser
 from app.config import Settings
 from app.errors import ConflictError, NotFoundError, UnprocessableEntityError
 from app.numbers import MAX_SAFE_INTEGER
 from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.workouts import (
-    MAX_HISTORY_DATE,
-    MIN_HISTORY_DATE,
     CreateWorkoutRequest,
     ExerciseNodeResponse,
     PreviousPerformanceResponse,
@@ -104,28 +102,6 @@ RevisionQuery = Annotated[
     int,
     BeforeValidator(_parse_revision),
     Query(ge=0, le=MAX_SAFE_INTEGER),
-]
-
-
-def _parse_history_date(value: object) -> date:
-    """Accept an ISO calendar date, never a coerced timestamp."""
-    if not isinstance(value, str) or (
-        len(value) != 10
-        or value[4] != "-"
-        or value[7] != "-"
-        or not (value[:4] + value[5:7] + value[8:]).isdigit()
-    ):
-        raise ValueError("date must use YYYY-MM-DD")
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        raise ValueError("date must be a valid calendar date") from None
-
-
-HistoryDate = Annotated[
-    date,
-    BeforeValidator(_parse_history_date),
-    Query(ge=MIN_HISTORY_DATE, le=MAX_HISTORY_DATE),
 ]
 
 

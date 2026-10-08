@@ -18,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.auth import router as auth_router
 from app.api.exercises import router as exercises_router
+from app.api.stats import router as stats_router
 from app.api.workouts import router as workouts_router
 from app.auth import LoginThrottle
 from app.config import Settings, load_settings
@@ -50,6 +51,7 @@ def create_api_v1_router() -> APIRouter:
 
     router.include_router(auth_router)
     router.include_router(exercises_router)
+    router.include_router(stats_router)
     router.include_router(workouts_router)
     return router
 
