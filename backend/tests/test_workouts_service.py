@@ -395,6 +395,38 @@ def seed_graph(database_path: Path) -> None:
         )
 
 
+def seed_previous_session(database_path: Path) -> None:
+    """A finished, strictly earlier session with one completed dumbbell-curl set."""
+    with connect(database_path) as conn, write_transaction(conn):
+        insert_workout(
+            conn,
+            "workout-0",
+            user_id="user-1",
+            started_at="2025-12-30T00:00:00Z",
+            ended_at="2025-12-30T01:00:00Z",
+            bodyweight_kg=74,
+        )
+        insert_exercise(
+            conn,
+            "exercise-prev",
+            workout_id="workout-0",
+            catalog_id="dumbbell-curl",
+            order_index=0,
+            load_type="split_weight",
+            side_count=2,
+        )
+        insert_set(
+            conn,
+            "set-prev",
+            exercise_id="exercise-prev",
+            set_index=0,
+            reps=8,
+            weight_kg=10,
+            side="bilateral",
+            done=1,
+        )
+
+
 def test_graph_read_returns_nested_ordered_records(two_users: Path) -> None:
     seed_graph(two_users)
     graph = workouts.get_workout_graph(two_users, "workout-1", user_id="user-1")
@@ -492,6 +524,7 @@ def test_graph_read_uses_a_fixed_number_of_queries(
     two_users: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_graph(two_users)
+    seed_previous_session(two_users)
     statements: list[str] = []
     real_connect = workouts.connect
 
@@ -505,10 +538,12 @@ def test_graph_read_uses_a_fixed_number_of_queries(
     graph = workouts.get_workout_graph(two_users, "workout-1", user_id="user-1")
     assert graph is not None
     assert len(graph.exercises) == 2
-    # Workout + exercises + all sets: never one query per set (PLAN.md §5).
+    assert graph.previous_performance[0] is not None
+    # Workout + exercises + all sets, then the three bounded previous-performance
+    # queries: never one query per set or per exercise (PLAN.md §5, §7).
     selects = [
         statement for statement in statements if statement.lstrip().upper().startswith("SELECT")
     ]
-    assert len(selects) == 3
+    assert len(selects) == 6
     assert statements[0] == "BEGIN"
     assert statements[-1] == "COMMIT"

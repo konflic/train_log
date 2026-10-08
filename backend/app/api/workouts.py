@@ -29,6 +29,15 @@ deleted, and foreign ids share one 404; a revision mismatch is a 409
 receipt or tombstone: later reads and writes (GET, PUT, a repeated DELETE)
 return 404 without recreating the workout, and a retry of a successful but
 unobserved deletion is resolved by an owner-scoped GET that also returns 404.
+
+Stage 8a adds one additive read-only member to the detail shape: each exercise
+carries `previous_performance`, the paired occurrence of the most recent
+eligible earlier session with its recorded inputs and server-computed integer
+comparisons (PLAN.md §7). It is assembled on the same transaction snapshot as
+the rest of the graph for GET, POST, and an accepted PUT. The latest PUT's
+derived history is retained with its bounded receipt so an exact retry replays
+the acknowledged detail even if eligible history changes meanwhile. Display
+percentages stay a client calculation over the shared BigInt floor helper.
 """
 
 from __future__ import annotations
@@ -49,8 +58,12 @@ from app.schemas.workouts import (
     MIN_HISTORY_DATE,
     CreateWorkoutRequest,
     ExerciseNodeResponse,
+    PreviousPerformanceResponse,
+    PreviousSetPairResponse,
+    PreviousSetResponse,
     SaveWorkoutRequest,
     SetResponse,
+    SetValuesResponse,
     WorkoutDetailResponse,
     WorkoutListResponse,
     WorkoutStatus,
@@ -138,7 +151,67 @@ def _set_response(record: workouts.SetRecord) -> SetResponse:
     )
 
 
-def _exercise_response(record: ExerciseRecord) -> ExerciseNodeResponse:
+def _set_values_response(values: workouts.SetValues) -> SetValuesResponse:
+    return SetValuesResponse(
+        reps=values.reps,
+        external_load_kg=values.external_load_kg,
+        effective_load_kg=values.effective_load_kg,
+        volume_kg_reps=values.volume_kg_reps,
+        estimated_1rm_kg=values.estimated_1rm_kg,
+    )
+
+
+def _previous_set_response(record: workouts.PreviousSet) -> PreviousSetResponse:
+    # model_validate re-checks the stored side against the response literal.
+    return PreviousSetResponse.model_validate(
+        {
+            "id": record.id,
+            "set_index": record.set_index,
+            "side": record.side,
+            "reps": record.reps,
+            "weight_kg": record.weight_kg,
+            "bw_percent_override": record.bw_percent_override,
+            "values": _set_values_response(record.values),
+        }
+    )
+
+
+def _previous_pair_response(pair: workouts.PreviousSetPair) -> PreviousSetPairResponse:
+    return PreviousSetPairResponse(
+        current_set_id=pair.current_set_id,
+        previous_set_id=pair.previous_set_id,
+        load_compatible=pair.load_compatible,
+        current=_set_values_response(pair.current),
+        previous=_set_values_response(pair.previous),
+        delta=_set_values_response(pair.delta),
+    )
+
+
+def _previous_performance_response(
+    record: workouts.ExercisePreviousPerformance | None,
+) -> PreviousPerformanceResponse | None:
+    if record is None:
+        return None
+    # model_validate re-checks the recorded snapshot's load type literal.
+    return PreviousPerformanceResponse.model_validate(
+        {
+            "workout_id": record.workout_id,
+            "started_at": record.started_at,
+            "bodyweight_kg": record.bodyweight_kg,
+            "exercise_id": record.exercise_id,
+            "order_index": record.order_index,
+            "load_type": record.load_type,
+            "bodyweight_percent": record.bodyweight_percent,
+            "side_count": record.side_count,
+            "sets": [_previous_set_response(item) for item in record.sets],
+            "pairs": [_previous_pair_response(pair) for pair in record.pairs],
+        }
+    )
+
+
+def _exercise_response(
+    record: ExerciseRecord, previous: workouts.ExercisePreviousPerformance | None
+) -> ExerciseNodeResponse:
     return ExerciseNodeResponse.model_validate(
         {
             "id": record.id,
@@ -149,6 +222,7 @@ def _exercise_response(record: ExerciseRecord) -> ExerciseNodeResponse:
             "bodyweight_percent": record.bodyweight_percent,
             "side_count": record.side_count,
             "sets": [_set_response(item) for item in record.sets],
+            "previous_performance": _previous_performance_response(previous),
         }
     )
 
@@ -175,7 +249,12 @@ def _detail_response(graph: WorkoutGraph) -> WorkoutDetailResponse:
         bodyweight_kg=workout.bodyweight_kg,
         revision=workout.revision,
         last_save_id=workout.last_save_id,
-        exercises=[_exercise_response(exercise) for exercise in graph.exercises],
+        # Previous performance is parallel to the graph; `strict` turns any
+        # misalignment into a loud failure instead of a dropped comparison.
+        exercises=[
+            _exercise_response(exercise, previous)
+            for exercise, previous in zip(graph.exercises, graph.previous_performance, strict=True)
+        ],
     )
 
 
@@ -248,7 +327,7 @@ def create_workout(
 
 @router.get("/{workout_id}", response_model=WorkoutDetailResponse)
 def get_workout(workout_id: str, request: Request, user: CurrentUser) -> WorkoutDetailResponse:
-    """The owned workout's metadata and full ordered graph; foreign is 404."""
+    """The owned workout's graph and previous performance; foreign is 404."""
     graph = workouts.get_workout_graph(
         _settings(request).database_path, workout_id, user_id=user.id
     )

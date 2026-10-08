@@ -350,6 +350,8 @@ def test_get_detail_returns_full_graph(api_client: TestClient, migrated_db: Path
                         "done": True,
                     },
                 ],
+                # No eligible earlier session exists for this graph.
+                "previous_performance": None,
             },
             {
                 "id": "e-2",
@@ -371,6 +373,7 @@ def test_get_detail_returns_full_graph(api_client: TestClient, migrated_db: Path
                         "done": True,
                     },
                 ],
+                "previous_performance": None,
             },
         ],
     }

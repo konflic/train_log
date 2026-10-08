@@ -186,6 +186,11 @@ def test_save_increment_requires_the_new_revision(delete_db: Path) -> None:
     )
     graph = workouts.save_workout(delete_db, owner_id=OWNER, workout_id=WORKOUT, payload=payload)
     assert graph.workout.revision == 1
+    with connect(delete_db) as conn:
+        assert (
+            conn.execute("SELECT COUNT(*) FROM workout_save_previous_performance").fetchone()[0]
+            == 1
+        )
     # The delete at the superseded base revision fails atomically...
     before = database_state(delete_db)
     with pytest.raises(RevisionConflictError) as excinfo:
@@ -195,6 +200,11 @@ def test_save_increment_requires_the_new_revision(delete_db: Path) -> None:
     # ...and the incremented revision deletes.
     delete(delete_db, revision=1)
     assert workouts.get_workout_graph(delete_db, WORKOUT, user_id=OWNER) is None
+    with connect(delete_db) as conn:
+        assert (
+            conn.execute("SELECT COUNT(*) FROM workout_save_previous_performance").fetchone()[0]
+            == 0
+        )
 
 
 # --- not-found outcomes ------------------------------------------------------------
