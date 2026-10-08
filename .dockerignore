@@ -1,0 +1,23 @@
+# Git and local state must never leak into the build context.
+.git
+.github
+**/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+frontend/coverage
+backend/.venv
+backend/.mypy_cache
+backend/.pytest_cache
+backend/.ruff_cache
+backend/build
+backend/*.egg-info
+data
+backups
+**/*.db
+**/*.db-wal
+**/*.db-shm
+.env
+.env.*
+docker-compose*.yml
+DEPLOYMENT.md

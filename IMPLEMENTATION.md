@@ -35,6 +35,17 @@ remain out of scope.
   [`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md)
   and
   [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
+  Container packaging (ahead of the Stage 15 production gate, which still
+  owns the ship evidence): optional backend `STATIC_DIR` single-origin SPA
+  serving (+5 backend tests, 642 total green), multi-stage `Dockerfile`
+  (node build → python runtime, non-root, migrations in the entrypoint,
+  stdlib healthcheck), `docker-compose.yml` for real-host deployment behind
+  a TLS proxy with a persistent volume, `docker-compose.test.yml` with a
+  disposable tmpfs database, `docker/smoke.sh` public-API deployment smoke,
+  `DEPLOYMENT.md`, and a CI `docker` job. Verified locally: disposable and
+  production-topology stacks healthy, smoke green, restart preserves
+  sessions/data with a no-op migration run, and the production bundle in
+  the image contains no e2e-only hook.
 - **Next:** begin Stage 11a after this branch merges.
 
 ## Documentation ownership
