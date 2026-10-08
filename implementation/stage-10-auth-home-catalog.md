@@ -1,6 +1,8 @@
 # Stage 10 - Auth, Home, and Catalog
 
-Status: planned. Start after Gate G9 is merged.
+Status: implemented on branch `stage-9-10-frontend` (pending merge). Started
+after Gate G9 passed locally in the same branch, at the user's request to
+deliver Stages 9-10 together.
 
 Estimate: 2.5 person-days.
 
@@ -166,6 +168,54 @@ Completion evidence and the Stage 11a marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, changed UI/API surface, commands and
-test counts, browser/mobile observations, and Gate G10 evidence here before
-merge.
+Recorded 2026-10-08 on branch `stage-9-10-frontend` (delivered in the same
+branch/PR as Stage 9 at the user's request).
+
+- **Changed UI/API surface:** new `features/auth` (`session.svelte.ts` runes
+  module with generation-guarded `initialize`/`adoptUser`/`noteUnauthorized`
+  and in-memory intended-route/register-to-login handoffs; `LoginRoute`,
+  `RegisterRoute`, handwritten `validation.ts`), `features/home`
+  (`HomeRoute` plus independent abortable `ActiveWorkoutsPanel`,
+  `RecentHistoryPanel`, `WeeklySummaryPanel` with visibilitychange week
+  refresh), `features/catalog` (`CatalogRoute` with route-query filter state,
+  debounced search, request-identity stale-response suppression, stable
+  paging; `ExerciseForm` with changed-fields-only PATCH; `labels.ts`;
+  handwritten `validation.ts`), `lib/offsetTime.ts` (days-from-civil integer
+  calendar math, fixed-offset local dates, Monday-Sunday week bounds,
+  offset rendering), and `lib/failures.ts` (abort/401 classification, safe
+  messages, problem-to-form mapping). `App.svelte` gained the startup
+  `GET /auth/me` resolution, loading/error-retry states, anonymous route
+  guarding with intended-route preservation, `/login` + `/register` routes,
+  and chrome hidden on auth routes. No new dependency; no backend change.
+- **Boundary discipline:** no quick start/resume/repeat/picker/history-detail/
+  deletion/logout controls; Home cards are informational; registration does
+  not sign in; no credential or token reaches frontend persistence; catalog
+  deletion stays off the screen.
+- **Commands/results (local):** `npm run check` 0 errors/0 warnings;
+  `npm run lint` clean; `npm run test:unit` 146 passed across 13 files
+  (session identity guards, auth forms incl. 401/409/429/network mapping and
+  duplicate-submit prevention, week/offset calendar edges incl. pre-epoch and
+  Sunday/Monday boundaries, Home panel isolation/retry/partial-volume labels,
+  catalog query construction, debounce, stale-response suppression, page
+  reset on filter change, changed-fields PATCH incl. explicit percent clear,
+  backend problem display); `npm run build` green (88.49 kB JS, gzip 29.73);
+  `npm run test:e2e` 16 passed against the isolated migrated backend.
+- **Browser observations (Chromium, real backend):** anonymous `#/catalog`
+  visit redirects to login and returns to the catalog after register →
+  "Continue to log in" (prefilled email) → login; one wrong-password attempt
+  shows the generic invalid-credential alert without revealing account
+  existence; the session cookie is HttpOnly + SameSite=Strict and survives
+  reload; Home shows empty active/recent panels and zeroed weekly stats with
+  the inclusive Monday-Sunday range at the account's fixed offset; catalog
+  browsing shows the 12 seeded defaults across two stable pages with
+  Default badges and no edit affordance, search/filter/paging keep URL state,
+  custom split-weight creation and rename edit work through the UI, and a
+  duplicate create surfaces the backend 409 in the form. No test touched the
+  database directly or used a reset endpoint.
+- **Gate G10 mapping:** register → explicit login → authenticated shell
+  navigation, correctly grouped read-only Home summaries, catalog browse/
+  filter, and private custom create/edit all pass with accessible mobile
+  layouts (44px targets, visible labels, `aria-current`, role=alert/status,
+  autocomplete attributes); component and real-backend Playwright coverage is
+  green locally (CI green pending on the PR).
+

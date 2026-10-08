@@ -1,46 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
-
-/**
- * The e2e-mode build exposes the real frontend API helpers on
- * `window.__basefitApi` (see src/main.ts); production builds never include
- * the hook. Calls run inside the page, so cookies, Origin, and the Vite
- * `/api` proxy behave exactly like the real app.
- */
-interface ApiHook {
-  fetchCurrentUser(): Promise<{ id: string; email: string }>;
-  registerUser(input: {
-    email: string;
-    password: string;
-  }): Promise<{ id: string; email: string }>;
-  login(input: {
-    email: string;
-    password: string;
-  }): Promise<{ id: string; email: string }>;
-  listExercises(query?: { page?: number; pageSize?: number }): Promise<{
-    items: Array<{ id: string; is_default: boolean }>;
-    total: number;
-  }>;
-}
-
-/** Wait until the e2e build has attached the real API helpers. */
-async function gotoWithApi(
-  page: import('@playwright/test').Page,
-): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(() => '__basefitApi' in window);
-}
+import { gotoApp, gotoSignedIn, uniqueEmail } from './helpers';
 
 test.describe('application shell', () => {
-  test('renders the shell in a real browser', async ({ page }) => {
-    await page.goto('/');
-    await expect(page).toHaveTitle('BaseFit');
+  test('anonymous startup leads to login without the shell navigation', async ({
+    page,
+  }) => {
+    await gotoApp(page);
+    await expect(page).toHaveTitle(/BaseFit/);
+    await expect(page).toHaveURL(/#\/login/);
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Home' }),
+      page.getByRole('heading', { level: 1, name: 'Log in' }),
     ).toBeVisible();
-    await expect(
-      page.getByRole('navigation', { name: 'Primary' }),
-    ).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(
+      0,
+    );
   });
 
   test('backend health is reachable through the /api proxy', async ({
@@ -99,9 +72,12 @@ test.describe('hash routing', () => {
   test('navigates between shell routes and renders not-found', async ({
     page,
   }) => {
-    await page.goto('/');
+    await gotoSignedIn(page);
     await expect(
       page.getByRole('heading', { level: 1, name: 'Home' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('navigation', { name: 'Primary' }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Catalog' }).click();
@@ -130,7 +106,7 @@ test.describe('hash routing', () => {
   });
 
   test('navigation links are keyboard operable', async ({ page }) => {
-    await page.goto('/');
+    await gotoSignedIn(page);
     const catalog = page.getByRole('link', { name: 'Catalog' });
     await catalog.focus();
     await expect(catalog).toBeFocused();
@@ -146,12 +122,12 @@ test.describe('api helpers against the live backend', () => {
   test('register, login, and an authenticated read through the proxy', async ({
     page,
   }) => {
-    await gotoWithApi(page);
-    const email = `e2e-${randomUUID()}@example.test`;
+    await gotoApp(page);
+    const email = uniqueEmail();
     const password = 'e2e-password-123';
 
     const anonymousStatus = await page.evaluate(async () => {
-      const hook = (window as unknown as { __basefitApi: ApiHook })
+      const hook = (window as unknown as { __basefitApi: ApiHookShape })
         .__basefitApi;
       try {
         await hook.fetchCurrentUser();
@@ -168,7 +144,7 @@ test.describe('api helpers against the live backend', () => {
     // on the page origin exactly like the real app flow.
     const user = await page.evaluate(
       async ({ email, password }) => {
-        const hook = (window as unknown as { __basefitApi: ApiHook })
+        const hook = (window as unknown as { __basefitApi: ApiHookShape })
           .__basefitApi;
         const created = await hook.registerUser({ email, password });
         const session = await hook.login({ email, password });
@@ -184,7 +160,7 @@ test.describe('api helpers against the live backend', () => {
     expect(user.sessionEmail).toBe(email);
 
     const read = await page.evaluate(async () => {
-      const hook = (window as unknown as { __basefitApi: ApiHook })
+      const hook = (window as unknown as { __basefitApi: ApiHookShape })
         .__basefitApi;
       const me = await hook.fetchCurrentUser();
       const catalog = await hook.listExercises({ page: 1, pageSize: 5 });
@@ -195,16 +171,16 @@ test.describe('api helpers against the live backend', () => {
       };
     });
     expect(read.email).toBe(email);
-    expect(read.total).toBeGreaterThan(0);
+    expect(read.total).toBe(12);
     expect(read.firstIsDefault).toBe(true);
   });
 
   test('api failures surface as typed problems in the browser', async ({
     page,
   }) => {
-    await gotoWithApi(page);
+    await gotoApp(page);
     const failure = await page.evaluate(async () => {
-      const hook = (window as unknown as { __basefitApi: ApiHook })
+      const hook = (window as unknown as { __basefitApi: ApiHookShape })
         .__basefitApi;
       try {
         await hook.login({
@@ -222,3 +198,19 @@ test.describe('api helpers against the live backend', () => {
     expect(failure).toEqual({ status: 401, code: 'unauthorized' });
   });
 });
+
+interface ApiHookShape {
+  fetchCurrentUser(): Promise<{ id: string; email: string }>;
+  registerUser(input: {
+    email: string;
+    password: string;
+  }): Promise<{ id: string; email: string }>;
+  login(input: {
+    email: string;
+    password: string;
+  }): Promise<{ id: string; email: string }>;
+  listExercises(query?: { page?: number; pageSize?: number }): Promise<{
+    items: Array<{ id: string; is_default: boolean }>;
+    total: number;
+  }>;
+}
