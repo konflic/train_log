@@ -72,6 +72,14 @@ class ConflictError(ApiError):
     default_code = "conflict"
 
 
+class UnprocessableEntityError(ApiError):
+    """Schema/value validation failed; members carry field paths, never values."""
+
+    status_code = 422
+    default_title = "Validation Error"
+    default_code = "validation_error"
+
+
 class BodyTooLargeError(ApiError):
     status_code = 413
     default_title = "Payload Too Large"
