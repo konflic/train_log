@@ -14,25 +14,20 @@ remain out of scope.
 
 ## Current status
 
-- **Completed baseline:** Stages 0 through 8a are merged to `master`. Stage 8a
-  merged in [PR #13](https://github.com/konflic/train_log/pull/13) on
-  2026-10-08 (`b13261e`), with Gate G8a completing inline previous performance.
-  Its detailed completion evidence is recorded in
-  [`implementation/stage-08a-previous-performance.md`](implementation/stage-08a-previous-performance.md).
-  The backend suite is green (592 tests, +82) with no dependency or request-body
-  change. One internal migration stores the latest PUT's bounded
-  previous-performance receipt; the only new public surface is the additive
-  nullable `previous_performance` member of the workout detail exercise shape.
-- **Completed on branch `stage-8b-stats-summary` (PR pending):**
-  Stage 8b - Statistics summary. Gate G8b passed locally on 2026-10-08; the
-  detailed completion evidence is recorded in
+- **Completed baseline:** Stages 0 through 8b are merged to `master`. Stage 8b
+  merged in [PR #14](https://github.com/konflic/train_log/pull/14) on
+  2026-10-08 (`bf5033c`), completing the backend API and Gate G8. Gate G8b's
+  local verification evidence (637 backend tests, +45) is recorded in
   [`implementation/stage-08b-stats-summary.md`](implementation/stage-08b-stats-summary.md).
-  The backend suite is green (637 tests, +45) with no dependency, migration,
-  or request-body change. The new public surface is the authenticated
-  `GET /api/v1/stats/summary` endpoint with its two response components; the
+  Stage 8b introduced no dependency, migration, or request-body change. Its
+  new public surface is the authenticated `GET /api/v1/stats/summary` endpoint
+  with its two response components; the
   history-date query parser moved unchanged into a shared API helper.
-- **Next:** merge Stage 8b, which completes the backend API and Gate G8, then
-  begin Stage 9 from the merged Stage 8b baseline.
+- **Frontend planning:** detailed Stages 9-13 contracts are reviewed against
+  `PLAN.md` and the merged backend. Their verification matrices cover tab/account
+  isolation, durable recovery, finish ordering, deletion, and logout failures;
+  these are implementation requirements, not completed frontend gate evidence.
+- **Next:** begin Stage 9 from the merged Stage 8b baseline.
 
 ## Documentation ownership
 
@@ -92,7 +87,6 @@ development or production database.
 
 | MS | Stage | Deliverable | Primary verification | Current est. days |
 |----|-------|-------------|----------------------|------------------:|
-| B. Backend API | **8b** | Statistics summary | Backend gate | 1 |
 | C. Frontend | **9** | Frontend foundation, theme, router, API and integer helpers | Component/unit tests against backend | 2 |
 | C | **10** | Auth, read-only Home, Catalog | Component + Playwright | 2.5 |
 | C | **11a-11c** | IndexedDB drafts, durable pending work, recovery/account handling | Three coordinator/browser gates | 3 |
@@ -101,10 +95,10 @@ development or production database.
 | D. Operations | **14** | Minimal admin API/panel, account controls, audit | Admin API/security + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence and production deployment smoke | Full CI + deployment/restart checks | 4 |
 
-Remaining implementation and verification total **22 person-days**. Reserve
-**5 additional contingency days**, concentrated in Stage 8b comparison/calendar
-rules, Stages 11-12 synchronization, and Stage 15 deployment smoke. Remaining
-planning budget: **27 person-days**. Estimates are planning inputs, not gate
+Remaining implementation and verification total **21 person-days**. Reserve
+**5 additional contingency days**, concentrated in Stages 11-12 synchronization,
+Stage 13 deletion/logout races, and Stage 15 deployment smoke. Remaining
+planning budget: **26 person-days**. Estimates are planning inputs, not gate
 deadlines.
 
 ---
@@ -162,7 +156,8 @@ bounded independently of graph size; the complete backend suite passes.
 
 #### Stage 8b - Statistics summary
 
-**Status:** completed on branch `stage-8b-stats-summary` (PR pending);
+**Status:** merged to `master` in
+[PR #14](https://github.com/konflic/train_log/pull/14) on 2026-10-08 (`bf5033c`);
 Gate G8b passed locally on 2026-10-08.
 
 **Detailed plan:**
@@ -186,6 +181,9 @@ remains green; Milestone B exits with the full client-facing API contract.
 
 ### Stage 9 - Frontend foundation
 
+**Detailed plan:**
+[`implementation/stage-09-frontend-foundation.md`](implementation/stage-09-frontend-foundation.md).
+
 **Purpose:** runnable client shell that talks to the API. (`PLAN.md` sections 2
 and 8)
 
@@ -207,6 +205,9 @@ frontend arithmetic matches the backend. Covers check 9 (frontend half) and part
 of check 14.
 
 ### Stage 10 - Auth, Home, and Catalog screens
+
+**Detailed plan:**
+[`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
 
 **Purpose:** login, navigation, and browsing. (`PLAN.md` section 8)
 
@@ -235,6 +236,9 @@ tests and a browser harness for real IndexedDB, reload, and multiple tabs.
 
 #### Stage 11a - Local persistence and recovery
 
+**Detailed plan:**
+[`implementation/stage-11a-local-persistence-recovery.md`](implementation/stage-11a-local-persistence-recovery.md).
+
 - Partition by account ID, workout ID, and editor/draft ID; keep one editor per
   workout per tab and require explicit recovery selection.
 - Persist every edit before reporting it locally saved; surface storage failures.
@@ -242,6 +246,9 @@ tests and a browser harness for real IndexedDB, reload, and multiple tabs.
 explicit, and storage failures remain visible.
 
 #### Stage 11b - Durable create requests and immutable pending saves
+
+**Detailed plan:**
+[`implementation/stage-11b-durable-requests-pending-saves.md`](implementation/stage-11b-durable-requests-pending-saves.md).
 
 - Persist the create UUID/request before POST and retain it until acknowledgement.
   Resolve uncertain responses against the original request; never regenerate IDs
@@ -256,14 +263,18 @@ duplicates or double increments; newer edits remain intact.
 
 #### Stage 11c - Reconnect, conflict, and account handling
 
+**Detailed plan:**
+[`implementation/stage-11c-reconnect-conflict-account.md`](implementation/stage-11c-reconnect-conflict-account.md).
+
 - Authenticate the same account, resume uncertain work first, and fetch current
   state before later work; never silently advance a local base revision.
 - Stop automatic saves on conflict and expose use-server, copy-to-new, and
   explicit replacement actions where lifecycle permits.
 - Pause on session expiry, retain drafts after server deletion, and guard queued
   work/responses by account and draft identity.
-- Logout clears account-local data only after selected sync succeeds or discard
-  is explicitly confirmed.
+- Logout clears account-local data only after every unsynchronized draft is
+  successfully synced or explicitly approved for discard; unselected recovery
+  alternatives and concurrent tab edits cannot be silently cleared.
 
 **Gate G11c / G11:** recovery and account isolation pass coordinator/browser
 tests. Covers checks 1-4 and 11 at the persistence layer.
@@ -278,6 +289,9 @@ demonstration at each gate.
 
 #### Stage 12a - Locally persistent editor
 
+**Detailed plan:**
+[`implementation/stage-12a-locally-persistent-editor.md`](implementation/stage-12a-locally-persistent-editor.md).
+
 Wire quick start and resume through Stage 11 persistence. Add the catalog
 picker, large integer inputs, add/remove/reorder, done flags, stable keyed IDs,
 and labeled provisional totals. Distinguish local persistence from server
@@ -288,6 +302,9 @@ exposes storage failures.
 
 #### Stage 12b - Synchronization, reauthentication, and finish
 
+**Detailed plan:**
+[`implementation/stage-12b-sync-reauth-finish.md`](implementation/stage-12b-sync-reauth-finish.md).
+
 Connect foreground save/reconnect and save/finish controls. Show locally saved,
 syncing, synced, offline, conflict, and finish-pending states. Preserve drafts
 through reauthentication; keep final graph and finish time pending until durable
@@ -297,6 +314,9 @@ acknowledgement; never delete a draft early.
 overwrites input and no unacknowledged finish discards a draft.
 
 #### Stage 12c - Repeat-last and conflict recovery UI
+
+**Detailed plan:**
+[`implementation/stage-12c-repeat-conflict-recovery.md`](implementation/stage-12c-repeat-conflict-recovery.md).
 
 Repeat the last finished workout through durable create and normal bulk-save,
 using new IDs, copied values, `done=false`, reset RPE, current defaults, and
@@ -312,18 +332,25 @@ Covers checks 1-5, 8, and editor reauthentication from check 11.
 
 ### Stage 13 - History/detail, Settings, and logout
 
+**Detailed plan:**
+[`implementation/stage-13-history-settings-logout.md`](implementation/stage-13-history-settings-logout.md).
+
 **Purpose:** review, preferences, and account-safe logout. (`PLAN.md` section 8)
 
 Implement history/detail with previous-session comparisons; Settings with theme,
-profile bodyweight, UTC offset, and logout. Logout offers sync or discard for
+profile bodyweight, UTC offset, and logout; confirmed revision-checked deletion
+for active and finished workouts. Logout offers sync or discard for
 pending changes and clears local data only after synchronization succeeds or
-discard is confirmed. Keep units metric-only.
+discard is confirmed for all affected work, with cross-tab and uncertain-response
+recovery. Keep units metric-only.
 
 **Verification:** Playwright covers detail comparisons, theme persistence and
 legibility, historical snapshot stability after profile/catalog edits, failed
-logout recovery actions, and account switching with pending work.
+logout recovery actions, account switching with pending work, and deletion
+conflict/response-loss recovery.
 
-**Gate G13:** full user feature set. Covers checks 10-12 and 14.
+**Gate G13:** full user feature set, including revision-checked deletion. Covers
+checks 10-12 and 14 and deletion recovery from check 2.
 
 ---
 
@@ -409,7 +436,7 @@ as they merge.
 | # | Check | Stages that prove it |
 |---|-------|----------------------|
 | 1 | Offline edit -> reload -> reconnect recovers every acknowledged edit | 11a-11c, 12a-12b, 15 |
-| 2 | Lost create/save/finish retry has no duplicate/regeneration/double increment/early delete | 5, 6c, 7, 11b, 12b, 15 |
+| 2 | Lost create/save/finish retry has no duplicate/regeneration/double increment/early delete | 5, 6c, 7, 11b, 12b, 13, 15 |
 | 3 | In-flight save response cannot overwrite newer edits | 11b, 12b, 15 |
 | 4 | Two tabs conflict atomically and preserve both drafts | 6c, 11a, 11c, 12c, 15 |
 | 5 | Finish accepts unsynced sets atomically | 6c, 12b, 15 |
@@ -429,10 +456,9 @@ persistence, and UTC-offset handling are proved in Stage 15.
 
 ## Active risk notes
 
-- **S8b offset grouping/streaks:** Monday-start half-open ranges and the ongoing
-  current-week rule require explicit boundary fixtures. Stage 8a's
-  previous-performance fixtures already fix the eligibility rules (finished
-  workouts, completed sets only) that 8b's counts must reuse.
+- **S10/S13 offset display:** the frontend must use inclusive local-date API
+  bounds and the profile's fixed offset, not the browser timezone. Preserve
+  Stage 8b's volume-completeness and full-history streak semantics.
 - **S11 draft/sync protocol:** offline, multi-tab, response-loss, and
   acknowledgement ordering need coordinator tests, not only UI coverage.
 - **S14 authorization/audit:** account disabling and immutable evidence must stay
