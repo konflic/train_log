@@ -137,15 +137,22 @@ export class DraftSyncCoordinator {
     });
   }
 
-  async sendSave(): Promise<void> {
+  async sendSave(retireFinishedDraft = false): Promise<void> {
     const pending = await this.requireSave();
+    if (retireFinishedDraft && pending.payload.ended_at === null) {
+      throw new Error('Only a finish request may retire the editable draft');
+    }
     await this.run(async (operation) => {
       this.ensureAuthenticatedAccount();
       this.state = 'sending';
       const detail = await this.api.save(pending.workout_id, pending.payload);
       this.ensureAuthenticatedAccount();
       this.ensureOperation(operation);
-      await this.acknowledgeSave(pending, detail, operation);
+      if (retireFinishedDraft) {
+        await this.acknowledgeFinish(pending, detail, operation);
+      } else {
+        await this.acknowledgeSave(pending, detail, operation);
+      }
     });
   }
 
@@ -217,6 +224,7 @@ export class DraftSyncCoordinator {
       ...draft,
       base_detail_id: server.id,
       base_revision: server.revision,
+      acknowledged_change_number: draft.change_number,
       started_at: server.started_at,
       content: contentFromDetail(server, draft.content.raw_fields),
       updated_at: new Date().toISOString(),
@@ -266,6 +274,10 @@ export class DraftSyncCoordinator {
       base_detail_id: detail.id,
       base_revision: detail.revision,
       started_at: detail.started_at,
+      content: {
+        ...draft.content,
+        bodyweight_kg: detail.bodyweight_kg,
+      },
       updated_at: new Date().toISOString(),
     };
     // A create response is empty by design. Keep the locally prepared graph and
@@ -295,6 +307,7 @@ export class DraftSyncCoordinator {
       ...draft,
       base_detail_id: detail.id,
       base_revision: detail.revision,
+      acknowledged_change_number: pending.change_number,
       content: newerEdits
         ? mergeAcknowledgedSnapshots(draft.content, detail.exercises)
         : contentFromDetail(detail, draft.content.raw_fields),
@@ -302,6 +315,28 @@ export class DraftSyncCoordinator {
     };
     await this.operations.acknowledgeSave(next, pending);
     this.complete(next, pending.change_number);
+  }
+
+  private async acknowledgeFinish(
+    pending: PendingSave,
+    detail: WorkoutDetail,
+    operation: number,
+  ): Promise<void> {
+    if (
+      detail.id !== pending.workout_id ||
+      detail.last_save_id !== pending.payload.save_id ||
+      detail.ended_at !== pending.payload.ended_at
+    ) {
+      throw new Error(
+        'The finish acknowledgement does not match the pending request',
+      );
+    }
+    this.state = 'acknowledging';
+    this.ensureOperation(operation);
+    await this.operations.acknowledgeFinish(pending);
+    this.state = 'acknowledged';
+    this.error = null;
+    this.recovery = 'none';
   }
 
   private async requireCreate(): Promise<PendingCreate> {

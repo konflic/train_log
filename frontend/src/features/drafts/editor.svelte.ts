@@ -49,6 +49,35 @@ export class LocalDraftEditor {
     await this.persist(this.current!);
   }
 
+  /** Apply an acknowledged base without replacing newer visible edits. */
+  async rebase(acknowledged: WorkoutDraft): Promise<void> {
+    const current = this.current!;
+    if (
+      current.account_id !== acknowledged.account_id ||
+      current.workout_id !== acknowledged.workout_id ||
+      current.draft_id !== acknowledged.draft_id
+    ) {
+      throw new Error('Cannot acknowledge another editor draft');
+    }
+    const next =
+      current.change_number > acknowledged.change_number
+        ? {
+            ...current,
+            base_revision: acknowledged.base_revision,
+            acknowledged_change_number: acknowledged.acknowledged_change_number,
+            content: {
+              ...current.content,
+              recorded_load_snapshots:
+                acknowledged.content.recorded_load_snapshots,
+              provisional_load_snapshots:
+                acknowledged.content.provisional_load_snapshots,
+            },
+          }
+        : acknowledged;
+    this.current = structuredClone(next);
+    await this.persist(this.current);
+  }
+
   private async persist(value: WorkoutDraft): Promise<void> {
     this.status = 'saving';
     try {

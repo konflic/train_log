@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EditableWorkoutContent, LoadSnapshot } from '../../db';
 import {
+  contentError,
   provisionalTotal,
   setError,
   strictInteger,
@@ -84,5 +85,17 @@ describe('workout editor model', () => {
     expect(
       setError(invalid, invalid.exercises[0], invalid.exercises[0].sets[0]),
     ).toBe('A completed set needs at least one rep.');
+  });
+
+  it('blocks invalid visible integers from server payloads', () => {
+    const invalid = content();
+    invalid.raw_fields['workout.bodyweight_kg'] = '80.5';
+    invalid.bodyweight_kg = null;
+    expect(contentError(invalid)).toBe(
+      'Recorded bodyweight must be a whole number.',
+    );
+    invalid.raw_fields['workout.bodyweight_kg'] = '80';
+    invalid.bodyweight_kg = 80;
+    expect(contentError(invalid)).toBeNull();
   });
 });

@@ -124,6 +124,7 @@
       base_revision: 4,
       started_at: '2026-10-08T10:00:00Z',
       change_number: 0,
+      acknowledged_change_number: 0,
       created_at: now,
       updated_at: now,
       content: {

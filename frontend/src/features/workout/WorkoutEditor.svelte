@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Exercise, SaveExerciseInput, SaveSetInput } from '../../api';
+  import ActionIcon from '../../components/ActionIcon.svelte';
   import type { EditableWorkoutContent, LoadSnapshot } from '../../db';
   import type { LocalDraftEditor } from '../drafts/editor.svelte';
+  import type { WorkoutSyncController } from './sync.svelte';
   import {
     MAX_EXERCISES,
     MAX_SETS,
@@ -18,11 +20,13 @@
 
   let {
     editor,
+    sync,
     catalog = [],
     catalogMessage = null,
     onOpenPicker,
   }: {
     editor: LocalDraftEditor;
+    sync?: WorkoutSyncController;
     catalog?: Exercise[];
     catalogMessage?: string | null;
     onOpenPicker: () => void;
@@ -31,9 +35,11 @@
 
   const content = $derived(editor.current!.content);
   const total = $derived(provisionalTotal(content));
+  const locked = $derived(sync?.locked ?? false);
 
   function edit(next: EditableWorkoutContent): void {
-    void editor.edit(next);
+    if (sync) void sync.commit(next);
+    else void editor.edit(next);
   }
 
   function updateText(field: 'name' | 'notes', value: string): void {
@@ -153,8 +159,44 @@
   }
 
   function choosePicker(): void {
+    if (locked) return;
     pickerOpen = true;
     onOpenPicker();
+  }
+
+  function statusText(): string {
+    if (!sync) {
+      if (editor.status === 'saving') return 'Saving locally…';
+      if (editor.status === 'failed')
+        return 'Storage error. The latest visible edit is not safely stored.';
+      return `Locally saved change ${editor.savedChange}. Offline recovery mode.`;
+    }
+    if (sync.status === 'saving_local') return 'Saving locally…';
+    if (sync.status === 'locally_saved')
+      return `Locally saved change ${editor.savedChange}. Waiting to sync.`;
+    if (sync.status === 'syncing') return 'Syncing durable changes…';
+    if (sync.status === 'synced')
+      return `Synced at revision ${editor.current!.base_revision}.`;
+    if (sync.status === 'offline') return 'Offline. Changes remain local.';
+    if (sync.status === 'authentication_required')
+      return sync.finishPending
+        ? 'Authentication required. Finish remains pending.'
+        : 'Authentication required. Upload is paused.';
+    if (sync.status === 'conflict')
+      return 'Conflict. Automatic saving is paused with this draft retained.';
+    if (sync.status === 'finish_pending')
+      return 'Finish pending. The final graph is stored and will retry exactly.';
+    if (sync.status === 'storage_error')
+      return 'Storage error. The latest visible edit is not safely stored.';
+    if (sync.status === 'correction_required')
+      return 'Correction required before this workout can sync.';
+    return 'Synchronization paused.';
+  }
+
+  function retryLabel(): string {
+    return !sync || editor.status === 'failed'
+      ? 'Retry local save'
+      : 'Retry synchronization';
   }
 </script>
 
@@ -162,20 +204,52 @@
   <div
     class="sticky top-0 z-10 rounded-lg border border-edge bg-surface p-3 shadow-sm"
   >
-    <p role="status" class:text-sync-error={editor.status === 'failed'}>
-      {#if editor.status === 'saving'}Saving locally…
-      {:else if editor.status === 'failed'}Storage failed. Your visible edit is
-        not locally saved.
-      {:else}Locally saved change {editor.savedChange}. No server save has been
-        sent.{/if}
+    <p
+      role="status"
+      class:text-sync-error={sync?.status === 'storage_error' ||
+        sync?.status === 'conflict' ||
+        sync?.status === 'correction_required' ||
+        sync?.status === 'error'}
+      class:text-sync-ok={sync?.status === 'synced'}
+      class:text-sync-pending={sync?.status === 'syncing' ||
+        sync?.status === 'finish_pending'}
+    >
+      {statusText()}
     </p>
-    {#if editor.status === 'failed'}
+    {#if sync?.message}<p class="mt-1 text-sm text-muted">
+        {sync.message}
+      </p>{/if}
+    <div class="mt-2 flex flex-wrap gap-2">
+      {#if sync?.status === 'storage_error' || sync?.status === 'offline' || sync?.status === 'finish_pending' || sync?.status === 'error' || (!sync && editor.status === 'failed')}
+        <button
+          class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
+          type="button"
+          aria-label={retryLabel()}
+          title={retryLabel()}
+          onclick={() => void (sync ? sync.retry() : editor.retry())}
+          ><ActionIcon name="refresh" /></button
+        >
+      {/if}
       <button
-        class="mt-2 min-h-11 rounded-md border border-edge px-3"
+        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3 disabled:opacity-40"
         type="button"
-        onclick={() => void editor.retry()}>Retry local save</button
+        aria-label="Save now"
+        title="Save now"
+        disabled={!sync ||
+          locked ||
+          sync.status === 'syncing' ||
+          sync.status === 'authentication_required' ||
+          sync.status === 'correction_required'}
+        onclick={() => void sync?.saveNow()}><ActionIcon name="save" /></button
       >
-    {/if}
+      <button
+        class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
+        type="button"
+        disabled={!sync?.canFinish}
+        onclick={() => void sync?.finish()}
+        ><ActionIcon name="finish" /> Finish workout</button
+      >
+    </div>
   </div>
 
   <div class="grid gap-3 rounded-lg border border-edge bg-surface p-4">
@@ -191,6 +265,7 @@
         id="workout-name"
         class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
         maxlength="100"
+        disabled={locked}
         value={content.name ?? ''}
         oninput={(event) => updateText('name', event.currentTarget.value)}
       />
@@ -203,6 +278,7 @@
         id="workout-bodyweight"
         inputmode="numeric"
         step="1"
+        disabled={locked}
         class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
         value={content.raw_fields['workout.bodyweight_kg'] ??
           String(content.bodyweight_kg ?? '')}
@@ -215,6 +291,7 @@
         id="workout-notes"
         class="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2"
         maxlength="2000"
+        disabled={locked}
         value={content.notes ?? ''}
         oninput={(event) => updateText('notes', event.currentTarget.value)}
       ></textarea>
@@ -244,8 +321,10 @@
   <button
     type="button"
     class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
-    disabled={content.exercises.length >= MAX_EXERCISES}
-    onclick={choosePicker}>Add exercise</button
+    aria-label="Add exercise"
+    title="Add exercise"
+    disabled={locked || content.exercises.length >= MAX_EXERCISES}
+    onclick={choosePicker}><ActionIcon name="add" /></button
   >
   {#if pickerOpen}
     <section
@@ -265,6 +344,7 @@
               <button
                 type="button"
                 class="min-h-11 w-full rounded-md border border-edge px-3 text-left"
+                disabled={locked}
                 onclick={() => addExercise(entry)}>{entry.name}</button
               >
             </li>
@@ -274,7 +354,9 @@
       <button
         type="button"
         class="mt-3 min-h-11 rounded-md border border-edge px-3"
-        onclick={() => (pickerOpen = false)}>Close picker</button
+        aria-label="Close exercise picker"
+        title="Close exercise picker"
+        onclick={() => (pickerOpen = false)}><ActionIcon name="close" /></button
       >
     </section>
   {/if}
@@ -296,24 +378,32 @@
         </div>
         <button
           type="button"
-          class="min-h-11 rounded-md border border-edge px-3"
-          onclick={() => removeExercise(exercise.id)}>Remove</button
+          class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
+          aria-label={`Remove ${exerciseName(exercise)}`}
+          title={`Remove ${exerciseName(exercise)}`}
+          disabled={locked}
+          onclick={() => removeExercise(exercise.id)}
+          ><ActionIcon name="remove" /></button
         >
       </div>
       <div class="mt-2 flex gap-2">
         <button
           type="button"
           class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-          disabled={exerciseIndex === 0}
+          disabled={locked || exerciseIndex === 0}
           aria-label={`Move ${exerciseName(exercise)} up`}
-          onclick={() => moveExercise(exerciseIndex, -1)}>Up</button
+          title={`Move ${exerciseName(exercise)} up`}
+          onclick={() => moveExercise(exerciseIndex, -1)}
+          ><ActionIcon name="up" /></button
         >
         <button
           type="button"
           class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-          disabled={exerciseIndex === content.exercises.length - 1}
+          disabled={locked || exerciseIndex === content.exercises.length - 1}
           aria-label={`Move ${exerciseName(exercise)} down`}
-          onclick={() => moveExercise(exerciseIndex, 1)}>Down</button
+          title={`Move ${exerciseName(exercise)} down`}
+          onclick={() => moveExercise(exerciseIndex, 1)}
+          ><ActionIcon name="down" /></button
         >
       </div>
       <label
@@ -324,6 +414,7 @@
         id={`exercise-notes-${exercise.id}`}
         class="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2"
         maxlength="300"
+        disabled={locked}
         value={exercise.notes ?? ''}
         oninput={(event) =>
           updateExercise(exercise.id, event.currentTarget.value)}></textarea>
@@ -340,6 +431,7 @@
                 >Reps<input
                   inputmode="numeric"
                   step="1"
+                  disabled={locked}
                   class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                   value={rawValue(content, set, 'reps')}
                   oninput={(event) =>
@@ -358,6 +450,7 @@
                   >Weight (kg)<input
                     inputmode="numeric"
                     step="1"
+                    disabled={locked}
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={rawValue(content, set, 'weight_kg')}
                     oninput={(event) =>
@@ -376,6 +469,7 @@
                   >Bodyweight % override<input
                     inputmode="numeric"
                     step="1"
+                    disabled={locked}
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={rawValue(content, set, 'bw_percent_override')}
                     oninput={(event) =>
@@ -393,6 +487,7 @@
                 >RPE<input
                   inputmode="numeric"
                   step="1"
+                  disabled={locked}
                   class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                   value={rawValue(content, set, 'rpe')}
                   oninput={(event) =>
@@ -411,6 +506,7 @@
                   >Side<select
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={set.side}
+                    disabled={locked}
                     onchange={(event) =>
                       updateSet(exercise.id, set.id, {
                         side: event.currentTarget.value as SaveSetInput['side'],
@@ -426,6 +522,7 @@
               ><input
                 type="checkbox"
                 checked={set.done}
+                disabled={locked}
                 onchange={(event) =>
                   updateSet(exercise.id, set.id, {
                     done: event.currentTarget.checked,
@@ -443,20 +540,27 @@
               <button
                 type="button"
                 class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={setIndex === 0}
+                disabled={locked || setIndex === 0}
                 aria-label={`Move set ${setIndex + 1} up`}
-                onclick={() => moveSet(exercise.id, setIndex, -1)}>Up</button
+                title={`Move set ${setIndex + 1} up`}
+                onclick={() => moveSet(exercise.id, setIndex, -1)}
+                ><ActionIcon name="up" /></button
               ><button
                 type="button"
                 class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={setIndex === exercise.sets.length - 1}
+                disabled={locked || setIndex === exercise.sets.length - 1}
                 aria-label={`Move set ${setIndex + 1} down`}
-                onclick={() => moveSet(exercise.id, setIndex, 1)}>Down</button
+                title={`Move set ${setIndex + 1} down`}
+                onclick={() => moveSet(exercise.id, setIndex, 1)}
+                ><ActionIcon name="down" /></button
               ><button
                 type="button"
-                class="min-h-11 rounded-md border border-edge px-3"
+                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
+                aria-label={`Remove set ${setIndex + 1}`}
+                title={`Remove set ${setIndex + 1}`}
+                disabled={locked}
                 onclick={() => removeSet(exercise.id, set.id)}
-                >Remove set</button
+                ><ActionIcon name="remove" /></button
               >
             </div>
           </fieldset>
@@ -465,8 +569,10 @@
       <button
         type="button"
         class="mt-3 min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-        disabled={exercise.sets.length >= MAX_SETS_PER_EXERCISE}
-        onclick={() => addSet(exercise)}>Add set</button
+        aria-label={`Add set to ${exerciseName(exercise)}`}
+        title={`Add set to ${exerciseName(exercise)}`}
+        disabled={locked || exercise.sets.length >= MAX_SETS_PER_EXERCISE}
+        onclick={() => addSet(exercise)}><ActionIcon name="add" /></button
       >
     </section>
   {/each}

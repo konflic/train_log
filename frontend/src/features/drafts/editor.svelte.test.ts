@@ -28,6 +28,7 @@ function draft(): WorkoutDraft {
     created_at: '2026-10-08T10:00:00Z',
     updated_at: '2026-10-08T10:00:00Z',
     change_number: 0,
+    acknowledged_change_number: 0,
     content: {
       name: null,
       notes: null,
@@ -97,5 +98,32 @@ describe('LocalDraftEditor', () => {
       name: 'First',
       raw_fields: { reps: '12.5' },
     });
+  });
+
+  it('applies an acknowledged base without replacing newer visible content', async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    const editor = new LocalDraftEditor(
+      new DraftRepository({ put } as unknown as DraftStorage),
+      draft(),
+    );
+    await editor.edit({ ...editor.current!.content, name: 'Newer input' });
+    const acknowledged = draft();
+    acknowledged.base_revision = 1;
+    acknowledged.acknowledged_change_number = 0;
+
+    await editor.rebase(acknowledged);
+
+    expect(editor.current).toMatchObject({
+      base_revision: 1,
+      change_number: 1,
+      acknowledged_change_number: 0,
+      content: { name: 'Newer input' },
+    });
+    expect(put).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        base_revision: 1,
+        content: expect.objectContaining({ name: 'Newer input' }),
+      }),
+    );
   });
 });

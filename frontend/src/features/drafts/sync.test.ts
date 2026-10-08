@@ -27,6 +27,7 @@ function draft(overrides: Partial<WorkoutDraft> = {}): WorkoutDraft {
     base_revision: 0,
     started_at: '2026-10-08T10:00:00Z',
     change_number: 0,
+    acknowledged_change_number: 0,
     created_at: '2026-10-08T10:00:00.000Z',
     updated_at: '2026-10-08T10:00:00.000Z',
     content: {
@@ -182,6 +183,14 @@ class MemoryStorage implements DraftStorage, DurableDraftStorage {
     this.saves.delete(this.key(pending.account_id, pending.draft_id));
   }
 
+  async acknowledgeFinish(pending: PendingSave): Promise<void> {
+    if (this.failAcknowledgement) throw new Error('disk full');
+    this.drafts.delete(
+      this.key(pending.account_id, pending.workout_id, pending.draft_id),
+    );
+    this.saves.delete(this.key(pending.account_id, pending.draft_id));
+  }
+
   async adoptServer(value: WorkoutDraft): Promise<void> {
     await this.put(value);
     this.creates.delete(this.key(value.account_id, value.draft_id));
@@ -332,6 +341,51 @@ describe('DraftSyncCoordinator', () => {
       base_revision: 0,
     });
     expect(coordinator.state).toBe('paused');
+  });
+
+  it('retires a finished draft only with its matching durable acknowledgement', async () => {
+    const finished = draft();
+    finished.content.ended_at = '2026-10-08T11:00:00Z';
+    const { storage, drafts, coordinator } = setup({
+      create: async () => detail(0, null),
+      get: async () => detail(0, null),
+      save: async (_workoutId, payload) => ({
+        ...detail(1, payload.save_id),
+        ended_at: payload.ended_at,
+      }),
+    });
+    await drafts.put('account-a', finished);
+    await coordinator.prepareSave(finished);
+
+    await coordinator.sendSave(true);
+
+    expect(storage.saves.size).toBe(0);
+    await expect(
+      drafts.get('account-a', 'workout-1', 'draft-1'),
+    ).resolves.toBeNull();
+  });
+
+  it('keeps an accepted finish and its draft when local retirement fails', async () => {
+    const finished = draft();
+    finished.content.ended_at = '2026-10-08T11:00:00Z';
+    const { storage, drafts, operations, coordinator } = setup({
+      create: async () => detail(0, null),
+      get: async () => detail(0, null),
+      save: async (_workoutId, payload) => ({
+        ...detail(1, payload.save_id),
+        ended_at: payload.ended_at,
+      }),
+    });
+    await drafts.put('account-a', finished);
+    const pending = await coordinator.prepareSave(finished);
+    storage.failAcknowledgement = true;
+
+    await expect(coordinator.sendSave(true)).rejects.toThrow('finished');
+
+    expect(await operations.getSave('account-a', 'draft-1')).toEqual(pending);
+    await expect(
+      drafts.get('account-a', 'workout-1', 'draft-1'),
+    ).resolves.not.toBeNull();
   });
 
   it('preserves a prepared graph when a create acknowledgement is empty', async () => {

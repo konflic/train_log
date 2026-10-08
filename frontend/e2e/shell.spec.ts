@@ -98,6 +98,11 @@ test.describe('hash routing', () => {
       'aria-current',
       'page',
     );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight <= window.innerHeight,
+      ),
+    ).toBe(true);
 
     await page.goto('/#/no-such-route');
     await expect(
