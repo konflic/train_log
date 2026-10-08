@@ -4,10 +4,11 @@ import type {
   SaveSetInput,
   WorkoutDetail,
 } from '../../api';
-import type {
-  EditableWorkoutContent,
-  LoadSnapshot,
-  WorkoutDraft,
+import {
+  createDraftId,
+  type EditableWorkoutContent,
+  type LoadSnapshot,
+  type WorkoutDraft,
 } from '../../db';
 import { calculateSetLoad } from '../../lib/numbers';
 
@@ -74,7 +75,7 @@ export function draftFromDetail(
   return {
     account_id: accountId,
     workout_id: detail.id,
-    draft_id: crypto.randomUUID(),
+    draft_id: createDraftId(),
     base_detail_id: detail.id,
     base_revision: detail.revision,
     started_at: detail.started_at,
@@ -88,7 +89,7 @@ export function draftFromDetail(
 
 export function emptySet(snapshot: LoadSnapshot): SaveSetInput {
   return {
-    id: crypto.randomUUID(),
+    id: createDraftId(),
     reps: null,
     weight_kg: null,
     bw_percent_override: null,

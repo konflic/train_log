@@ -1,7 +1,11 @@
 <script lang="ts">
   import type { Exercise, SaveExerciseInput, SaveSetInput } from '../../api';
   import ActionIcon from '../../components/ActionIcon.svelte';
-  import type { EditableWorkoutContent, LoadSnapshot } from '../../db';
+  import {
+    createDraftId,
+    type EditableWorkoutContent,
+    type LoadSnapshot,
+  } from '../../db';
   import type { LocalDraftEditor } from '../drafts/editor.svelte';
   import type { WorkoutSyncController } from './sync.svelte';
   import {
@@ -77,7 +81,7 @@
   function addExercise(entry: Exercise): void {
     if (content.exercises.length >= MAX_EXERCISES) return;
     const next = structuredClone(content);
-    const id = crypto.randomUUID();
+    const id = createDraftId();
     const snapshot = snapshotFor(entry);
     next.exercises.push({
       id,

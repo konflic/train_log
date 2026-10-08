@@ -9,6 +9,7 @@
   } from '../../api';
   import {
     DraftRepository,
+    createDraftId,
     createRecoveryDraft,
     openDraftStorage,
     openDurableDraftStorage,
@@ -103,8 +104,8 @@
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     const draft: WorkoutDraft = {
       account_id: accountId,
-      workout_id: crypto.randomUUID(),
-      draft_id: crypto.randomUUID(),
+      workout_id: createDraftId(),
+      draft_id: createDraftId(),
       base_detail_id: '',
       base_revision: 0,
       started_at: now,

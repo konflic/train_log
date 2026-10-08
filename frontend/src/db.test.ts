@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DraftRepository,
   DraftStorageError,
   EditorAssociations,
   MalformedDraftError,
+  createDraftId,
   createRecoveryDraft,
   type DraftKey,
   type DraftPageOptions,
@@ -12,6 +13,10 @@ import {
   type DraftStorage,
   type WorkoutDraft,
 } from './db';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function draft(overrides: Partial<WorkoutDraft> = {}): WorkoutDraft {
   return {
@@ -65,6 +70,19 @@ function draft(overrides: Partial<WorkoutDraft> = {}): WorkoutDraft {
 function keyOf(key: DraftKey): string {
   return key.join('\u0000');
 }
+
+describe('createDraftId', () => {
+  it('falls back to a version 4 UUID when randomUUID needs a secure context', () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues(bytes: Uint8Array): Uint8Array {
+        bytes.fill(0);
+        return bytes;
+      },
+    });
+
+    expect(createDraftId()).toBe('00000000-0000-4000-8000-000000000000');
+  });
+});
 
 class MemoryDraftStorage implements DraftStorage {
   readonly records = new Map<string, unknown>();
