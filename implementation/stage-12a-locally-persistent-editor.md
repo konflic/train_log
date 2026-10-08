@@ -1,6 +1,7 @@
 # Stage 12a - Locally persistent editor
 
-Status: planned. Start after Gate G11 is merged.
+Status: implemented on `stage-12a-locally-persistent-editor`; Gate G12a passed
+locally on 2026-10-08.
 
 Working estimate: part of Stage 12's 4 person-day budget.
 
@@ -158,6 +159,24 @@ Completion evidence and the Stage 12b marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, editor behavior, commands/test counts,
-mobile/focus/reload/storage observations, and Gate G12a acceptance mapping here
-before merge.
+Implemented on `stage-12a-locally-persistent-editor`.
+
+- The authenticated production shell provides `#/workouts/new` durable quick
+  start and `#/workouts/:id` resume routes. A create request and empty draft are
+  persisted before POST; the acknowledged draft remains at revision 0. Existing
+  local drafts require explicit selection, while a network-unavailable shell
+  exposes only the last confirmed account's local drafts and pauses all network
+  work.
+- The editor keeps stable client row IDs, supports catalog selection plus
+  add/remove/reorder exercises and sets, records exercise snapshots locally,
+  preserves invalid raw integer text, validates load/side/completed-set rules,
+  and labels completed-set volume as provisional with unknown-load counts.
+  Storage acknowledgement is visibly distinct from server synchronization; this
+  stage sends no graph PUT or finish request.
+- Verification: `npm run check`, `npm run lint`, `npm run test:unit` (182
+  tests), `npm run build`, and `npm run test:e2e` (26 Chromium tests) pass
+  locally. The added browser case quick-starts, edits a catalog graph, reloads
+  its selected durable draft, and asserts no PUT request occurred.
+- Gate G12a covers the local-persistence half of acceptance check 1 and the UI
+  half of check 7. Stage 12b is the next marker and owns all synchronization,
+  reauthentication, and finish behavior.

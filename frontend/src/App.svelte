@@ -14,6 +14,8 @@
   import HistoryRoute from './routes/HistoryRoute.svelte';
   import NotFoundRoute from './routes/NotFoundRoute.svelte';
   import SettingsRoute from './routes/SettingsRoute.svelte';
+  import WorkoutRoute from './features/workout/WorkoutRoute.svelte';
+  import OfflineRecovery from './features/workout/OfflineRecovery.svelte';
 
   let {
     draftHarness: DraftHarness,
@@ -28,6 +30,7 @@
     '/catalog': CatalogRoute,
     '/history': HistoryRoute,
     '/settings': SettingsRoute,
+    '/workouts/:id': WorkoutRoute,
     '/login': LoginRoute,
     '/register': RegisterRoute,
     '*': NotFoundRoute,
@@ -116,24 +119,26 @@
           Local drafts for the previously confirmed account are available on
           this device. This does not sign you in.
         </p>
-        {#if DraftHarness}
-          <button
-            type="button"
-            class="mt-4 min-h-11 rounded-md border border-edge px-4"
-            onclick={() => {
-              localRecoverySelected = true;
-            }}
-          >
-            Recover local drafts only
-          </button>
-          {#if localRecoverySelected}
-            {#key session.recoveryAccountId}
-              <DraftHarness
-                accountId={session.recoveryAccountId}
-                localOnly={true}
-              />
-            {/key}
-          {/if}
+        <button
+          type="button"
+          class="mt-4 min-h-11 rounded-md border border-edge px-4"
+          onclick={() => {
+            localRecoverySelected = true;
+          }}
+        >
+          Recover local drafts only
+        </button>
+        {#if localRecoverySelected && DraftHarness}
+          {#key session.recoveryAccountId}
+            <DraftHarness
+              accountId={session.recoveryAccountId}
+              localOnly={true}
+            />
+          {/key}
+        {:else if localRecoverySelected}
+          {#key session.recoveryAccountId}
+            <OfflineRecovery accountId={session.recoveryAccountId} />
+          {/key}
         {/if}
       {/if}
     {:else if routerReady}
