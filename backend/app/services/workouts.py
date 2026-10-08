@@ -33,6 +33,12 @@ finished-workout guard, revision exhaustion, and the finish-time rules, applies
 the validated graph, and records revision/receipt/`updated_at` atomically. The
 authoritative response graph is captured on the write connection before commit,
 so a second writer cannot replace it between commit and response.
+
+Stage 7 adds `delete_workout`, the revision-checked hard delete behind
+`DELETE /workouts/{id}?revision=N`: inside one `BEGIN IMMEDIATE` transaction it
+compares the submitted revision to the stored owner-scoped row and removes it,
+cascading to exercises and sets. Both active and finished workouts are
+deletable, and nothing is retained: no receipt, tombstone, or timestamp update.
 """
 
 from __future__ import annotations
@@ -766,6 +772,40 @@ def save_workout(
         if saved_graph is None:
             raise RuntimeError("workout vanished inside its own save transaction")
         return saved_graph
+
+
+def delete_workout(
+    database_path: str | Path,
+    *,
+    owner_id: str,
+    workout_id: str,
+    revision: int,
+) -> None:
+    """Hard-delete one owned workout at its exact stored revision.
+
+    Inside one `BEGIN IMMEDIATE` transaction, select the owned row's revision
+    (missing, already-deleted, and foreign ids are indistinguishable and raise
+    `WorkoutNotFoundError`), compare it to the submitted revision (a mismatch
+    raises `RevisionConflictError` without mutating anything), then delete the
+    row; the existing `ON DELETE CASCADE` foreign keys remove its exercises and
+    sets. Both active and finished workouts are deletable, and no receipt or
+    tombstone is retained: a retry after a successful but unobserved deletion is
+    an ordinary `WorkoutNotFoundError`.
+    """
+    with connect(database_path) as conn, write_transaction(conn):
+        row = conn.execute(
+            "SELECT revision FROM workouts WHERE id = :id AND user_id = :owner_id",
+            {"id": workout_id, "owner_id": owner_id},
+        ).fetchone()
+        if row is None:
+            raise WorkoutNotFoundError
+        stored_revision = int(row["revision"])
+        if revision != stored_revision:
+            raise RevisionConflictError(stored_revision)
+        conn.execute(
+            "DELETE FROM workouts WHERE id = :id AND user_id = :owner_id",
+            {"id": workout_id, "owner_id": owner_id},
+        )
 
 
 def create_request_hash(*, user_id: str, workout_id: str, started_at: str) -> str:
