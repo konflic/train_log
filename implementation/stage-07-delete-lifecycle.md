@@ -1,6 +1,7 @@
 # Stage 7 - Delete and lifecycle
 
-Status: planned and implementation-ready.
+Status: implemented on branch `stage-7-delete-lifecycle` (PR pending). Gate G7
+passed locally on 2026-10-08; see Completion evidence below.
 
 Estimate: 0.5 person-day.
 
@@ -32,8 +33,9 @@ No migration or dependency is required.
 
 ## Public contract
 
-The `revision` query parameter is required and bounded to the shared
-nonnegative JSON-safe integer range.
+The `revision` query parameter is required, encoded as ASCII decimal digits,
+and bounded to the shared nonnegative JSON-safe integer range. Fractional,
+signed, whitespace-padded, and other malformed spellings are rejected.
 
 | Outcome | Response |
 |---------|----------|
@@ -128,5 +130,54 @@ transaction, lifecycle reads and writes after deletion return 404 without
 recreation, finished-workout behavior remains unchanged, and the full backend
 suite is green locally and in CI.
 
-Completion evidence and the next-stage marker must be recorded in
-`IMPLEMENTATION.md` in the Stage 7 branch before merge.
+Completion evidence is recorded below; the next-stage marker is recorded in
+`IMPLEMENTATION.md`, both within branch `stage-7-delete-lifecycle` before
+merge.
+
+## Completion evidence
+
+Recorded on branch `stage-7-delete-lifecycle` on 2026-10-08. Gate G7 passed
+locally; CI re-runs the complete suite on the PR.
+
+- `backend`: `ruff check .`, `ruff format --check .`, `mypy app migrate.py`,
+  `pytest -q` (510 tests, +18), and `pip check` all green, and the isolated
+  migration + backup/verify check still passes. No dependency, migration,
+  schema, or request-body change was added; the only new public surface is the
+  `DELETE /workouts/{id}?revision=N` route and its empty 204 response. All
+  Stage 6 save/finish/retry checks still pass unchanged.
+- `app/services/workouts.py`: `delete_workout` hard-deletes one owned workout
+  inside a single `BEGIN IMMEDIATE` transaction: owner-scoped revision select
+  (missing, already-deleted, and foreign ids are indistinguishable
+  `WorkoutNotFoundError`s), in-transaction comparison against the submitted
+  revision (`RevisionConflictError` on mismatch, with no mutation), then
+  delete of the workout row; existing `ON DELETE CASCADE` foreign keys remove
+  its exercises and sets. Both active and finished workouts are deletable
+  (`ended_at` is never inspected), and nothing is retained: no receipt,
+  tombstone, or timestamp update.
+- `app/api/workouts.py`: `DELETE /workouts/{id}?revision=N` with the required
+  `revision` query parsed strictly as ASCII decimal digits and bounded to the
+  shared nonnegative JSON-safe integer range.
+  Exact-revision delete returns an empty 204 (no JSON body);
+  missing/foreign/deleted return the generic 404 `not_found`; a revision
+  mismatch reuses PUT's 409 `revision_conflict` carrying only
+  `current_revision`; a missing or invalid revision query is 422
+  `validation_error`; the writer timeout keeps the retryable 503 with
+  `Retry-After: 1`. The mutating-request convention applies unchanged: exact
+  allowed `Origin` plus JSON `Content-Type` despite the empty body. A retry
+  after a successful but unobserved deletion returns 404; there is no delete
+  receipt, and clients resolve uncertainty with an owner-scoped GET.
+- Tests added (+18): `tests/test_workout_delete_service.py` (8 direct service
+  cases) covers cascaded active/finished deletion, catalog-reference release
+  (a guarded custom entry becomes deletable after the workout is gone),
+  stale/future revision conflicts with byte-identical database state,
+  delete-after-save-increment requiring the new revision,
+  missing/foreign/repeated-delete not-found paths, and the held-lock busy
+  timeout with a successful retry. `tests/test_workout_delete_api.py` (10 API
+  cases) covers authentication, Origin/JSON conventions, the empty 204 with a
+  fully cascaded graph, the finished-workout exact-retry window closing at
+  deletion, the stable 409/404/422 shapes, GET/PUT/DELETE after deletion never
+  recreating the workout (including a queued exact-retry PUT), the released
+  catalog entry through the public routes, and the retryable 503.
+- **Covers the deletion half of acceptance checks 2 and 11** (lost-retry and
+  account/deletion recovery at the API layer); the client-side recovery
+  behavior lands in Stages 11-13.

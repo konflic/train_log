@@ -18,19 +18,26 @@ remain out of scope.
   merged in [PR #10](https://github.com/konflic/train_log/pull/10) on
   2026-10-08 (`37eeb9c`), with Gate G6c/G6 completing the revisioned bulk-save,
   receipt, concurrency, and finish protocol.
-- **Next:** Stage 7 - Delete and lifecycle. Its detailed plan is ready and starts
-  from the merged Stage 6c baseline.
-- **After Stage 7:** Stage 8a-8c complete the backend API. Their product rules
-  are groomed, but their detailed files retain explicit contract questions that
-  must be resolved before implementation.
+- **Completed on branch `stage-7-delete-lifecycle` (PR pending):** Stage 7 -
+  Delete and lifecycle. Gate G7 passed locally on 2026-10-08; the detailed
+  completion evidence is recorded in
+  [`implementation/stage-07-delete-lifecycle.md`](implementation/stage-07-delete-lifecycle.md).
+  The backend suite is green (510 tests, +18) with no dependency, migration, or
+  schema change; the only new public surface is
+  `DELETE /workouts/{id}?revision=N`.
+- **Next:** Stage 8a - Inline previous performance, starting from merged
+  Stage 7. Its detailed file retains explicit contract questions that must be
+  resolved before implementation; Stage 8b-8c then complete the backend API.
 
 ## Documentation ownership
 
 - `PLAN.md` is the product contract and wins if documents disagree.
-- `IMPLEMENTATION.md` owns active stage order, status, completion evidence,
-  remaining estimates, and acceptance-check traceability.
+- `IMPLEMENTATION.md` owns active stage order, short status summaries naming
+  the exact stage branch, remaining estimates, and acceptance-check
+  traceability.
 - `implementation/stage-*.md` owns the detailed contract, tasks, test matrix,
-  open questions, and gate for one mergeable delivery unit.
+  open questions, gate, and detailed completion evidence for one mergeable
+  delivery unit.
 - `implementation/archive-*.md` is historical evidence, not an active plan.
 
 ## Ground rules
@@ -43,8 +50,10 @@ remain out of scope.
 - **A stage is DONE only when:** code, tests, and docs are complete; automated
   checks pass locally and in CI; required manual evidence is recorded; and no
   earlier gate regressed.
-- Update this file's current status within each stage branch. Completion evidence
-  and the next-stage marker must be included in that stage's PR before merge.
+- Update this file's current status within each stage branch, naming the exact
+  branch. Detailed completion evidence belongs in the stage's
+  `implementation/stage-*.md` file; both it and the next-stage marker must be
+  included in that stage's PR before merge.
 - Backend Stages 7-8 verify with backend/API tests and need no frontend. Frontend
   Stages 9-13 build against the completed API. Stage 14 is cross-stack, and
   Stage 15 ties the system together end-to-end.
@@ -100,9 +109,10 @@ deadlines.
 
 ### Stage 7 - Delete and lifecycle
 
-**Status:** planned and implementation-ready.
+**Status:** completed on branch `stage-7-delete-lifecycle` (PR pending); Gate
+G7 passed locally on 2026-10-08.
 
-**Detailed plan:**
+**Detailed plan and completion evidence:**
 [`implementation/stage-07-delete-lifecycle.md`](implementation/stage-07-delete-lifecycle.md).
 
 **Purpose:** add revision-checked, owner-scoped hard deletion and prove the
