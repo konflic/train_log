@@ -46,7 +46,17 @@ remain out of scope.
   production-topology stacks healthy, smoke green, restart preserves
   sessions/data with a no-op migration run, and the production bundle in
   the image contains no e2e-only hook.
-- **Next:** begin Stage 11a after this branch merges.
+- **Stage 11a delivery:** implemented and reviewed on
+  `stage-11a-local-persistence`. Review fixed rapid-edit acknowledgement races,
+  missing local-only recovery, shallow record validation, unbounded reads,
+  blocked-open handling, and a private npm registry URL. Recovery uses the
+  normal session retry state and explicit account-scoped selection; the
+  temporary browser harness remains E2E-build-only.
+  The earlier 154-unit/19-browser green run predates these fixes. At the user's
+  explicit request, checks were **not rerun after review fixes**; Gate G11a
+  remains pending validation and CI. Detailed evidence and unrun regression
+  cases are recorded in the Stage 11a contract.
+- **Next:** confirm Gate G11a and merge this increment before beginning Stage 11b.
 
 ## Documentation ownership
 
@@ -261,6 +271,10 @@ tests and a browser harness for real IndexedDB, reload, and multiple tabs.
 
 #### Stage 11a - Local persistence and recovery
 
+**Status:** implemented and reviewed on `stage-11a-local-persistence`.
+Post-review validation and CI are pending; checks were not rerun at the user's
+request. Gate G11a is not yet claimed complete for this revision.
+
 **Detailed plan:**
 [`implementation/stage-11a-local-persistence-recovery.md`](implementation/stage-11a-local-persistence-recovery.md).
 
@@ -269,6 +283,9 @@ tests and a browser harness for real IndexedDB, reload, and multiple tabs.
 - Persist every edit before reporting it locally saved; surface storage failures.
 **Gate G11a:** locally acknowledged edits survive reload, draft selection is
 explicit, and storage failures remain visible.
+
+**Completion evidence:**
+[`implementation/stage-11a-local-persistence-recovery.md`](implementation/stage-11a-local-persistence-recovery.md).
 
 #### Stage 11b - Durable create requests and immutable pending saves
 

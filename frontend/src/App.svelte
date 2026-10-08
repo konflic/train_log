@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Component } from 'svelte';
+  import { isRecoveryContextEvent } from './features/auth/recoveryContext';
   import Router, { replace, router } from 'svelte-spa-router';
   import LoginRoute from './features/auth/LoginRoute.svelte';
   import RegisterRoute from './features/auth/RegisterRoute.svelte';
@@ -12,6 +14,12 @@
   import HistoryRoute from './routes/HistoryRoute.svelte';
   import NotFoundRoute from './routes/NotFoundRoute.svelte';
   import SettingsRoute from './routes/SettingsRoute.svelte';
+
+  let {
+    draftHarness: DraftHarness,
+  }: { draftHarness?: Component<{ accountId: string; localOnly: boolean }> } =
+    $props();
+  let localRecoverySelected = $state(false);
 
   // Hash route table: production serving needs no SPA rewrite rule. Feature
   // routes render clearly labeled placeholders until their owning stage.
@@ -76,6 +84,12 @@
   });
 </script>
 
+<svelte:window
+  onstorage={(event) => {
+    if (isRecoveryContextEvent(event)) session.refreshRecoveryContext();
+  }}
+/>
+
 <div class="flex min-h-dvh flex-col">
   <main
     class="mx-auto w-full max-w-2xl flex-1 px-4 pt-4 {showChrome
@@ -97,8 +111,39 @@
       >
         Retry
       </button>
+      {#if session.recoveryAccountId !== null}
+        <p class="mt-4 text-muted">
+          Local drafts for the previously confirmed account are available on
+          this device. This does not sign you in.
+        </p>
+        {#if DraftHarness}
+          <button
+            type="button"
+            class="mt-4 min-h-11 rounded-md border border-edge px-4"
+            onclick={() => {
+              localRecoverySelected = true;
+            }}
+          >
+            Recover local drafts only
+          </button>
+          {#if localRecoverySelected}
+            {#key session.recoveryAccountId}
+              <DraftHarness
+                accountId={session.recoveryAccountId}
+                localOnly={true}
+              />
+            {/key}
+          {/if}
+        {/if}
+      {/if}
     {:else if routerReady}
-      <Router {routes} />
+      {#if DraftHarness && session.user !== null}
+        {#key session.user.id}
+          <DraftHarness accountId={session.user.id} localOnly={false} />
+        {/key}
+      {:else}
+        <Router {routes} />
+      {/if}
     {:else}
       <p role="status">Redirecting to login…</p>
     {/if}

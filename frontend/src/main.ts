@@ -17,4 +17,23 @@ if (!target) {
   throw new Error('Missing #app mount target');
 }
 
-mount(App, { target });
+async function start(mountTarget: HTMLElement): Promise<void> {
+  if (
+    import.meta.env.MODE === 'e2e' &&
+    new URLSearchParams(window.location.search).has('draftHarness') &&
+    window.location.hash === '#/draft-harness'
+  ) {
+    // The recovery harness is dynamically imported only by the explicit E2E
+    // build, so production bundles expose neither its route nor failure hook.
+    const { default: DraftHarnessRoute } =
+      await import('./features/drafts/DraftHarnessRoute.svelte');
+    mount(App, {
+      target: mountTarget,
+      props: { draftHarness: DraftHarnessRoute },
+    });
+    return;
+  }
+  mount(App, { target: mountTarget });
+}
+
+void start(target);

@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "4.3.3",
+    "idb": "8.0.3",
     "svelte-spa-router": "5.1.1",
     "tailwindcss": "4.3.3"
   }
