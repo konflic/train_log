@@ -46,17 +46,18 @@ remain out of scope.
   production-topology stacks healthy, smoke green, restart preserves
   sessions/data with a no-op migration run, and the production bundle in
   the image contains no e2e-only hook.
-- **Stage 11a delivery:** implemented and reviewed on
-  `stage-11a-local-persistence`. Review fixed rapid-edit acknowledgement races,
-  missing local-only recovery, shallow record validation, unbounded reads,
-  blocked-open handling, and a private npm registry URL. Recovery uses the
-  normal session retry state and explicit account-scoped selection; the
-  temporary browser harness remains E2E-build-only.
-  The earlier 154-unit/19-browser green run predates these fixes. At the user's
-  explicit request, checks were **not rerun after review fixes**; Gate G11a
-  remains pending validation and CI. Detailed evidence and unrun regression
-  cases are recorded in the Stage 11a contract.
-- **Next:** confirm Gate G11a and merge this increment before beginning Stage 11b.
+- **Stage 11a delivery:** merged to `master` in [PR #16](https://github.com/konflic/train_log/pull/16)
+  on 2026-10-08 (`3dc92d5`). Gate G11a's reviewed implementation was
+  revalidated as part of the Stage 11b frontend gate: 173 unit and 25 Chromium
+  tests pass locally. The temporary recovery harness remains E2E-build-only.
+- **Stage 11b delivery:** implemented on the current working tree (pending
+  review/merge). IndexedDB schema version 2 adds account/draft-scoped immutable
+  `pending_creates` and `pending_saves`; the coordinator persists before send,
+  retries exact request identities, atomically acknowledges matching responses,
+  and preserves newer local changes. Gate G11b passed locally on 2026-10-08:
+  check/lint, 173 unit tests, production build, 25 Chromium tests, `npm ls`, and
+  `npm audit` are green. Detailed evidence is in the Stage 11b contract.
+- **Next:** review and merge Stage 11b before beginning Stage 11c.
 
 ## Documentation ownership
 
@@ -288,6 +289,9 @@ explicit, and storage failures remain visible.
 [`implementation/stage-11a-local-persistence-recovery.md`](implementation/stage-11a-local-persistence-recovery.md).
 
 #### Stage 11b - Durable create requests and immutable pending saves
+
+**Status:** implemented on the current working tree (pending review/merge);
+Gate G11b passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-11b-durable-requests-pending-saves.md`](implementation/stage-11b-durable-requests-pending-saves.md).
