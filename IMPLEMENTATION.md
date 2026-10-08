@@ -14,21 +14,26 @@ remain out of scope.
 
 ## Current status
 
-- **Completed baseline:** Stages 0 through 7 are merged to `master`. Stage 7
-  merged in [PR #12](https://github.com/konflic/train_log/pull/12) on
-  2026-10-08 (`a5fa210`), with Gate G7 completing revision-checked deletion and
-  the post-delete lifecycle.
-- **Completed on branch `stage-8a-previous-performance` (PR pending):**
-  Stage 8a - Inline previous performance. Gate G8a passed locally on
-  2026-10-08; the detailed completion evidence is recorded in
+- **Completed baseline:** Stages 0 through 8a are merged to `master`. Stage 8a
+  merged in [PR #13](https://github.com/konflic/train_log/pull/13) on
+  2026-10-08 (`b13261e`), with Gate G8a completing inline previous performance.
+  Its detailed completion evidence is recorded in
   [`implementation/stage-08a-previous-performance.md`](implementation/stage-08a-previous-performance.md).
   The backend suite is green (592 tests, +82) with no dependency or request-body
   change. One internal migration stores the latest PUT's bounded
   previous-performance receipt; the only new public surface is the additive
   nullable `previous_performance` member of the workout detail exercise shape.
-- **Next:** Stage 8b - Statistics summary, starting from merged Stage 8a. Its
-  detailed file retains explicit contract questions that must be resolved before
-  implementation; Stage 8c then completes the backend API.
+- **Completed on branch `stage-8b-stats-summary` (PR pending):**
+  Stage 8b - Statistics summary. Gate G8b passed locally on 2026-10-08; the
+  detailed completion evidence is recorded in
+  [`implementation/stage-08b-stats-summary.md`](implementation/stage-08b-stats-summary.md).
+  The backend suite is green (637 tests, +45) with no dependency, migration,
+  or request-body change. The new public surface is the authenticated
+  `GET /api/v1/stats/summary` endpoint with its two response components; the
+  history-date query parser moved unchanged into a shared API helper.
+- **Next:** Stage 8c - Saved-data export, starting from merged Stage 8b. Its
+  detailed file retains explicit content questions that must be resolved
+  before implementation; Stage 8c completes the backend API and Gate G8.
 
 ## Documentation ownership
 
@@ -134,8 +139,9 @@ substage.
 
 #### Stage 8a - Inline previous performance
 
-**Status:** completed on branch `stage-8a-previous-performance` (PR pending);
-Gate G8a passed locally on 2026-10-08.
+**Status:** merged to `master` in
+[PR #13](https://github.com/konflic/train_log/pull/13) on 2026-10-08
+(`b13261e`); Gate G8a passed locally on 2026-10-08.
 
 **Detailed plan and completion evidence:**
 [`implementation/stage-08a-previous-performance.md`](implementation/stage-08a-previous-performance.md).
@@ -157,6 +163,9 @@ bounded independently of graph size; the complete backend suite passes.
 **Acceptance coverage:** the server half of checks 8, 9, and 10.
 
 #### Stage 8b - Statistics summary
+
+**Status:** completed on branch `stage-8b-stats-summary` (PR pending);
+Gate G8b passed locally on 2026-10-08.
 
 **Detailed plan:**
 [`implementation/stage-08b-stats-summary.md`](implementation/stage-08b-stats-summary.md).
