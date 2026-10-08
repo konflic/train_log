@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import BaseRoute, Match
 from starlette.staticfiles import StaticFiles
 
 from app.api.auth import router as auth_router
@@ -165,10 +166,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
             include_in_schema=False,
         )
-        def unknown_api_route(rest_of_path: str) -> None:
+        def unknown_api_route(request: Request, rest_of_path: str) -> None:
             # Unknown API paths keep the problem+json contract instead of
-            # falling through to the static mount's plain 404.
+            # falling through to the static mount's plain 404. Preserve the
+            # normal 405 response when an earlier API route matched the path
+            # but not the method.
             del rest_of_path
+            allowed_methods: set[str] = set()
+
+            def collect_partial_methods(routes: list[BaseRoute]) -> None:
+                for route in routes:
+                    match, _ = route.matches(request.scope)
+                    if match is Match.PARTIAL:
+                        allowed_methods.update(getattr(route, "methods", ()))
+                    included = getattr(route, "original_router", None)
+                    if included is not None:
+                        collect_partial_methods(included.routes)
+
+            collect_partial_methods(app.routes)
+            if allowed_methods:
+                raise StarletteHTTPException(
+                    status_code=405,
+                    detail="Method Not Allowed",
+                    headers={"Allow": ", ".join(sorted(allowed_methods))},
+                )
             raise NotFoundError("Not found")
 
         app.mount("/", StaticFiles(directory=static_path, html=True), name="spa")

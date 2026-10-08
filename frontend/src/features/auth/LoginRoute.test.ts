@@ -105,10 +105,13 @@ describe('LoginRoute', () => {
     render(LoginRoute);
     await fillAndSubmit('  User@Example.TEST ', 'password123');
     await waitFor(() =>
-      expect(loginMock).toHaveBeenCalledWith({
-        email: 'user@example.test',
-        password: 'password123',
-      }),
+      expect(loginMock).toHaveBeenCalledWith(
+        {
+          email: 'user@example.test',
+          password: 'password123',
+        },
+        expect.any(AbortSignal),
+      ),
     );
     await waitFor(() => expect(window.location.hash).toBe('#/'));
     expect(session.status).toBe('authenticated');

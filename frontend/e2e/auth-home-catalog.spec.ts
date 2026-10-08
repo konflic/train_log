@@ -180,7 +180,7 @@ test.describe('catalog management', () => {
     await expect(customRow).toBeVisible();
     await expect(customRow.getByText('Custom', { exact: true })).toBeVisible();
     await expect(
-      customRow.getByText(/Split weight \(per side\) · 2 sides/),
+      customRow.getByText(/Split weight \(per side\) · both sides per set/),
     ).toBeVisible();
 
     // Client-side validation blocks an invalid create before any request.

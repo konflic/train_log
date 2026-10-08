@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { replace } from 'svelte-spa-router';
-  import { login } from '../../api';
-  import { mapFailureToForm, type FormFailure } from '../../lib/failures';
+  import {
+    isAbortError,
+    mapFailureToForm,
+    type FormFailure,
+  } from '../../lib/failures';
   import {
     session,
     takeIntendedRoute,
@@ -26,12 +29,18 @@
   );
   let headingRef = $state<HTMLElement | undefined>();
   let alertRef = $state<HTMLElement | undefined>();
+  let controller: AbortController | null = null;
 
   onMount(() => {
     // Authenticated visits to auth routes lead to Home.
     if (session.status === 'authenticated') {
       void replace('/');
     }
+  });
+
+  onDestroy(() => {
+    controller?.abort();
+    session.cancelPendingAuthentication();
   });
 
   async function focusAfterFailure(): Promise<void> {
@@ -58,18 +67,28 @@
       return;
     }
     submitting = true;
+    controller = new AbortController();
     try {
       // No credential or token is stored in frontend persistence; the server
       // sets the HttpOnly cookie. Only the returned public user becomes the
       // current session, guarded by the session generation counter.
-      const user = await login({ email: normalizeEmailInput(email), password });
+      const adopted = await session.authenticate(
+        { email: normalizeEmailInput(email), password },
+        controller.signal,
+      );
+      if (!adopted) {
+        return;
+      }
       password = '';
-      session.adoptUser(user);
       await replace(takeIntendedRoute() ?? '/');
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       errors = mapFailureToForm(error);
       await focusAfterFailure();
     } finally {
+      controller = null;
       submitting = false;
     }
   }

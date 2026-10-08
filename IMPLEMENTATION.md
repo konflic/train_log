@@ -37,7 +37,7 @@ remain out of scope.
   [`implementation/stage-10-auth-home-catalog.md`](implementation/stage-10-auth-home-catalog.md).
   Container packaging (ahead of the Stage 15 production gate, which still
   owns the ship evidence): optional backend `STATIC_DIR` single-origin SPA
-  serving (+5 backend tests, 642 total green), multi-stage `Dockerfile`
+  serving (+6 backend tests, 643 total green), multi-stage `Dockerfile`
   (node build → python runtime, non-root, migrations in the entrypoint,
   stdlib healthcheck), `docker-compose.yml` for real-host deployment behind
   a TLS proxy with a persistent volume, `docker-compose.test.yml` with a

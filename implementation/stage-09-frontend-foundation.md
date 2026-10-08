@@ -238,4 +238,8 @@ branch/PR as Stage 10 at the user's request).
   and call the live test backend; frontend arithmetic matches all shared
   backend fixtures; all frontend checks are green locally (CI green pending on
   the PR).
-
+- **Post-review fixes (2026-10-08):** completed `api.ts` request types and
+  focused helpers for profile update, single-exercise read, and workout
+  create/read/save/delete so the Stage 9 client surface covers every completed
+  backend schema and endpoint. Added request-construction coverage; the combined
+  frontend suite now passes 148 unit tests and 16 Playwright tests.
