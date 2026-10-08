@@ -4,18 +4,27 @@
     DraftRepository,
     createDraftId,
     createRecoveryDraft,
+    openDurableDraftStorage,
     openDraftStorage,
+    PendingDraftRepository,
     type DraftKey,
     type DraftPageOptions,
     type DraftStorage,
     type WorkoutDraft,
   } from '../../db';
   import {
+    createWorkout,
+    getWorkout,
+    listExercises,
+    saveWorkout,
+  } from '../../api';
+  import {
     LocalDraftEditor,
     editorAssociations,
     editorKey,
     localEditors,
   } from './editor.svelte';
+  import { DraftSyncCoordinator } from './sync';
 
   let { accountId, localOnly }: { accountId: string; localOnly: boolean } =
     $props();
@@ -45,7 +54,7 @@
       if (this.failNextWrite) {
         this.failNextWrite = false;
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.open('basefit-drafts', 1);
+          const request = indexedDB.open('basefit-drafts');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
             const database = request.result;
@@ -88,6 +97,7 @@
   let nextKey = $state.raw<DraftKey | null>(null);
   let unavailableCount = $state(0);
   let editor = $state<LocalDraftEditor | null>(null);
+  let coordinator = $state<DraftSyncCoordinator | null>(null);
   let status = $state('Loading local recovery choices…');
   let error = $state('');
   let selecting = $state(false);
@@ -208,10 +218,115 @@
       const active = new LocalDraftEditor(repository, recovered);
       localEditors.set(key, active);
       editor = active;
+      coordinator = null;
       status = `Editing local draft ${recoveredId}.`;
     } catch (cause) {
       if (recoveredId) editorAssociations.release(key, recoveredId);
       error = cause instanceof Error ? cause.message : 'Storage failed.';
+    } finally {
+      selecting = false;
+    }
+  }
+
+  async function startDurableCreate(): Promise<void> {
+    if (!repository || localOnly || selecting) return;
+    selecting = true;
+    error = '';
+    status = 'Persisting create request…';
+    try {
+      const workoutId = createDraftId();
+      const prepared = sampleDraft();
+      prepared.workout_id = workoutId;
+      prepared.base_detail_id = workoutId;
+      prepared.draft_id = createDraftId();
+      prepared.base_revision = 0;
+      prepared.started_at = new Date().toISOString();
+      const exerciseId = createDraftId();
+      const setId = createDraftId();
+      prepared.content.exercises[0].id = exerciseId;
+      prepared.content.exercises[0].sets[0].id = setId;
+      prepared.content.raw_fields = { [`${setId}.weight_kg`]: '12' };
+      const catalog = await listExercises({ pageSize: 100 });
+      const exercise = catalog.items.find(
+        (item) => item.load_type === 'single_weight',
+      );
+      if (!exercise) throw new Error('No compatible exercise is available.');
+      prepared.content.exercises = [prepared.content.exercises[0]];
+      prepared.content.exercises[0].catalog_id = exercise.id;
+      prepared.content.recorded_load_snapshots = {};
+      prepared.content.provisional_load_snapshots = {
+        [exerciseId]: {
+          load_type: exercise.load_type,
+          bodyweight_percent: exercise.bodyweight_percent,
+          side_count: exercise.side_count,
+        },
+      };
+      const operations = new PendingDraftRepository(
+        repository,
+        await openDurableDraftStorage(),
+      );
+      const next = new DraftSyncCoordinator(
+        accountId,
+        prepared.draft_id,
+        operations,
+        { create: createWorkout, get: getWorkout, save: saveWorkout },
+      );
+      await next.prepareCreate(prepared);
+      status = 'Create request stored. Sending…';
+      await next.sendCreate();
+      const acknowledged = await repository.get(
+        accountId,
+        workoutId,
+        prepared.draft_id,
+      );
+      if (!acknowledged) throw new Error('Created draft is unavailable.');
+      editor = new LocalDraftEditor(repository, acknowledged);
+      coordinator = next;
+      status = `Created workout ${workoutId}. Save the prepared graph when ready.`;
+    } catch (cause) {
+      error =
+        cause instanceof Error
+          ? cause.message
+          : 'Create request could not be sent.';
+    } finally {
+      selecting = false;
+    }
+  }
+
+  async function sendDurableSave(finish: boolean): Promise<void> {
+    if (!editor?.current || !coordinator || selecting) return;
+    selecting = true;
+    error = '';
+    try {
+      if (finish) {
+        const content = structuredClone(editor.current.content);
+        content.ended_at = new Date().toISOString();
+        await editor.edit(content);
+      }
+      if (editor.status !== 'saved') {
+        throw new Error(
+          'The latest edit must be stored locally before saving.',
+        );
+      }
+      status = 'Persisting immutable save request…';
+      await coordinator.prepareSave(editor.current);
+      status = 'Sending exact save request…';
+      await coordinator.sendSave();
+      const acknowledged = await repository!.get(
+        accountId,
+        editor.current.workout_id,
+        editor.current.draft_id,
+      );
+      if (!acknowledged) throw new Error('Saved draft is unavailable.');
+      editor = new LocalDraftEditor(repository!, acknowledged);
+      status = finish
+        ? 'Finish-shaped save acknowledged.'
+        : 'Save acknowledged.';
+    } catch (cause) {
+      error =
+        cause instanceof Error
+          ? cause.message
+          : 'Save request could not be sent.';
     } finally {
       selecting = false;
     }
@@ -280,6 +395,12 @@
       type="button"
       class="mt-4 min-h-11 rounded-md border border-edge px-4"
       onclick={() => void createSource()}>Create recovery source</button
+    >
+    <button
+      type="button"
+      class="mt-4 min-h-11 rounded-md border border-edge px-4"
+      disabled={selecting}
+      onclick={() => void startDurableCreate()}>Start durable create</button
     >
   {/if}
   <button
@@ -355,6 +476,20 @@
         Editing draft {editor.current.draft_id}
       </p>
       <p>Raw fields are local-only. No server payload is available.</p>
+      {#if coordinator}
+        <button
+          type="button"
+          class="mt-3 min-h-11 rounded-md border border-edge px-4"
+          disabled={selecting || editor.status !== 'saved'}
+          onclick={() => void sendDurableSave(false)}>Send durable save</button
+        >
+        <button
+          type="button"
+          class="mt-3 min-h-11 rounded-md border border-edge px-4"
+          disabled={selecting || editor.status !== 'saved'}
+          onclick={() => void sendDurableSave(true)}>Send durable finish</button
+        >
+      {/if}
       <pre data-testid="editor-value">{JSON.stringify(editor.current)}</pre>
       <label class="mt-4 block" for="raw-weight">Raw weight text</label>
       <input

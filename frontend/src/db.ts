@@ -1,15 +1,22 @@
 /**
  * Versioned IndexedDB storage for local workout drafts. Network requests and
- * pending saves deliberately belong to later stages; this module only commits
- * complete, account-scoped editable draft values.
+ * complete, account-scoped editable draft values and the one durable request
+ * each draft may need while its server acknowledgement is uncertain.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { LoadType, SaveExerciseInput } from './api';
+import type {
+  LoadType,
+  SaveExerciseInput,
+  SaveWorkoutInput,
+  WorkoutCreateInput,
+} from './api';
 
 const DATABASE_NAME = 'basefit-drafts';
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const DRAFT_STORE = 'drafts';
+const PENDING_CREATE_STORE = 'pending_creates';
+const PENDING_SAVE_STORE = 'pending_saves';
 
 export type DraftKey = [accountId: string, workoutId: string, draftId: string];
 
@@ -42,6 +49,26 @@ export interface WorkoutDraft {
   change_number: number;
   created_at: string;
   updated_at: string;
+}
+
+/** Immutable POST content retained until the original create is acknowledged. */
+export interface PendingCreate {
+  account_id: string;
+  draft_id: string;
+  workout_id: string;
+  request: WorkoutCreateInput;
+  prepared_change_number: number;
+  created_at: string;
+}
+
+/** Immutable PUT content retained until its exact save receipt is acknowledged. */
+export interface PendingSave {
+  account_id: string;
+  draft_id: string;
+  workout_id: string;
+  change_number: number;
+  payload: SaveWorkoutInput;
+  created_at: string;
 }
 
 export interface DraftList {
@@ -100,9 +127,31 @@ interface DraftDatabaseSchema extends DBSchema {
       'by-account-workout': [string, string];
     };
   };
+  pending_creates: {
+    key: [accountId: string, draftId: string];
+    value: PendingCreate;
+    indexes: { 'by-account': string; 'by-account-draft': [string, string] };
+  };
+  pending_saves: {
+    key: [accountId: string, draftId: string];
+    value: PendingSave;
+    indexes: { 'by-account': string; 'by-account-draft': [string, string] };
+  };
 }
 
-class IndexedDbDraftStorage implements DraftStorage {
+export interface DurableDraftStorage {
+  putCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void>;
+  putSave(pending: PendingSave): Promise<void>;
+  getCreate(
+    accountId: string,
+    draftId: string,
+  ): Promise<PendingCreate | undefined>;
+  getSave(accountId: string, draftId: string): Promise<PendingSave | undefined>;
+  acknowledgeCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void>;
+  acknowledgeSave(draft: WorkoutDraft, pending: PendingSave): Promise<void>;
+}
+
+class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
   constructor(private readonly database: IDBPDatabase<DraftDatabaseSchema>) {}
 
   async put(draft: WorkoutDraft): Promise<void> {
@@ -188,16 +237,105 @@ class IndexedDbDraftStorage implements DraftStorage {
   close(): void {
     this.database.close();
   }
+
+  async putCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_CREATE_STORE],
+      'readwrite',
+    );
+    const pendingStore = transaction.objectStore(PENDING_CREATE_STORE);
+    const key: [string, string] = [pending.account_id, pending.draft_id];
+    if ((await pendingStore.get(key)) !== undefined) {
+      transaction.abort();
+      throw new DraftStorageError('A create is already pending for this draft');
+    }
+    await transaction.objectStore(DRAFT_STORE).put(draft);
+    await pendingStore.put(pending);
+    await transaction.done;
+  }
+
+  async putSave(pending: PendingSave): Promise<void> {
+    const transaction = this.database.transaction(
+      PENDING_SAVE_STORE,
+      'readwrite',
+    );
+    const store = transaction.objectStore(PENDING_SAVE_STORE);
+    const key: [string, string] = [pending.account_id, pending.draft_id];
+    if ((await store.get(key)) !== undefined) {
+      transaction.abort();
+      throw new DraftStorageError('A save is already pending for this draft');
+    }
+    await store.put(pending);
+    await transaction.done;
+  }
+
+  getCreate(
+    accountId: string,
+    draftId: string,
+  ): Promise<PendingCreate | undefined> {
+    return this.database.get(PENDING_CREATE_STORE, [accountId, draftId]);
+  }
+
+  getSave(
+    accountId: string,
+    draftId: string,
+  ): Promise<PendingSave | undefined> {
+    return this.database.get(PENDING_SAVE_STORE, [accountId, draftId]);
+  }
+
+  async acknowledgeCreate(
+    draft: WorkoutDraft,
+    pending: PendingCreate,
+  ): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_CREATE_STORE],
+      'readwrite',
+    );
+    const pendingStore = transaction.objectStore(PENDING_CREATE_STORE);
+    const stored = await pendingStore.get([
+      pending.account_id,
+      pending.draft_id,
+    ]);
+    if (!samePendingCreate(stored, pending)) {
+      transaction.abort();
+      throw new DraftStorageError('The pending create no longer matches');
+    }
+    await transaction.objectStore(DRAFT_STORE).put(draft);
+    await pendingStore.delete([pending.account_id, pending.draft_id]);
+    await transaction.done;
+  }
+
+  async acknowledgeSave(
+    draft: WorkoutDraft,
+    pending: PendingSave,
+  ): Promise<void> {
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    const pendingStore = transaction.objectStore(PENDING_SAVE_STORE);
+    const stored = await pendingStore.get([
+      pending.account_id,
+      pending.draft_id,
+    ]);
+    if (!samePendingSave(stored, pending)) {
+      transaction.abort();
+      throw new DraftStorageError('The pending save no longer matches');
+    }
+    await transaction.objectStore(DRAFT_STORE).put(draft);
+    await pendingStore.delete([pending.account_id, pending.draft_id]);
+    await transaction.done;
+  }
 }
 
-let openingStorage: Promise<DraftStorage> | null = null;
+let openingStorage: Promise<IndexedDbDraftStorage> | null = null;
 
 /** Open lazily so server-side imports and tests never touch browser storage. */
 export function openDraftStorage(): Promise<DraftStorage> {
   if (openingStorage === null) {
     let cancelled = false;
-    const opening: Promise<DraftStorage> = new Promise<DraftStorage>(
-      (resolve, reject) => {
+    const opening: Promise<IndexedDbDraftStorage> =
+      new Promise<IndexedDbDraftStorage>((resolve, reject) => {
         void openDB<DraftDatabaseSchema>(DATABASE_NAME, DATABASE_VERSION, {
           upgrade(database, oldVersion) {
             if (oldVersion < 1) {
@@ -209,6 +347,21 @@ export function openDraftStorage(): Promise<DraftStorage> {
                 'account_id',
                 'workout_id',
               ]);
+            }
+            if (oldVersion < 2) {
+              const creates = database.createObjectStore(PENDING_CREATE_STORE, {
+                keyPath: ['account_id', 'draft_id'],
+              });
+              creates.createIndex('by-account', 'account_id');
+              creates.createIndex('by-account-draft', [
+                'account_id',
+                'draft_id',
+              ]);
+              const saves = database.createObjectStore(PENDING_SAVE_STORE, {
+                keyPath: ['account_id', 'draft_id'],
+              });
+              saves.createIndex('by-account', 'account_id');
+              saves.createIndex('by-account-draft', ['account_id', 'draft_id']);
             }
           },
           blocked() {
@@ -232,8 +385,7 @@ export function openDraftStorage(): Promise<DraftStorage> {
             resolve(new IndexedDbDraftStorage(database));
           }
         }, reject);
-      },
-    );
+      });
     openingStorage = opening;
     // A failed open must not leave a rejected singleton that makes a later
     // explicit retry impossible.
@@ -244,6 +396,11 @@ export function openDraftStorage(): Promise<DraftStorage> {
     });
   }
   return openingStorage;
+}
+
+/** The durable-operation API is intentionally separate from ordinary draft reads. */
+export async function openDurableDraftStorage(): Promise<DurableDraftStorage> {
+  return (await openDraftStorage()) as unknown as DurableDraftStorage;
 }
 
 /** Tests and future upgrade handling may explicitly release the open handle. */
@@ -446,6 +603,105 @@ function copyDraft(draft: WorkoutDraft): WorkoutDraft {
   }
 }
 
+function copyPending<T extends PendingCreate | PendingSave>(pending: T): T {
+  try {
+    return structuredClone(pending);
+  } catch (error) {
+    throw new DraftStorageError('Pending request data could not be persisted', {
+      cause: error,
+    });
+  }
+}
+
+function validSavePayload(value: unknown): value is SaveWorkoutInput {
+  if (!isRecord(value)) return false;
+  return (
+    fields(
+      value,
+      'revision save_id name notes bodyweight_kg ended_at exercises',
+    ) &&
+    typeof value.revision === 'number' &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= 0 &&
+    isNonEmptyString(value.save_id) &&
+    isNullableString(value.name) &&
+    isNullableString(value.notes) &&
+    isNullableSafeInteger(value.bodyweight_kg) &&
+    (value.ended_at === null || timestamp(value.ended_at)) &&
+    validGraph(value.exercises)
+  );
+}
+
+function isPendingCreate(value: unknown): value is PendingCreate {
+  return (
+    isRecord(value) &&
+    fields(
+      value,
+      'account_id draft_id workout_id request prepared_change_number created_at',
+    ) &&
+    isNonEmptyString(value.account_id) &&
+    isNonEmptyString(value.draft_id) &&
+    isNonEmptyString(value.workout_id) &&
+    isRecord(value.request) &&
+    fields(value.request, 'id started_at') &&
+    value.request.id === value.workout_id &&
+    timestamp(value.request.started_at) &&
+    typeof value.prepared_change_number === 'number' &&
+    Number.isSafeInteger(value.prepared_change_number) &&
+    value.prepared_change_number >= 0 &&
+    timestamp(value.created_at)
+  );
+}
+
+function isPendingSave(value: unknown): value is PendingSave {
+  return (
+    isRecord(value) &&
+    fields(
+      value,
+      'account_id draft_id workout_id change_number payload created_at',
+    ) &&
+    isNonEmptyString(value.account_id) &&
+    isNonEmptyString(value.draft_id) &&
+    isNonEmptyString(value.workout_id) &&
+    typeof value.change_number === 'number' &&
+    Number.isSafeInteger(value.change_number) &&
+    value.change_number >= 0 &&
+    validSavePayload(value.payload) &&
+    timestamp(value.created_at)
+  );
+}
+
+function samePendingCreate(
+  left: PendingCreate | undefined,
+  right: PendingCreate,
+): boolean {
+  return (
+    left !== undefined &&
+    left.account_id === right.account_id &&
+    left.draft_id === right.draft_id &&
+    left.workout_id === right.workout_id &&
+    left.request.id === right.request.id &&
+    left.request.started_at === right.request.started_at &&
+    left.prepared_change_number === right.prepared_change_number &&
+    left.created_at === right.created_at
+  );
+}
+
+function samePendingSave(
+  left: PendingSave | undefined,
+  right: PendingSave,
+): boolean {
+  return (
+    left !== undefined &&
+    left.account_id === right.account_id &&
+    left.draft_id === right.draft_id &&
+    left.workout_id === right.workout_id &&
+    left.change_number === right.change_number &&
+    left.created_at === right.created_at &&
+    left.payload.save_id === right.payload.save_id
+  );
+}
+
 function compareRecoveryDrafts(
   left: WorkoutDraft,
   right: WorkoutDraft,
@@ -606,6 +862,171 @@ export class DraftRepository {
       unavailable_count: unavailableCount,
       next_key: page.next_key,
     };
+  }
+}
+
+/**
+ * Keeps the only create and save request for an editor durable. The coordinator
+ * owns transport; this class only makes local state transitions atomic.
+ */
+export class PendingDraftRepository {
+  constructor(
+    readonly drafts: DraftRepository,
+    private readonly storage: DurableDraftStorage,
+  ) {}
+
+  async prepareCreate(
+    accountId: string,
+    draft: WorkoutDraft,
+  ): Promise<PendingCreate> {
+    if (!isWorkoutDraft(draft) || draft.account_id !== accountId) {
+      throw new MalformedDraftError();
+    }
+    const pending: PendingCreate = {
+      account_id: accountId,
+      draft_id: draft.draft_id,
+      workout_id: draft.workout_id,
+      request: { id: draft.workout_id, started_at: draft.started_at },
+      prepared_change_number: draft.change_number,
+      created_at: new Date().toISOString(),
+    };
+    try {
+      await this.storage.putCreate(copyDraft(draft), copyPending(pending));
+      return copyPending(pending);
+    } catch (error) {
+      throw new DraftStorageError('Could not store the create request', {
+        cause: error,
+      });
+    }
+  }
+
+  async prepareSave(
+    accountId: string,
+    draft: WorkoutDraft,
+  ): Promise<PendingSave> {
+    if (!isWorkoutDraft(draft) || draft.account_id !== accountId) {
+      throw new MalformedDraftError();
+    }
+    const pending: PendingSave = {
+      account_id: accountId,
+      draft_id: draft.draft_id,
+      workout_id: draft.workout_id,
+      change_number: draft.change_number,
+      payload: {
+        revision: draft.base_revision,
+        save_id: createDraftId(),
+        name: draft.content.name,
+        notes: draft.content.notes,
+        bodyweight_kg: draft.content.bodyweight_kg,
+        ended_at: draft.content.ended_at,
+        exercises: draft.content.exercises,
+      },
+      created_at: new Date().toISOString(),
+    };
+    try {
+      await this.storage.putSave(copyPending(pending));
+      return copyPending(pending);
+    } catch (error) {
+      throw new DraftStorageError('Could not store the save request', {
+        cause: error,
+      });
+    }
+  }
+
+  async getCreate(
+    accountId: string,
+    draftId: string,
+  ): Promise<PendingCreate | null> {
+    try {
+      const pending = await this.storage.getCreate(accountId, draftId);
+      if (pending === undefined) return null;
+      if (
+        !isPendingCreate(pending) ||
+        pending.account_id !== accountId ||
+        pending.draft_id !== draftId
+      ) {
+        throw new MalformedDraftError();
+      }
+      return copyPending(pending);
+    } catch (error) {
+      if (error instanceof MalformedDraftError) throw error;
+      throw new DraftStorageError('Could not read the create request', {
+        cause: error,
+      });
+    }
+  }
+
+  async getSave(
+    accountId: string,
+    draftId: string,
+  ): Promise<PendingSave | null> {
+    try {
+      const pending = await this.storage.getSave(accountId, draftId);
+      if (pending === undefined) return null;
+      if (
+        !isPendingSave(pending) ||
+        pending.account_id !== accountId ||
+        pending.draft_id !== draftId
+      ) {
+        throw new MalformedDraftError();
+      }
+      return copyPending(pending);
+    } catch (error) {
+      if (error instanceof MalformedDraftError) throw error;
+      throw new DraftStorageError('Could not read the save request', {
+        cause: error,
+      });
+    }
+  }
+
+  async acknowledgeCreate(
+    draft: WorkoutDraft,
+    pending: PendingCreate,
+  ): Promise<void> {
+    if (
+      !isWorkoutDraft(draft) ||
+      !isPendingCreate(pending) ||
+      draft.account_id !== pending.account_id ||
+      draft.draft_id !== pending.draft_id ||
+      draft.workout_id !== pending.workout_id
+    ) {
+      throw new MalformedDraftError();
+    }
+    try {
+      await this.storage.acknowledgeCreate(
+        copyDraft(draft),
+        copyPending(pending),
+      );
+    } catch (error) {
+      throw new DraftStorageError('Could not acknowledge the create request', {
+        cause: error,
+      });
+    }
+  }
+
+  async acknowledgeSave(
+    draft: WorkoutDraft,
+    pending: PendingSave,
+  ): Promise<void> {
+    if (
+      !isWorkoutDraft(draft) ||
+      !isPendingSave(pending) ||
+      draft.account_id !== pending.account_id ||
+      draft.draft_id !== pending.draft_id ||
+      draft.workout_id !== pending.workout_id
+    ) {
+      throw new MalformedDraftError();
+    }
+    try {
+      await this.storage.acknowledgeSave(
+        copyDraft(draft),
+        copyPending(pending),
+      );
+    } catch (error) {
+      throw new DraftStorageError('Could not acknowledge the save request', {
+        cause: error,
+      });
+    }
   }
 }
 

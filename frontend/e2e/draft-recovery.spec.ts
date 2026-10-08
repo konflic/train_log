@@ -204,6 +204,36 @@ test.describe('IndexedDB draft recovery harness', () => {
     await expect(page.getByLabel('Raw weight text')).toHaveValue('123');
   });
 
+  test('durably creates, saves, and finishes the prepared graph', async ({
+    page,
+  }) => {
+    await signedInHarness(page);
+    await page.getByRole('button', { name: 'Start durable create' }).click();
+    await expect(page.getByTestId('editing-draft-id')).toBeVisible();
+    const created = await editorValue(page);
+    expect(created.base_revision).toBe(0);
+
+    await page.getByRole('button', { name: 'Send durable save' }).click();
+    await expect
+      .poll(async () => (await editorValue(page)).base_revision)
+      .toBe(1);
+    await page.getByRole('button', { name: 'Send durable finish' }).click();
+    await expect
+      .poll(async () => (await editorValue(page)).base_revision)
+      .toBe(2);
+
+    const server = await page.evaluate(async (workoutId) => {
+      const response = await fetch(`/api/v1/workouts/${workoutId}`);
+      return response.json() as Promise<{
+        revision: number;
+        ended_at: string | null;
+        exercises: Array<{ sets: unknown[] }>;
+      }>;
+    }, created.workout_id);
+    expect(server).toMatchObject({ revision: 2, ended_at: expect.any(String) });
+    expect(server.exercises[0].sets).toHaveLength(1);
+  });
+
   test('a different confirmed account in another tab revokes offline recovery', async ({
     page,
   }) => {
@@ -242,7 +272,7 @@ test.describe('IndexedDB draft recovery harness', () => {
     await createSource(page);
     await page.evaluate(async () => {
       await new Promise<void>((resolve, reject) => {
-        const opening = indexedDB.open('basefit-drafts', 1);
+        const opening = indexedDB.open('basefit-drafts');
         opening.onerror = () => reject(opening.error);
         opening.onsuccess = () => {
           const db = opening.result;

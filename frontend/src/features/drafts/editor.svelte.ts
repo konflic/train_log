@@ -4,6 +4,7 @@ import {
   type EditableWorkoutContent,
   type WorkoutDraft,
 } from '../../db';
+import { SvelteDate, SvelteMap } from 'svelte/reactivity';
 
 /** Immediate input and durable acknowledgement are separate clocks. */
 export class LocalDraftEditor {
@@ -30,7 +31,7 @@ export class LocalDraftEditor {
       ...current,
       content,
       change_number: current.change_number + 1,
-      updated_at: new Date().toISOString(),
+      updated_at: new SvelteDate().toISOString(),
     };
     try {
       this.current = structuredClone(next);
@@ -65,7 +66,7 @@ export class LocalDraftEditor {
 }
 
 // The registry is document-local, never restored from cloned sessionStorage.
-export const localEditors = new Map<string, LocalDraftEditor>();
+export const localEditors = new SvelteMap<string, LocalDraftEditor>();
 export const editorAssociations = new EditorAssociations();
 
 export function editorKey(accountId: string, workoutId: string): string {

@@ -1,6 +1,7 @@
 # Stage 11b - Durable requests and pending saves
 
-Status: planned. Start after Gate G11a is merged.
+Status: implemented on the current working tree (pending review/merge). Gate
+G11b passed locally on 2026-10-08.
 
 Working estimate: part of Stage 11's 3 person-day budget.
 
@@ -187,6 +188,41 @@ Completion evidence and the Stage 11c marker must be recorded in
 
 ## Completion evidence
 
-Not yet implemented. Record the branch, IndexedDB upgrade, coordinator state
-evidence, commands/test counts, response-loss/reload observations, and Gate G11b
-acceptance mapping here before merge.
+Implemented locally on 2026-10-08.
+
+- Upgraded `basefit-drafts` to schema version 2 without changing the existing
+  `drafts` store. The new `pending_creates` and `pending_saves` stores use
+  account/draft compound keys. The create/draft and acknowledgement/delete
+  transitions run in one IndexedDB transaction; only one save may exist for a
+  draft.
+- Added `PendingDraftRepository` and `DraftSyncCoordinator`. They persist an
+  immutable create or save before transport, reuse its original IDs and payload,
+  reject a mismatched acknowledgement, retain pending work after a local
+  acknowledgement failure, and preserve later editable content while updating
+  acknowledged load snapshots and the server base revision. Reconnect ordering
+  and conflict choices remain Stage 11c work.
+- Extended the E2E-only recovery harness to create, save, and finish a real
+  workout through the durable coordinator. The normal production build contains
+  no harness route or failure controls.
+- Added coordinator tests for persist-before-send, exact receipt retirement,
+  newer input during an in-flight save, failed local acknowledgement recovery,
+  and preserving the prepared graph after an empty create response. Browser
+  coverage verifies durable create, save, finish, server revision, and graph.
+
+### Verification provenance
+
+The complete frontend gate passed locally on 2026-10-08:
+
+```bash
+cd frontend
+npm run check       # 0 errors, 0 warnings
+npm run lint        # clean
+npm run test:unit   # 18 files, 173 tests passed
+npm run build       # passed; no E2E harness in production dist
+npm run test:e2e    # 25 Chromium tests passed
+npm ls              # clean exact dependency tree
+npm audit           # 0 vulnerabilities
+```
+
+Next stage: Stage 11c - reconnect, conflict, and account handling, after this
+increment is reviewed and merged.
