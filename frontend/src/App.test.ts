@@ -9,11 +9,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   fetchCurrentUserMock,
+  logoutMock,
+  deleteAccountMock,
   listWorkoutsMock,
   fetchStatsSummaryMock,
   listExercisesMock,
 } = vi.hoisted(() => ({
   fetchCurrentUserMock: vi.fn(),
+  logoutMock: vi.fn(),
+  deleteAccountMock: vi.fn(),
   listWorkoutsMock: vi.fn(),
   fetchStatsSummaryMock: vi.fn(),
   listExercisesMock: vi.fn(),
@@ -24,9 +28,18 @@ vi.mock('./api', async (importOriginal) => {
   return {
     ...actual,
     fetchCurrentUser: fetchCurrentUserMock,
+    logout: logoutMock,
     listWorkouts: listWorkoutsMock,
     fetchStatsSummary: fetchStatsSummaryMock,
     listExercises: listExercisesMock,
+  };
+});
+
+vi.mock('./db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./db')>();
+  return {
+    ...actual,
+    openDraftStorage: vi.fn(async () => ({ deleteAccount: deleteAccountMock })),
   };
 });
 
@@ -72,6 +85,8 @@ async function renderAuthenticated(): Promise<void> {
 
 beforeEach(() => {
   fetchCurrentUserMock.mockReset();
+  logoutMock.mockReset();
+  deleteAccountMock.mockReset();
   // Home/Catalog panels must not reach the network in shell tests.
   listWorkoutsMock.mockResolvedValue({
     items: [],
@@ -98,6 +113,7 @@ beforeEach(() => {
   // Reset the shared singleton and route state between tests.
   session.status = 'loading';
   session.user = null;
+  session.logoutRequested = false;
   navigateTo('#/');
   takeIntendedRoute();
   cleanup();
@@ -229,6 +245,21 @@ describe('authenticated application shell', () => {
         screen.getByRole('heading', { level: 1, name: 'Settings' }),
       ).toBeDefined(),
     );
+  });
+
+  it('logs out from Settings and displays the app version', async () => {
+    logoutMock.mockResolvedValueOnce(undefined);
+    await renderAuthenticated();
+    navigateTo('#/settings');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+
+    expect(screen.getByText('Version 0.1.0')).toBeDefined();
+    await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/login'));
+    expect(logoutMock).toHaveBeenCalledOnce();
+    expect(deleteAccountMock).toHaveBeenCalledWith('u-1');
+    expect(takeIntendedRoute()).toBeNull();
   });
 
   it('renders the not-found route for unknown hashes', async () => {

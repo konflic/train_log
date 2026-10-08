@@ -13,7 +13,9 @@ import {
   type PublicUser,
   fetchCurrentUser,
   login,
+  logout as revokeSession,
 } from '../../api';
+import { openDraftStorage } from '../../db';
 import {
   forgetRecoveryAccount,
   recoveryAccount,
@@ -30,6 +32,7 @@ export class SessionState {
   status = $state<SessionStatus>('loading');
   user = $state<PublicUser | null>(null);
   recoveryAccountId = $state<string | null>(null);
+  logoutRequested = $state(false);
 
   /** Identity guard: only the newest request may write state. */
   private generation = 0;
@@ -39,6 +42,7 @@ export class SessionState {
     const generation = ++this.generation;
     this.status = 'loading';
     this.recoveryAccountId = null;
+    this.logoutRequested = false;
     try {
       const user = await fetchCurrentUser();
       if (generation !== this.generation) {
@@ -75,6 +79,7 @@ export class SessionState {
     this.user = user;
     rememberRecoveryAccount(user.id);
     this.recoveryAccountId = null;
+    this.logoutRequested = false;
     this.status = 'authenticated';
     return true;
   }
@@ -90,6 +95,28 @@ export class SessionState {
     this.user = null;
     this.status = 'anonymous';
     this.recoveryAccountId = null;
+    this.logoutRequested = false;
+    forgetRecoveryAccount();
+  }
+
+  /** Revoke the server session before changing local authenticated state. */
+  async signOut(): Promise<void> {
+    const generation = ++this.generation;
+    const accountId = this.user?.id ?? null;
+    // Opening storage before revocation keeps a local-storage failure retryable
+    // while the session is still valid. Records are removed only after 204.
+    const storage = accountId === null ? null : await openDraftStorage();
+    await revokeSession();
+    if (generation !== this.generation) {
+      return;
+    }
+    if (storage !== null && accountId !== null) {
+      await storage.deleteAccount(accountId);
+    }
+    this.user = null;
+    this.status = 'anonymous';
+    this.recoveryAccountId = null;
+    this.logoutRequested = true;
     forgetRecoveryAccount();
   }
 

@@ -1,10 +1,13 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchCurrentUserMock, loginMock } = vi.hoisted(() => ({
-  fetchCurrentUserMock: vi.fn(),
-  loginMock: vi.fn(),
-}));
+const { fetchCurrentUserMock, loginMock, logoutMock, deleteAccountMock } =
+  vi.hoisted(() => ({
+    fetchCurrentUserMock: vi.fn(),
+    loginMock: vi.fn(),
+    logoutMock: vi.fn(),
+    deleteAccountMock: vi.fn(),
+  }));
 
 vi.mock('../../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api')>();
@@ -12,8 +15,13 @@ vi.mock('../../api', async (importOriginal) => {
     ...actual,
     fetchCurrentUser: fetchCurrentUserMock,
     login: loginMock,
+    logout: logoutMock,
   };
 });
+
+vi.mock('../../db', () => ({
+  openDraftStorage: vi.fn(async () => ({ deleteAccount: deleteAccountMock })),
+}));
 
 import { ApiNetworkError, ApiRequestError, type PublicUser } from '../../api';
 import {
@@ -66,6 +74,8 @@ function deferred<T>(): {
 beforeEach(() => {
   fetchCurrentUserMock.mockReset();
   loginMock.mockReset();
+  logoutMock.mockReset();
+  deleteAccountMock.mockReset();
 });
 
 describe('SessionState.initialize', () => {
@@ -184,6 +194,26 @@ describe('SessionState.authenticate and noteUnauthorized', () => {
     pending.resolve(makeUser({ id: 'stale' }));
     await run;
     expect(session.status).toBe('anonymous');
+  });
+});
+
+describe('SessionState.signOut', () => {
+  it('keeps the session on a failed revocation and clears it after success', async () => {
+    const state = new SessionState();
+    loginMock.mockResolvedValueOnce(makeUser());
+    await state.authenticate({ email: 'a@b.test', password: 'password' });
+
+    logoutMock.mockRejectedValueOnce(new ApiNetworkError('down'));
+    await expect(state.signOut()).rejects.toThrow('down');
+    expect(state.status).toBe('authenticated');
+    expect(state.user?.id).toBe('u-1');
+
+    logoutMock.mockResolvedValueOnce(undefined);
+    await state.signOut();
+    expect(deleteAccountMock).toHaveBeenCalledWith('u-1');
+    expect(state.status).toBe('anonymous');
+    expect(state.user).toBeNull();
+    expect(state.logoutRequested).toBe(true);
   });
 });
 

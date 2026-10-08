@@ -229,12 +229,22 @@ class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
   }
 
   async deleteAccount(accountId: string): Promise<void> {
-    const transaction = this.database.transaction(DRAFT_STORE, 'readwrite');
-    const store = transaction.objectStore(DRAFT_STORE);
-    let cursor = await store.index('by-account').openCursor(accountId);
-    while (cursor) {
-      await cursor.delete();
-      cursor = await cursor.continue();
+    const transaction = this.database.transaction(
+      [DRAFT_STORE, PENDING_CREATE_STORE, PENDING_SAVE_STORE],
+      'readwrite',
+    );
+    const storeNames: Array<
+      | typeof DRAFT_STORE
+      | typeof PENDING_CREATE_STORE
+      | typeof PENDING_SAVE_STORE
+    > = [DRAFT_STORE, PENDING_CREATE_STORE, PENDING_SAVE_STORE];
+    for (const storeName of storeNames) {
+      const store = transaction.objectStore(storeName);
+      let cursor = await store.index('by-account').openCursor(accountId);
+      while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+      }
     }
     await transaction.done;
   }

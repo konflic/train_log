@@ -81,6 +81,12 @@
     // updates the router state synchronously.
     if (session.status === 'anonymous' && !authPaths.has(path)) {
       const querystring = router.querystring;
+      if (session.logoutRequested) {
+        void replace('/login').then(() => {
+          session.logoutRequested = false;
+        });
+        return;
+      }
       rememberIntendedRoute(querystring ? `${path}?${querystring}` : path);
       void replace('/login');
     }
