@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
+  import ActionIcon from './components/ActionIcon.svelte';
   import { isRecoveryContextEvent } from './features/auth/recoveryContext';
   import Router, { replace, router } from 'svelte-spa-router';
   import LoginRoute from './features/auth/LoginRoute.svelte';
@@ -36,12 +37,16 @@
     '*': NotFoundRoute,
   };
 
-  // Bottom navigation targets (text labels, at least 44 CSS pixels).
-  const navItems: ReadonlyArray<{ path: string; label: string }> = [
-    { path: '/', label: 'Home' },
-    { path: '/catalog', label: 'Catalog' },
-    { path: '/history', label: 'History' },
-    { path: '/settings', label: 'Settings' },
+  // Bottom navigation stays icon-only while retaining named, 44-pixel targets.
+  const navItems: ReadonlyArray<{
+    path: string;
+    label: string;
+    icon: 'home' | 'catalog' | 'history' | 'settings';
+  }> = [
+    { path: '/', label: 'Home', icon: 'home' },
+    { path: '/catalog', label: 'Catalog', icon: 'catalog' },
+    { path: '/history', label: 'History', icon: 'history' },
+    { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
 
   const authPaths = new Set(['/login', '/register']);
@@ -169,14 +174,16 @@
           <li class="flex-1">
             <a
               href="#{item.path}"
+              aria-label={item.label}
               aria-current={isCurrentPage(item.path) ? 'page' : undefined}
-              class="flex min-h-11 w-full items-center justify-center px-2 py-3 text-sm font-medium {isCurrentPage(
+              title={item.label}
+              class="flex min-h-11 min-w-11 w-full items-center justify-center px-2 py-3 {isCurrentPage(
                 item.path,
               )
                 ? 'text-primary'
                 : 'text-muted'}"
             >
-              {item.label}
+              <ActionIcon name={item.icon} size={22} />
             </a>
           </li>
         {/each}

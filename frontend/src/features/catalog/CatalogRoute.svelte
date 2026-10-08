@@ -8,6 +8,7 @@
     type Exercise,
     type MuscleGroup,
   } from '../../api';
+  import ActionIcon from '../../components/ActionIcon.svelte';
   import { describeFailure, isAbortError } from '../../lib/failures';
   import { isUnauthorizedError, session } from '../auth/session.svelte';
   import ExerciseForm from './ExerciseForm.svelte';
@@ -307,13 +308,14 @@
             {#if !entry.is_default}
               <button
                 type="button"
-                class="min-h-11 shrink-0 rounded-md border border-edge px-3 text-sm font-medium"
+                class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-edge px-3"
                 aria-label={`Edit ${entry.name}`}
+                title={`Edit ${entry.name}`}
                 onclick={() => {
                   editing = entry;
                 }}
               >
-                Edit<span class="sr-only">{entry.name}</span>
+                <ActionIcon name="edit" />
               </button>
             {/if}
           </div>

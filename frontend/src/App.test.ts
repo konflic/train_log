@@ -182,16 +182,14 @@ describe('route guarding', () => {
 });
 
 describe('authenticated application shell', () => {
-  it('renders the bottom navigation with text-label anchors', async () => {
+  it('renders icon-only bottom navigation with named anchors', async () => {
     await renderAuthenticated();
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     const links = nav.querySelectorAll('a');
-    expect(Array.from(links).map((link) => link.textContent?.trim())).toEqual([
-      'Home',
-      'Catalog',
-      'History',
-      'Settings',
-    ]);
+    expect(
+      Array.from(links).map((link) => link.getAttribute('aria-label')),
+    ).toEqual(['Home', 'Catalog', 'History', 'Settings']);
+    expect(nav.querySelectorAll('svg')).toHaveLength(4);
     // Keyboard-visible navigation: real anchors with hash targets.
     for (const link of links) {
       expect(link.getAttribute('href')).toMatch(/^#\//);
