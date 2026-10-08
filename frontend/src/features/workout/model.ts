@@ -15,6 +15,7 @@ import { calculateSetLoad } from '../../lib/numbers';
 export const MAX_EXERCISES = 25;
 export const MAX_SETS_PER_EXERCISE = 20;
 export const MAX_SETS = 250;
+const CATALOG_ISSUE_PREFIX = 'catalog-issue.';
 
 export function strictInteger(raw: string): number | null {
   if (!/^-?(?:0|[1-9]\d*)$/.test(raw)) return null;
@@ -28,6 +29,17 @@ export function snapshotFor(exercise: Exercise): LoadSnapshot {
     bodyweight_percent: exercise.bodyweight_percent,
     side_count: exercise.side_count,
   };
+}
+
+export function catalogIssueKey(exerciseId: string): string {
+  return `${CATALOG_ISSUE_PREFIX}${exerciseId}`;
+}
+
+export function catalogIssue(
+  content: EditableWorkoutContent,
+  exerciseId: string,
+): string | null {
+  return content.raw_fields[catalogIssueKey(exerciseId)] ?? null;
 }
 
 export function contentFromDetail(
@@ -84,6 +96,124 @@ export function draftFromDetail(
     acknowledged_change_number: 0,
     created_at: now,
     updated_at: now,
+  };
+}
+
+export function copyDraftToNewWorkout(
+  source: WorkoutDraft,
+  catalog: ReadonlyMap<string, Exercise | null>,
+  startedAt: string,
+): WorkoutDraft {
+  const detail: WorkoutDetail = {
+    id: source.workout_id,
+    name: source.content.name,
+    started_at: source.started_at,
+    ended_at: source.content.ended_at,
+    notes: source.content.notes,
+    bodyweight_kg: source.content.bodyweight_kg,
+    revision: source.base_revision,
+    last_save_id: null,
+    exercises: source.content.exercises.map((exercise, orderIndex) => {
+      const snapshot =
+        source.content.recorded_load_snapshots[exercise.id] ??
+        source.content.provisional_load_snapshots[exercise.id];
+      if (!snapshot) throw new Error('Exercise load settings are unavailable.');
+      return {
+        ...exercise,
+        order_index: orderIndex,
+        ...snapshot,
+        sets: exercise.sets.map((set, setIndex) => ({
+          ...set,
+          set_index: setIndex,
+        })),
+        previous_performance: null,
+      };
+    }),
+  };
+  const draft = copiedDraft(source.account_id, detail, catalog, startedAt);
+  draft.content.bodyweight_kg = source.content.bodyweight_kg;
+  const bodyweightRaw = source.content.raw_fields['workout.bodyweight_kg'];
+  if (bodyweightRaw !== undefined)
+    draft.content.raw_fields['workout.bodyweight_kg'] = bodyweightRaw;
+  for (const [
+    exerciseIndex,
+    sourceExercise,
+  ] of source.content.exercises.entries()) {
+    const copiedExercise = draft.content.exercises[exerciseIndex];
+    for (const [setIndex, sourceSet] of sourceExercise.sets.entries()) {
+      const copiedSet = copiedExercise.sets[setIndex];
+      for (const field of ['reps', 'weight_kg', 'bw_percent_override', 'rpe']) {
+        const raw = source.content.raw_fields[fieldKey(sourceSet.id, field)];
+        if (raw !== undefined)
+          draft.content.raw_fields[fieldKey(copiedSet.id, field)] = raw;
+      }
+    }
+  }
+  return draft;
+}
+
+function copiedDraft(
+  accountId: string,
+  source: WorkoutDetail,
+  catalog: ReadonlyMap<string, Exercise | null>,
+  startedAt: string,
+): WorkoutDraft {
+  const workoutId = createDraftId();
+  const draftId = createDraftId();
+  const provisional: Record<string, LoadSnapshot> = {};
+  const rawFields: Record<string, string> = {};
+  const exercises = source.exercises.map((sourceExercise) => {
+    const id = createDraftId();
+    const current = catalog.get(sourceExercise.catalog_id) ?? null;
+    const snapshot = current
+      ? snapshotFor(current)
+      : {
+          load_type: sourceExercise.load_type,
+          bodyweight_percent: sourceExercise.bodyweight_percent,
+          side_count: sourceExercise.side_count,
+        };
+    provisional[id] = snapshot;
+    if (!current) {
+      rawFields[catalogIssueKey(id)] =
+        'This exercise is no longer available. Remove or replace it.';
+    }
+    const sets = sourceExercise.sets.map((set) => ({
+      id: createDraftId(),
+      reps: set.reps,
+      weight_kg: set.weight_kg,
+      bw_percent_override: set.bw_percent_override,
+      rpe: set.rpe,
+      side: set.side,
+      done: set.done,
+    }));
+    return {
+      id,
+      catalog_id: sourceExercise.catalog_id,
+      notes: sourceExercise.notes,
+      sets: sets.length > 0 ? sets : [emptySet(snapshot)],
+    };
+  });
+  return {
+    account_id: accountId,
+    workout_id: workoutId,
+    draft_id: draftId,
+    base_detail_id: workoutId,
+    base_revision: 0,
+    started_at: startedAt,
+    content: {
+      name: source.name,
+      notes: source.notes,
+      bodyweight_kg: source.bodyweight_kg,
+      ended_at: null,
+      exercises,
+      raw_fields: rawFields,
+      recorded_load_snapshots: {},
+      provisional_load_snapshots: provisional,
+    },
+    change_number: 1,
+    acknowledged_change_number: 0,
+    created_at: startedAt,
+    updated_at: startedAt,
   };
 }
 
@@ -240,6 +370,10 @@ export function setError(
 }
 
 export function contentError(content: EditableWorkoutContent): string | null {
+  const catalogIssueEntry = Object.entries(content.raw_fields).find(([key]) =>
+    key.startsWith(CATALOG_ISSUE_PREFIX),
+  );
+  if (catalogIssueEntry) return catalogIssueEntry[1];
   const bodyweightRaw = content.raw_fields['workout.bodyweight_kg'];
   if (
     bodyweightRaw !== undefined &&

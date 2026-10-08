@@ -15,7 +15,7 @@ when a second client or a measured deployment need justifies them.
 - Log a workout quickly on a phone.
 - Preserve a local draft through refreshes and temporary network loss.
 - Save and finish a workout without losing edits or duplicating sets.
-- Repeat the last workout and see basic progress before building elaborate charts.
+- See completed-set totals and previous performance before elaborate charts.
 - Keep implementation explicit: synchronous functions, direct SQL, and few dependencies.
 
 ### Permanent Product Rules
@@ -34,7 +34,7 @@ when a second client or a measured deployment need justifies them.
 - Timed holds, distance/cardio, assisted movements, and arbitrary exercise metrics.
 - PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
 - Automatic conflict merging, background sync, and starting new workouts offline.
-- Templates, a native app, and advanced charts.
+- Repeat-last, templates, a native app, and advanced charts.
 - Admin impersonation, password viewing/reset, workout inspection/editing, and
   default-catalog management. The Phase 1 admin panel is limited to account
   operations.
@@ -469,7 +469,7 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 There are no separate workout metadata PATCH, finish, per-exercise, or per-set
 write endpoints. A workout's graph is small enough to save together.
 
-### Creation and repeat-last
+### Creation
 
 - Creation requires a client-generated UUID and `started_at`; the server
   records bodyweight from the profile and returns revision 0. Creation requires
@@ -477,15 +477,6 @@ write endpoints. A workout's graph is small enough to save together.
 - Fingerprint the validated create request using a canonical representation.
   Retrying the same ID and fingerprint returns the existing owned workout;
   different content for that ID returns 409. Never return another user's row.
-- **Repeat last** reads the most recent finished workout using the history API,
-  creates a new empty workout, and copies its exercises and completed sets into
-  the local draft with new UUIDs and `done=false`. Copy reps, weights, side, and
-  percentage overrides; reset RPE. Use current bodyweight/catalog defaults for
-  the new workout. If there are no completed sets for an exercise, add one blank
-  draft set. No dedicated clone/repeat write endpoint is necessary.
-- The copied graph is persisted by the same bulk-save as manual edits. Filter
-  or flag source exercises that are no longer available; never silently save
-  invalid references.
 
 ### Bulk-save contract
 
@@ -623,7 +614,7 @@ This bounded receipt avoids a generic idempotency service or operation log.
 ## 8. Frontend Screens
 
 1. **Auth**: register/login; reauthenticate without losing a draft.
-2. **Home**: resume active workout, quick start, repeat last, recent history,
+2. **Home**: resume active workout, quick start, recent history,
    and a basic weekly summary.
 3. **Active workout**: large integer inputs, add/remove/reorder exercises and
    sets locally, mark done, show provisional totals, save, and finish.
@@ -698,7 +689,7 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - Dark/light theme switch in Settings, remembered locally across reloads.
   Fixed metric labels throughout; no configurable unit system.
 - Online creation, local workout editing, IndexedDB persistence, revision checks,
-  bounded save receipts, atomic save-and-finish, history, deletion, repeat-last.
+  bounded save receipts, atomic save-and-finish, history, and deletion.
 - Record bodyweight/load inputs from day one. Show basic completed-set totals,
   summary stats, and inline previous performance.
 - Minimal audited administration: securely bootstrap admins, search users,
@@ -719,7 +710,8 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 6. Submit another user's workout, nested IDs, or catalog entry: no partial write
    or unauthorized read. UUID guessing does not bypass ownership checks.
 7. Reorder/remove/add exercises and sets under unique indexes successfully.
-8. Repeat a workout: copied draft sets do not affect historical totals or PRs.
+8. Recover a conflict through use-server, copy-to-new, or explicit replacement
+   without silently merging or prematurely deleting local work.
 9. Reject fractional, string, boolean, and out-of-range integer inputs; verify
    floor arithmetic, negative deltas, unknown loads, and the calculation examples.
 10. Change profile/catalog defaults: existing recorded workouts retain their totals.
@@ -739,6 +731,8 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 
 ### Phase 2 - Progression and usability
 
+- Repeat the latest finished workout through the existing create/save paths,
+  using independent graph IDs and unfinished copied sets.
 - Per-exercise last-performance read and local prefill; side-aware set/exercise
   deltas, simple progression views, and optional rest timer.
 - Edit finished workouts with the same save/revision protocol; no new per-set API.
@@ -830,7 +824,7 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - **Synchronous service owns its connection**: keeps the transaction on one
   thread without relying on FastAPI dependency scheduling.
 - **One graph write path**: metadata, exercises, sets, and finish share a single
-  atomic PUT. Repeat and prefill are local draft operations, not extra write APIs.
+  atomic PUT. Prefill is a local draft operation, not an extra write API.
 - **Revision + last-save receipt**: prevent stale overwrites and recover a lost
   response without building an operation log or automatic merge engine.
 - **Recorded inputs preserve history**: bodyweight and load settings belong to
@@ -839,8 +833,8 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   expiry, and logout; introduce native transport when the native client exists.
 - **Draft persistence before background sync**: keep recovery reliable while the
   app is open; define offline limits and surface conflicts rather than hiding them.
-- **Progress feedback early**: repeat-last, completed-set totals, and previous
-  performance matter before elaborate charts.
+- **Progress feedback early**: completed-set totals and previous performance
+  matter before elaborate charts.
 - **Svelte without speculative packages**: built-in reactivity, local fetch
   helpers, and a small IndexedDB wrapper; dependencies must remove actual work.
 - **Minimal, non-impersonating administration**: operational account controls

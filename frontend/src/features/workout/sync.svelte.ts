@@ -6,6 +6,7 @@ import {
   getWorkout,
   saveWorkout,
   type PublicUser,
+  type WorkoutDetail,
 } from '../../api';
 import {
   DraftStorageError,
@@ -40,6 +41,8 @@ interface WorkoutSyncOptions {
   now?: () => string;
 }
 
+export type RecoveryStatus = 'idle' | 'loading' | 'ready' | 'deleted' | 'error';
+
 const AUTOSAVE_DELAY_MS = 300;
 
 /** Foreground-only editor scheduling over the durable Stage 11 coordinator. */
@@ -48,6 +51,9 @@ export class WorkoutSyncController {
   message = $state<string | null>(null);
   locked = $state(false);
   finishPending = $state(false);
+  recoveryStatus = $state<RecoveryStatus>('idle');
+  serverCopy = $state<WorkoutDetail | null>(null);
+  recoveryReason = $state<string | null>(null);
 
   private readonly accountId: string;
   private readonly editor: LocalDraftEditor;
@@ -84,6 +90,14 @@ export class WorkoutSyncController {
       this.processing === null &&
       this.editor.status === 'saved' &&
       (this.status === 'synced' || this.status === 'locally_saved')
+    );
+  }
+
+  get canReplaceServer(): boolean {
+    return (
+      this.recoveryStatus === 'ready' &&
+      this.serverCopy?.ended_at === null &&
+      this.recoveryReason !== 'revision_exhausted'
     );
   }
 
@@ -154,6 +168,78 @@ export class WorkoutSyncController {
     }
     this.status = 'locally_saved';
     this.scheduleAutosave();
+  }
+
+  async loadRecovery(): Promise<void> {
+    if (this.recoveryStatus === 'loading') return;
+    this.recoveryStatus = 'loading';
+    try {
+      this.serverCopy = await this.coordinator.fetchServerCopy();
+      this.recoveryStatus = 'ready';
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.problem.status === 404) {
+        this.serverCopy = null;
+        this.recoveryStatus = 'deleted';
+        return;
+      }
+      this.message =
+        error instanceof Error ? error.message : 'Could not load server copy.';
+      this.recoveryStatus = 'error';
+    }
+  }
+
+  async useServerVersion(): Promise<void> {
+    try {
+      await this.coordinator.useServer();
+      const current = this.editor.current!;
+      const adopted = await this.operations.drafts.get(
+        this.accountId,
+        current.workout_id,
+        current.draft_id,
+      );
+      if (!adopted) throw new Error('The server recovery copy is unavailable.');
+      await this.editor.rebase(adopted);
+      this.serverCopy = null;
+      this.recoveryStatus = 'idle';
+      this.recoveryReason = null;
+      if (adopted.content.ended_at !== null) {
+        this.onFinished();
+        return;
+      }
+      this.locked = false;
+      this.status = 'synced';
+      this.message = null;
+    } catch (error) {
+      this.pause(error);
+    }
+  }
+
+  async replaceServerVersion(): Promise<void> {
+    if (!this.canReplaceServer) return;
+    try {
+      await this.coordinator.prepareReplacement();
+      await this.coordinator.sendSave();
+      await this.adoptAcknowledgement();
+      this.locked = false;
+      this.status = 'synced';
+      this.message = null;
+      this.serverCopy = null;
+      this.recoveryStatus = 'idle';
+      this.recoveryReason = null;
+    } catch (error) {
+      this.pause(error);
+      if (this.status === 'conflict') void this.loadRecovery();
+    }
+  }
+
+  async discardDeletedWorkout(): Promise<void> {
+    const draft = this.editor.current!;
+    await this.operations.discardPending(this.accountId, draft.draft_id);
+    await this.operations.drafts.delete(
+      this.accountId,
+      draft.workout_id,
+      draft.draft_id,
+    );
   }
 
   saveNow(): Promise<void> {
@@ -374,6 +460,9 @@ export class WorkoutSyncController {
   private pause(error: unknown): void {
     this.message =
       error instanceof Error ? error.message : 'Synchronization paused.';
+    if (error instanceof ApiRequestError) {
+      this.recoveryReason = error.problem.code;
+    }
     if (this.coordinator.recovery === 'authentication_required') {
       this.status = 'authentication_required';
       return;
@@ -384,6 +473,7 @@ export class WorkoutSyncController {
     ) {
       this.locked = true;
       this.status = 'conflict';
+      this.recoveryStatus = 'idle';
       return;
     }
     if (this.coordinator.recovery === 'correction_required') {
@@ -409,6 +499,7 @@ export class WorkoutSyncController {
       ) {
         this.locked = true;
         this.status = 'conflict';
+        this.recoveryStatus = 'idle';
         return;
       }
       if (

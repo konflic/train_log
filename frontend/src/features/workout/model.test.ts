@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { EditableWorkoutContent, LoadSnapshot } from '../../db';
+import type {
+  EditableWorkoutContent,
+  LoadSnapshot,
+  WorkoutDraft,
+} from '../../db';
 import {
+  catalogIssue,
+  copyDraftToNewWorkout,
+  fieldKey,
   contentError,
   provisionalTotal,
   setError,
@@ -97,5 +104,138 @@ describe('workout editor model', () => {
     invalid.raw_fields['workout.bodyweight_kg'] = '80';
     invalid.bodyweight_kg = 80;
     expect(contentError(invalid)).toBeNull();
+  });
+
+  it('copies conflict work to independent IDs without resetting local values', () => {
+    const source: WorkoutDraft = {
+      account_id: 'account',
+      workout_id: 'old-workout',
+      draft_id: 'old-draft',
+      base_detail_id: 'old-workout',
+      base_revision: 2,
+      started_at: '2026-10-08T10:00:00Z',
+      content: content(),
+      change_number: 3,
+      acknowledged_change_number: 1,
+      created_at: '2026-10-08T10:00:00Z',
+      updated_at: '2026-10-08T10:10:00Z',
+    };
+    source.content.name = 'Local copy';
+    source.content.notes = 'Keep this';
+    source.content.exercises[0].notes = 'Exercise note';
+    source.content.exercises[0].sets[0].rpe = 9;
+    source.content.raw_fields['set.weight_kg'] = '50';
+
+    const copied = copyDraftToNewWorkout(
+      source,
+      new Map([
+        [
+          'catalog',
+          {
+            id: 'catalog',
+            name: 'Current exercise',
+            muscle_group: 'chest',
+            equipment: 'barbell',
+            load_type: 'single_weight',
+            bodyweight_percent: null,
+            side_count: 1,
+            is_default: true,
+          } as const,
+        ],
+      ]),
+      '2026-10-08T11:00:00Z',
+    );
+
+    expect(copied.workout_id).not.toBe(source.workout_id);
+    expect(copied.draft_id).not.toBe(source.draft_id);
+    expect(copied.content.exercises[0].id).not.toBe(
+      source.content.exercises[0].id,
+    );
+    expect(copied.content.exercises[0].sets[0]).toMatchObject({
+      reps: 8,
+      weight_kg: 50,
+      rpe: 9,
+      done: true,
+    });
+    expect(copied.content.exercises[0].sets[0].id).not.toBe(
+      source.content.exercises[0].sets[0].id,
+    );
+    expect(
+      copied.content.raw_fields[
+        fieldKey(copied.content.exercises[0].sets[0].id, 'weight_kg')
+      ],
+    ).toBe('50');
+    expect(copied.content).toMatchObject({
+      name: 'Local copy',
+      notes: 'Keep this',
+      bodyweight_kg: 80,
+      ended_at: null,
+    });
+  });
+
+  it('keeps an unavailable copied exercise visible and blocks its save', () => {
+    const source: WorkoutDraft = {
+      account_id: 'account',
+      workout_id: 'old-workout',
+      draft_id: 'old-draft',
+      base_detail_id: 'old-workout',
+      base_revision: 2,
+      started_at: '2026-10-08T10:00:00Z',
+      content: content(),
+      change_number: 3,
+      acknowledged_change_number: 1,
+      created_at: '2026-10-08T10:00:00Z',
+      updated_at: '2026-10-08T10:10:00Z',
+    };
+    const copied = copyDraftToNewWorkout(
+      source,
+      new Map([['catalog', null]]),
+      '2026-10-08T11:00:00Z',
+    );
+
+    expect(copied.content.exercises).toHaveLength(1);
+    expect(
+      catalogIssue(copied.content, copied.content.exercises[0].id),
+    ).toMatch(/no longer available/);
+    expect(contentError(copied.content)).toMatch(/no longer available/);
+  });
+
+  it('revalidates copied values against current catalog load settings', () => {
+    const source: WorkoutDraft = {
+      account_id: 'account',
+      workout_id: 'old-workout',
+      draft_id: 'old-draft',
+      base_detail_id: 'old-workout',
+      base_revision: 2,
+      started_at: '2026-10-08T10:00:00Z',
+      content: content(),
+      change_number: 3,
+      acknowledged_change_number: 1,
+      created_at: '2026-10-08T10:00:00Z',
+      updated_at: '2026-10-08T10:10:00Z',
+    };
+    const copied = copyDraftToNewWorkout(
+      source,
+      new Map([
+        [
+          'catalog',
+          {
+            id: 'catalog',
+            name: 'Changed exercise',
+            muscle_group: 'chest',
+            equipment: 'bodyweight',
+            load_type: 'bodyweight',
+            bodyweight_percent: 100,
+            side_count: 1,
+            is_default: false,
+          } as const,
+        ],
+      ]),
+      '2026-10-08T11:00:00Z',
+    );
+
+    expect(contentError(copied.content)).toBe(
+      'Bodyweight exercises do not use an external weight.',
+    );
   });
 });

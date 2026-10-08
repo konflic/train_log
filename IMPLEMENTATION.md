@@ -77,7 +77,14 @@ remain out of scope.
   on conflicts, and retires a finished draft only in the matching local
   acknowledgement transaction. Gate G12b passed locally on 2026-10-08 with 186
   unit and 33 Chromium tests; detailed evidence is in the Stage 12b contract.
-- **Next:** Stage 12c repeat-last and explicit conflict recovery choices.
+- **Stage 12c delivery:** implemented directly on `master` at the user's request.
+  The centered current-workout action resolves to the active session or quick
+  start, and explicit use-server, copy-to-new, replacement, deleted, and finished
+  recovery paths retain local work until the chosen action succeeds. Repeat-last
+  is deferred beyond the MVP. Gate G12c/G12 passed locally on 2026-10-08 with 192
+  unit, 38 Chromium, and 643 backend tests; detailed evidence is in the Stage 12c
+  contract.
+- **Next:** Stage 13 history/detail and remaining Settings work.
 
 ## Documentation ownership
 
@@ -140,7 +147,7 @@ development or production database.
 | C. Frontend | **9** | Frontend foundation, theme, router, API and integer helpers | Component/unit tests against backend | 2 |
 | C | **10** | Auth, read-only Home, Catalog | Component + Playwright | 2.5 |
 | C | **11a-11c** | IndexedDB drafts, durable pending work, recovery/account handling | Three coordinator/browser gates | 3 |
-| C | **12a-12c** | Editor, synchronization/finish, repeat/conflict recovery | Three editor/E2E gates | 4 |
+| C | **12a-12c** | Editor, synchronization/finish, conflict recovery | Three editor/E2E gates | 4 |
 | C | **13** | History/detail, Settings, logout | Playwright | 2.5 |
 | D. Operations | **14** | Minimal admin API/panel, account controls, audit | Admin API/security + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence and production deployment smoke | Full CI + deployment/restart checks | 4 |
@@ -273,7 +280,7 @@ G10 passed locally on 2026-10-08.
 history, weekly summary), and Catalog (search, filters, default/custom labels,
 create/edit own). Do not expose unfinished workout action buttons. Draft-safe
 reauthentication arrives in 12b; quick start, resume, picker integration, and
-repeat-last arrive in 12a-12c. Follow mobile touch, label, keyboard, and integer
+conflict recovery arrive in 12a-12c. Follow mobile touch, label, keyboard, and integer
 input rules.
 
 **Verification:** component tests plus Playwright covering register, login,
@@ -350,7 +357,7 @@ tests. Covers checks 1-4 and 11 at the persistence layer.
 **Purpose:** the core logging experience. (`PLAN.md` sections 6 and 8)
 
 **Scope:** `features/workout`, editor/set/exercise components, sync status, and
-repeat-last draft copying. Implement 12a -> 12b -> 12c with a visible
+conflict-copy recovery. Implement 12a -> 12b -> 12c with a visible
 demonstration at each gate.
 
 #### Stage 12a - Locally persistent editor
@@ -386,18 +393,20 @@ acknowledgement; never delete a draft early.
 **Gate G12b:** save/finish/recovery work through the editor; no stale response
 overwrites input and no unacknowledged finish discards a draft.
 
-#### Stage 12c - Repeat-last and conflict recovery UI
+#### Stage 12c - Conflict recovery UI
+
+**Status:** implemented directly on `master` at the user's request; Gate G12c/G12
+passed locally on 2026-10-08.
 
 **Detailed plan:**
-[`implementation/stage-12c-repeat-conflict-recovery.md`](implementation/stage-12c-repeat-conflict-recovery.md).
+[`implementation/stage-12c-conflict-recovery.md`](implementation/stage-12c-conflict-recovery.md).
 
-Repeat the last finished workout through durable create and normal bulk-save,
-using new IDs, copied values, `done=false`, reset RPE, current defaults, and
-visible handling for unavailable/incompatible entries. Expose each explicit
-conflict recovery choice without discarding the source draft prematurely.
+Expose use-server, copy-local-to-new, explicit replacement, and deleted/finished
+conflict choices without discarding the source draft prematurely. Copy-to-new
+uses independent graph IDs and visibly handles unavailable/incompatible entries.
 
-**Gate G12c / G12:** logging, repeat-last, and conflict recovery work end-to-end.
-Covers checks 1-5, 8, and editor reauthentication from check 11.
+**Gate G12c / G12:** logging and conflict recovery work end-to-end. Covers checks
+1-5, 8, and editor reauthentication from check 11.
 
 > **Remote deployment checkpoint:** after Stage 12, the complete core app may be
 > tested with invited QA/beta users on a dedicated human-QA database separate
@@ -515,7 +524,7 @@ as they merge.
 | 5 | Finish accepts unsynced sets atomically | 6c, 12b, 15 |
 | 6 | Foreign workout/nested/catalog IDs never leak or partially write | 3-6c, 15 |
 | 7 | Reorder/remove/add works under unique indexes | 6b, 12a, 15 |
-| 8 | Repeat copies do not affect historical totals/PRs | 8a-8b, 12c, 15 |
+| 8 | Explicit conflict choices preserve work without silent merging | 11c, 12c, 15 |
 | 9 | Strict integers, floor arithmetic, negative/unknown cases | 2, 4-7, 8a-8b, 9, 15 |
 | 10 | Profile/catalog edits do not rewrite recorded totals | 5, 8a-8b, 13, 15 |
 | 11 | Session expiry/account switch/delete recovery preserves or explicitly discards drafts | 3, 7, 11b-11c, 12b, 13, 15 |

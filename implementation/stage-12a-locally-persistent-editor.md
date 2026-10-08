@@ -34,7 +34,7 @@ References:
   through Stage 11a's explicit selection rules. Offline available-shell recovery
   opens an existing draft with its stored snapshots/raw input in local-only mode;
   it must not depend on a successful detail or `/auth/me` request.
-- Keep network save, reconnect automation, reauthentication, finish, repeat-last,
+- Keep network save, reconnect automation, reauthentication, finish,
   and conflict recovery controls for Stages 12b-12c.
 - No new dependency is expected.
 
@@ -142,7 +142,7 @@ npm run test:e2e
 ## Non-goals
 
 - Server PUT/autosave, finish, reconnect, or synchronization-state controls.
-- Repeat-last and polished conflict/deletion recovery.
+- Polished conflict/deletion recovery.
 - Drag-and-drop, templates, timers, fractional units, or advanced charts.
 - Editing finished workouts.
 

@@ -31,6 +31,7 @@
     '/catalog': CatalogRoute,
     '/history': HistoryRoute,
     '/settings': SettingsRoute,
+    '/workouts/current': WorkoutRoute,
     '/workouts/:id': WorkoutRoute,
     '/login': LoginRoute,
     '/register': RegisterRoute,
@@ -41,10 +42,11 @@
   const navItems: ReadonlyArray<{
     path: string;
     label: string;
-    icon: 'home' | 'catalog' | 'history' | 'settings';
+    icon: 'home' | 'catalog' | 'history' | 'settings' | 'workout';
   }> = [
     { path: '/', label: 'Home', icon: 'home' },
     { path: '/catalog', label: 'Catalog', icon: 'catalog' },
+    { path: '/workouts/current', label: 'Current workout', icon: 'workout' },
     { path: '/history', label: 'History', icon: 'history' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
@@ -61,6 +63,7 @@
 
   function isCurrentPage(path: string): boolean {
     const current = router.location;
+    if (path === '/workouts/current') return current.startsWith('/workouts/');
     return path === '/'
       ? current === '/'
       : current === path || current.startsWith(`${path}/`);

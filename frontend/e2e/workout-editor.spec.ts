@@ -14,6 +14,7 @@ async function workoutDetail(
       window as unknown as {
         __basefitApi: {
           getWorkout(value: string): Promise<{
+            name: string | null;
             ended_at: string | null;
             revision: number;
             exercises: Array<{
@@ -27,7 +28,40 @@ async function workoutDetail(
   }, id);
 }
 
+async function deleteWorkout(
+  page: import('@playwright/test').Page,
+  id: string,
+  revision: number,
+): Promise<void> {
+  await page.evaluate(
+    async ({ workoutId, expectedRevision }) => {
+      const hook = (
+        window as unknown as {
+          __basefitApi: {
+            deleteWorkout(value: string, revision: number): Promise<void>;
+          };
+        }
+      ).__basefitApi;
+      await hook.deleteWorkout(workoutId, expectedRevision);
+    },
+    { workoutId: id, expectedRevision: revision },
+  );
+}
+
 test.describe('synchronized workout editor', () => {
+  test('opens the sole current workout from the center navigation action', async ({
+    page,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Current workout' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const workoutId = workoutIdOf(page.url());
+
+    await page.getByRole('link', { name: 'Home' }).click();
+    await page.getByRole('link', { name: 'Current workout' }).click();
+    await expect(page).toHaveURL(new RegExp(`#/workouts/${workoutId}`));
+  });
+
   test('quick-starts, autosaves a graph, and recovers its acknowledged draft', async ({
     page,
   }) => {
@@ -50,9 +84,15 @@ test.describe('synchronized workout editor', () => {
     await page.getByRole('button', { name: 'Add exercise' }).click();
     await page.getByRole('button', { name: 'Bench Press' }).click();
     const exercise = page.getByLabel('Bench Press editor');
+    await expect(exercise.getByLabel('RPE')).toHaveCount(0);
     await exercise.getByLabel('Reps').fill('8');
     await exercise.getByLabel('Weight (kg)').fill('50');
-    await exercise.getByLabel('Completed').check();
+    await exercise
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
+    await expect(
+      exercise.getByRole('button', { name: 'Mark set 1 incomplete' }),
+    ).toHaveAttribute('aria-pressed', 'true');
     await expect(
       page.getByText('400 kg·reps from 1 completed set.'),
     ).toBeVisible();
@@ -88,7 +128,9 @@ test.describe('synchronized workout editor', () => {
     const exercise = page.getByLabel('Bench Press editor');
     await exercise.getByLabel('Reps').fill('6');
     await exercise.getByLabel('Weight (kg)').fill('70');
-    await exercise.getByLabel('Completed').check();
+    await exercise
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
 
     const finish = page.getByRole('button', { name: 'Finish workout' });
     await expect(finish).toBeEnabled();
@@ -169,7 +211,17 @@ test.describe('synchronized workout editor', () => {
       if (loseFirstResponse) {
         loseFirstResponse = false;
         await route.fetch();
-        await route.abort('failed');
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({
+            type: 'about:blank',
+            title: 'Service Unavailable',
+            status: 503,
+            detail: 'Response was lost after commit',
+            code: 'retryable',
+          }),
+        });
       } else {
         await route.continue();
       }
@@ -325,6 +377,18 @@ test.describe('synchronized workout editor', () => {
     await expect(second.getByLabel('Workout name')).toHaveValue(
       'Second tab retained',
     );
+    await expect(
+      second.getByRole('heading', { name: 'Choose what to keep', level: 2 }),
+    ).toBeVisible();
+    await expect(second.getByLabel('Choose what to keep')).toContainText(
+      'Server copy: revision 1, active.',
+    );
+    second.once('dialog', (dialog) => dialog.accept());
+    await second.getByRole('button', { name: 'Use server version' }).click();
+    await expect(second.getByRole('status')).toContainText(
+      'Synced at revision 1',
+    );
+    await expect(second.getByLabel('Workout name')).toHaveValue('First tab');
 
     await second.reload();
     await expect(
@@ -333,5 +397,142 @@ test.describe('synchronized workout editor', () => {
     await expect(
       second.getByRole('button', { name: 'Recover this draft' }),
     ).toHaveCount(2);
+  });
+
+  test('explicitly replaces the fresh server revision after a two-tab conflict', async ({
+    page,
+    context,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const workoutId = workoutIdOf(page.url());
+    const second = await context.newPage();
+    await gotoApp(second);
+    await second.goto(`/#/workouts/${workoutId}`);
+    await second.getByRole('button', { name: 'Recover this draft' }).click();
+
+    await page.getByLabel('Workout name').fill('Server winner');
+    await expect(page.getByRole('status')).toContainText('revision 1');
+    await second.getByLabel('Workout name').fill('Local replacement');
+    await expect(second.getByRole('status')).toContainText('Conflict');
+    await expect(
+      second.getByRole('button', { name: 'Replace server version' }),
+    ).toBeVisible();
+    second.once('dialog', (dialog) => dialog.accept());
+    await second
+      .getByRole('button', { name: 'Replace server version' })
+      .click();
+
+    await expect(second.getByRole('status')).toContainText('revision 2');
+    expect((await workoutDetail(second, workoutId)).name).toBe(
+      'Local replacement',
+    );
+  });
+
+  test('copies retained local conflict work to an independently identified workout', async ({
+    page,
+    context,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const sourceId = workoutIdOf(page.url());
+    const second = await context.newPage();
+    await gotoApp(second);
+    await second.goto(`/#/workouts/${sourceId}`);
+    await second.getByRole('button', { name: 'Recover this draft' }).click();
+
+    await page.getByLabel('Workout name').fill('Server version');
+    await expect(page.getByRole('status')).toContainText('revision 1');
+    await second.getByLabel('Workout name').fill('Preserved local version');
+    await second.getByLabel('Notes').fill('Keep local notes');
+    await expect(second.getByRole('status')).toContainText('Conflict');
+    await second
+      .getByRole('button', { name: 'Copy local work to new workout' })
+      .click();
+
+    await expect(second).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const copiedId = workoutIdOf(second.url());
+    expect(copiedId).not.toBe(sourceId);
+    await expect(second.getByRole('status')).toContainText('revision 1');
+    await expect(second.getByLabel('Workout name')).toHaveValue(
+      'Preserved local version',
+    );
+    await expect(second.getByLabel('Notes')).toHaveValue('Keep local notes');
+    expect((await workoutDetail(second, sourceId)).name).toBe('Server version');
+    expect((await workoutDetail(second, copiedId)).name).toBe(
+      'Preserved local version',
+    );
+  });
+
+  test('offers only copy or discard after the server workout is deleted', async ({
+    page,
+    context,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const workoutId = workoutIdOf(page.url());
+    const second = await context.newPage();
+    await gotoApp(second);
+    await second.goto(`/#/workouts/${workoutId}`);
+    await second.getByRole('button', { name: 'Recover this draft' }).click();
+
+    await deleteWorkout(page, workoutId, 0);
+    await second.getByLabel('Workout name').fill('Deleted server copy');
+    await expect(second.getByRole('status')).toContainText('Conflict');
+    await expect(second.getByLabel('Choose what to keep')).toContainText(
+      'The server workout was deleted.',
+    );
+    await expect(
+      second.getByRole('button', { name: 'Copy local work to new workout' }),
+    ).toBeVisible();
+    await expect(
+      second.getByRole('button', { name: 'Discard local copy' }),
+    ).toBeVisible();
+    await expect(
+      second.getByRole('button', { name: 'Use server version' }),
+    ).toHaveCount(0);
+    await expect(
+      second.getByRole('button', { name: 'Replace server version' }),
+    ).toHaveCount(0);
+
+    second.once('dialog', (dialog) => dialog.accept());
+    await second.getByRole('button', { name: 'Discard local copy' }).click();
+    await expect(second).toHaveURL(/#\/$/);
+  });
+
+  test('does not offer replacement when another tab finished the workout', async ({
+    page,
+    context,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const workoutId = workoutIdOf(page.url());
+    const second = await context.newPage();
+    await gotoApp(second);
+    await second.goto(`/#/workouts/${workoutId}`);
+    await second.getByRole('button', { name: 'Recover this draft' }).click();
+
+    await page.getByRole('button', { name: 'Finish workout' }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Finished workout', level: 1 }),
+    ).toBeVisible();
+    await second.getByLabel('Workout name').fill('Retained after finish');
+    await expect(second.getByRole('status')).toContainText('Conflict');
+    await expect(second.getByLabel('Choose what to keep')).toContainText(
+      'Server copy: revision 1, finished.',
+    );
+    await expect(
+      second.getByRole('button', { name: 'Use server version' }),
+    ).toBeVisible();
+    await expect(
+      second.getByRole('button', { name: 'Copy local work to new workout' }),
+    ).toBeVisible();
+    await expect(
+      second.getByRole('button', { name: 'Replace server version' }),
+    ).toHaveCount(0);
   });
 });

@@ -16,7 +16,8 @@
       | 'remove'
       | 'save'
       | 'settings'
-      | 'up';
+      | 'up'
+      | 'workout';
     size?: number;
   } = $props();
 </script>
@@ -62,5 +63,7 @@
     />
   {:else if name === 'up'}
     <path d="m6 15 6-6 6 6" />
+  {:else if name === 'workout'}
+    <path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10" />
   {/if}
 </svg>

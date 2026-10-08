@@ -12,6 +12,8 @@
     MAX_EXERCISES,
     MAX_SETS,
     MAX_SETS_PER_EXERCISE,
+    catalogIssue,
+    catalogIssueKey,
     emptySet,
     fieldKey,
     provisionalTotal,
@@ -36,6 +38,7 @@
     onOpenPicker: () => void;
   } = $props();
   let pickerOpen = $state(false);
+  let pickerTarget = $state<string | null>(null);
 
   const content = $derived(editor.current!.content);
   const total = $derived(provisionalTotal(content));
@@ -91,6 +94,38 @@
     });
     next.provisional_load_snapshots[id] = snapshot;
     pickerOpen = false;
+    pickerTarget = null;
+    edit(next);
+  }
+
+  function replaceExercise(exerciseId: string, entry: Exercise): void {
+    const next = structuredClone(content);
+    const index = next.exercises.findIndex((item) => item.id === exerciseId);
+    if (index < 0) return;
+    const previous = next.exercises[index];
+    const id = createDraftId();
+    const sets = previous.sets.map((set) => {
+      const setId = createDraftId();
+      for (const field of ['reps', 'weight_kg', 'bw_percent_override', 'rpe']) {
+        const previousKey = fieldKey(set.id, field);
+        const raw = next.raw_fields[previousKey];
+        if (raw !== undefined) next.raw_fields[fieldKey(setId, field)] = raw;
+        delete next.raw_fields[previousKey];
+      }
+      return { ...set, id: setId };
+    });
+    next.exercises[index] = {
+      ...previous,
+      id,
+      catalog_id: entry.id,
+      sets,
+    };
+    delete next.recorded_load_snapshots[exerciseId];
+    delete next.provisional_load_snapshots[exerciseId];
+    delete next.raw_fields[catalogIssueKey(exerciseId)];
+    next.provisional_load_snapshots[id] = snapshotFor(entry);
+    pickerOpen = false;
+    pickerTarget = null;
     edit(next);
   }
 
@@ -99,6 +134,7 @@
     next.exercises = next.exercises.filter((item) => item.id !== exerciseId);
     delete next.recorded_load_snapshots[exerciseId];
     delete next.provisional_load_snapshots[exerciseId];
+    delete next.raw_fields[catalogIssueKey(exerciseId)];
     edit(next);
   }
 
@@ -162,8 +198,9 @@
     );
   }
 
-  function choosePicker(): void {
+  function choosePicker(exerciseId: string | null = null): void {
     if (locked) return;
+    pickerTarget = exerciseId;
     pickerOpen = true;
     onOpenPicker();
   }
@@ -328,14 +365,16 @@
     aria-label="Add exercise"
     title="Add exercise"
     disabled={locked || content.exercises.length >= MAX_EXERCISES}
-    onclick={choosePicker}><ActionIcon name="add" /></button
+    onclick={() => choosePicker()}><ActionIcon name="add" /></button
   >
   {#if pickerOpen}
     <section
       class="rounded-lg border border-edge bg-surface p-4"
       aria-label="Exercise picker"
     >
-      <h2 class="font-semibold">Choose an exercise</h2>
+      <h2 class="font-semibold">
+        {pickerTarget === null ? 'Choose an exercise' : 'Choose a replacement'}
+      </h2>
       {#if catalogMessage}<p role="alert" class="mt-2 text-danger">
           {catalogMessage}
         </p>{/if}
@@ -349,7 +388,10 @@
                 type="button"
                 class="min-h-11 w-full rounded-md border border-edge px-3 text-left"
                 disabled={locked}
-                onclick={() => addExercise(entry)}>{entry.name}</button
+                onclick={() =>
+                  pickerTarget === null
+                    ? addExercise(entry)
+                    : replaceExercise(pickerTarget, entry)}>{entry.name}</button
               >
             </li>
           {/each}
@@ -360,7 +402,10 @@
         class="mt-3 min-h-11 rounded-md border border-edge px-3"
         aria-label="Close exercise picker"
         title="Close exercise picker"
-        onclick={() => (pickerOpen = false)}><ActionIcon name="close" /></button
+        onclick={() => {
+          pickerOpen = false;
+          pickerTarget = null;
+        }}><ActionIcon name="close" /></button
       >
     </section>
   {/if}
@@ -410,6 +455,17 @@
           ><ActionIcon name="down" /></button
         >
       </div>
+      {#if catalogIssue(content, exercise.id)}
+        <p role="alert" class="mt-2 text-sm text-danger">
+          {catalogIssue(content, exercise.id)}
+        </p>
+        <button
+          type="button"
+          class="mt-2 min-h-11 rounded-md border border-edge px-3"
+          disabled={locked}
+          onclick={() => choosePicker(exercise.id)}>Replace exercise</button
+        >
+      {/if}
       <label
         class="mt-3 block text-sm font-medium"
         for={`exercise-notes-${exercise.id}`}>Exercise notes</label
@@ -487,24 +543,6 @@
                       )}
                   /></label
                 >{/if}
-              <label class="text-sm font-medium"
-                >RPE<input
-                  inputmode="numeric"
-                  step="1"
-                  disabled={locked}
-                  class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-                  value={rawValue(content, set, 'rpe')}
-                  oninput={(event) =>
-                    edit(
-                      updateInteger(
-                        content,
-                        set.id,
-                        'rpe',
-                        event.currentTarget.value,
-                      ),
-                    )}
-                /></label
-              >
               {#if snapshot?.load_type === 'split_weight' && snapshot.side_count === 1}<label
                   class="text-sm font-medium"
                   >Side<select
@@ -521,18 +559,6 @@
                   ></label
                 >{/if}
             </div>
-            <label
-              class="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium"
-              ><input
-                type="checkbox"
-                checked={set.done}
-                disabled={locked}
-                onchange={(event) =>
-                  updateSet(exercise.id, set.id, {
-                    done: event.currentTarget.checked,
-                  })}
-              /> Completed</label
-            >
             {#if error}<p
                 id={`set-error-${set.id}`}
                 role="alert"
@@ -541,6 +567,20 @@
                 {error}
               </p>{/if}
             <div class="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                aria-pressed={set.done}
+                aria-label={set.done
+                  ? `Mark set ${setIndex + 1} incomplete`
+                  : `Mark set ${setIndex + 1} completed`}
+                class="min-h-11 rounded-md border px-3 font-medium {set.done
+                  ? 'border-primary bg-primary text-primary-content'
+                  : 'border-edge'}"
+                disabled={locked}
+                onclick={() =>
+                  updateSet(exercise.id, set.id, { done: !set.done })}
+                >{set.done ? 'Completed' : 'Mark completed'}</button
+              >
               <button
                 type="button"
                 class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"

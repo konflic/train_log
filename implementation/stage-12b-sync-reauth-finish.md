@@ -158,7 +158,7 @@ npm run test:e2e
 
 ## Non-goals
 
-- Conflict recovery actions and repeat-last; both belong to Stage 12c.
+- Conflict recovery actions belong to Stage 12c; repeat-last is deferred.
 - Automatic merge, background sync, unload saves, or cold offline app startup.
 - Editing/reopening a finished workout.
 - Deleting a server workout from the editor.
@@ -211,4 +211,4 @@ Implemented on `stage-12b-sync-reauth-finish` from merged Stage 12a.
   retained two-tab conflict drafts, and no overflow on a short shell page.
 - Gate G12b covers the editor portions of acceptance checks 1-5 and the
   reauthentication portion of check 11. Stage 12c is the next marker and owns
-  repeat-last plus the explicit use-server/copy/replace conflict UI.
+  the explicit use-server/copy/replace conflict UI.

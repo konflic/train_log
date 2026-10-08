@@ -109,7 +109,7 @@ test.describe('read-only home', () => {
 
     await expect(
       page.getByRole('link', { name: 'Quick start workout' }),
-    ).toHaveAttribute('href', '#/workouts/new');
+    ).toHaveAttribute('href', '#/workouts/current');
   });
 });
 

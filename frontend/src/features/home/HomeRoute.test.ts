@@ -139,7 +139,7 @@ describe('HomeRoute reads', () => {
       screen
         .getByRole('link', { name: 'Quick start workout' })
         .getAttribute('href'),
-    ).toBe('#/workouts/new');
+    ).toBe('#/workouts/current');
   });
 
   it('isolates a failed panel and retries it without touching the others', async () => {
