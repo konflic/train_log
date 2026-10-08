@@ -1,13 +1,18 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchCurrentUserMock } = vi.hoisted(() => ({
+const { fetchCurrentUserMock, loginMock } = vi.hoisted(() => ({
   fetchCurrentUserMock: vi.fn(),
+  loginMock: vi.fn(),
 }));
 
 vi.mock('../../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api')>();
-  return { ...actual, fetchCurrentUser: fetchCurrentUserMock };
+  return {
+    ...actual,
+    fetchCurrentUser: fetchCurrentUserMock,
+    login: loginMock,
+  };
 });
 
 import { ApiNetworkError, ApiRequestError, type PublicUser } from '../../api';
@@ -60,6 +65,7 @@ function deferred<T>(): {
 
 beforeEach(() => {
   fetchCurrentUserMock.mockReset();
+  loginMock.mockReset();
 });
 
 describe('SessionState.initialize', () => {
@@ -134,17 +140,38 @@ describe('SessionState.initialize', () => {
   });
 });
 
-describe('SessionState.adoptUser and noteUnauthorized', () => {
-  it('adopts the user returned by an explicit login', () => {
+describe('SessionState.authenticate and noteUnauthorized', () => {
+  it('adopts the user returned by the newest explicit login', async () => {
     const session = new SessionState();
-    session.adoptUser(makeUser({ id: 'adopted' }));
+    loginMock.mockResolvedValue(makeUser({ id: 'adopted' }));
+    await expect(
+      session.authenticate({ email: 'a@b.test', password: 'password' }),
+    ).resolves.toBe(true);
     expect(session.status).toBe('authenticated');
     expect(session.user?.id).toBe('adopted');
   });
 
+  it('ignores a login response after its route cancels the request', async () => {
+    const session = new SessionState();
+    const pending = deferred<PublicUser>();
+    loginMock.mockReturnValueOnce(pending.promise);
+
+    const run = session.authenticate({
+      email: 'old@account.test',
+      password: 'password',
+    });
+    session.cancelPendingAuthentication();
+    pending.resolve(makeUser({ id: 'stale-login' }));
+
+    await expect(run).resolves.toBe(false);
+    expect(session.user).toBeNull();
+    expect(session.status).toBe('loading');
+  });
+
   it('invalidates the signed-in state on a protected-read 401', async () => {
     const session = new SessionState();
-    session.adoptUser(makeUser());
+    loginMock.mockResolvedValueOnce(makeUser());
+    await session.authenticate({ email: 'a@b.test', password: 'password' });
     session.noteUnauthorized();
     expect(session.status).toBe('anonymous');
     expect(session.user).toBeNull();

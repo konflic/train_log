@@ -180,8 +180,10 @@
     if (entry.bodyweight_percent !== null) {
       parts.push(`${entry.bodyweight_percent}% bodyweight`);
     }
-    if (entry.side_count === 2) {
-      parts.push('2 sides');
+    if (entry.load_type === 'split_weight') {
+      parts.push(
+        entry.side_count === 1 ? 'one side per set' : 'both sides per set',
+      );
     }
     return parts.join(' · ');
   }

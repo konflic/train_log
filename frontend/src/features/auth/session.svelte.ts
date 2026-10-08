@@ -7,7 +7,13 @@
  * by frontend code; the session cookie stays HttpOnly.
  */
 
-import { ApiRequestError, type PublicUser, fetchCurrentUser } from '../../api';
+import {
+  ApiRequestError,
+  type LoginInput,
+  type PublicUser,
+  fetchCurrentUser,
+  login,
+} from '../../api';
 
 export type SessionStatus = 'loading' | 'anonymous' | 'authenticated' | 'error';
 
@@ -43,15 +49,24 @@ export class SessionState {
     }
   }
 
-  /**
-   * Adopt the user returned by an explicit login. The caller performs the
-   * API request and navigation; adopting bumps the generation so any older
-   * in-flight read can no longer write state.
-   */
-  adoptUser(user: PublicUser): void {
-    this.generation += 1;
+  /** Authenticate only if this request is still the newest session action. */
+  async authenticate(
+    input: LoginInput,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const generation = ++this.generation;
+    const user = await login(input, signal);
+    if (generation !== this.generation) {
+      return false;
+    }
     this.user = user;
     this.status = 'authenticated';
+    return true;
+  }
+
+  /** Invalidate an auth request owned by a route that is being left. */
+  cancelPendingAuthentication(): void {
+    this.generation += 1;
   }
 
   /** A 401 from a protected read invalidates the signed-in state. */

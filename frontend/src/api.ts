@@ -56,6 +56,12 @@ export interface LoginInput {
   password: string;
 }
 
+export interface UpdateProfileInput {
+  display_name?: string | null;
+  bodyweight_default_kg?: number | null;
+  utc_offset_minutes?: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;
@@ -123,6 +129,38 @@ export interface WorkoutListQuery {
   status?: WorkoutStatus;
   date_from?: string;
   date_to?: string;
+}
+
+export interface WorkoutCreateInput {
+  id: string;
+  started_at: string;
+}
+
+export interface SaveSetInput {
+  id: string;
+  reps: number | null;
+  weight_kg: number | null;
+  bw_percent_override: number | null;
+  rpe: number | null;
+  side: SetSide;
+  done: boolean;
+}
+
+export interface SaveExerciseInput {
+  id: string;
+  catalog_id: string;
+  notes: string | null;
+  sets: SaveSetInput[];
+}
+
+export interface SaveWorkoutInput {
+  revision: number;
+  save_id: string;
+  name: string | null;
+  notes: string | null;
+  bodyweight_kg: number | null;
+  ended_at: string | null;
+  exercises: SaveExerciseInput[];
 }
 
 /** Reported integer values for one compared set; `null` means unknown. */
@@ -265,7 +303,7 @@ export class ApiNetworkError extends Error {
 }
 
 const API_BASE = '/api/v1';
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 interface EndpointOptions {
   query?: URLSearchParams;
@@ -490,6 +528,14 @@ export function fetchCurrentUser(signal?: AbortSignal): Promise<PublicUser> {
   return sendJson<PublicUser>('GET', '/auth/me', { signal });
 }
 
+/** PATCH /auth/me: update only the supplied public profile fields. */
+export function updateCurrentUser(
+  input: UpdateProfileInput,
+  signal?: AbortSignal,
+): Promise<PublicUser> {
+  return sendJson<PublicUser>('PATCH', '/auth/me', { body: input, signal });
+}
+
 // --- Exercise catalog ------------------------------------------------------
 
 /** GET /exercises: one bounded page of defaults plus the caller's customs. */
@@ -506,6 +552,18 @@ export function listExercises(
     ['equipment', query.equipment],
   ]);
   return sendJson<ExercisePage>('GET', '/exercises', { query: params, signal });
+}
+
+/** GET /exercises/{id}: one catalog entry visible to the caller. */
+export function getExercise(
+  exerciseId: string,
+  signal?: AbortSignal,
+): Promise<Exercise> {
+  return sendJson<Exercise>(
+    'GET',
+    `/exercises/${encodeURIComponent(exerciseId)}`,
+    { signal },
+  );
 }
 
 /** POST /exercises: create an owner-private custom entry. */
@@ -559,6 +617,51 @@ export function listWorkouts(
     ['date_to', query.date_to],
   ]);
   return sendJson<WorkoutPage>('GET', '/workouts', { query: params, signal });
+}
+
+/** POST /workouts: create an empty active workout with a client UUID. */
+export function createWorkout(
+  input: WorkoutCreateInput,
+  signal?: AbortSignal,
+): Promise<WorkoutDetail> {
+  return sendJson<WorkoutDetail>('POST', '/workouts', { body: input, signal });
+}
+
+/** GET /workouts/{id}: fetch the authoritative graph and receipt state. */
+export function getWorkout(
+  workoutId: string,
+  signal?: AbortSignal,
+): Promise<WorkoutDetail> {
+  return sendJson<WorkoutDetail>(
+    'GET',
+    `/workouts/${encodeURIComponent(workoutId)}`,
+    { signal },
+  );
+}
+
+/** PUT /workouts/{id}: atomically replace the complete writable graph. */
+export function saveWorkout(
+  workoutId: string,
+  input: SaveWorkoutInput,
+  signal?: AbortSignal,
+): Promise<WorkoutDetail> {
+  return sendJson<WorkoutDetail>(
+    'PUT',
+    `/workouts/${encodeURIComponent(workoutId)}`,
+    { body: input, signal },
+  );
+}
+
+/** DELETE /workouts/{id}?revision=N: exact-revision hard deletion. */
+export function deleteWorkout(
+  workoutId: string,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendNoContent('DELETE', `/workouts/${encodeURIComponent(workoutId)}`, {
+    query: listQuery([['revision', revision]]),
+    signal,
+  });
 }
 
 /** GET /stats/summary: bounded statistics for inclusive local-date bounds. */

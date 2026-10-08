@@ -76,6 +76,28 @@ def test_unknown_api_route_still_returns_problem_404(tmp_path: Path, migrated_db
         assert response.json()["code"] == "not_found"
 
 
+def test_static_catch_all_preserves_known_api_method_errors(
+    tmp_path: Path, migrated_db: Path
+) -> None:
+    static_dir = make_static_dir(tmp_path)
+    app = create_app(make_settings(str(static_dir), str(migrated_db)))
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/health",
+            headers={"Origin": "http://testserver", "Content-Type": "application/json"},
+        )
+        assert response.status_code == 405
+        assert response.headers["allow"] == "GET"
+        assert response.json()["code"] == "http_error"
+
+        unknown = client.post(
+            "/api/v1/does-not-exist",
+            headers={"Origin": "http://testserver", "Content-Type": "application/json"},
+        )
+        assert unknown.status_code == 404
+        assert unknown.json()["code"] == "not_found"
+
+
 def test_without_static_dir_the_root_is_not_served(migrated_db: Path) -> None:
     app = create_app(make_settings("", str(migrated_db)))
     with TestClient(app) as client:

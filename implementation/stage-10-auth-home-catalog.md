@@ -192,7 +192,7 @@ branch/PR as Stage 9 at the user's request).
   not sign in; no credential or token reaches frontend persistence; catalog
   deletion stays off the screen.
 - **Commands/results (local):** `npm run check` 0 errors/0 warnings;
-  `npm run lint` clean; `npm run test:unit` 146 passed across 13 files
+  `npm run lint` clean; `npm run test:unit` 148 passed across 13 files
   (session identity guards, auth forms incl. 401/409/429/network mapping and
   duplicate-submit prevention, week/offset calendar edges incl. pre-epoch and
   Sunday/Monday boundaries, Home panel isolation/retry/partial-volume labels,
@@ -218,4 +218,11 @@ branch/PR as Stage 9 at the user's request).
   layouts (44px targets, visible labels, `aria-current`, role=alert/status,
   autocomplete attributes); component and real-backend Playwright coverage is
   green locally (CI green pending on the PR).
-
+- **Post-review fixes (2026-10-08):** login requests are generation-guarded and
+  aborted when their route is left, so an obsolete response cannot restore an
+  older identity; split-weight side-count labels now match the backend contract
+  (`1` = one side per set, `2` = both sides per set). Container static serving
+  also preserves 405 responses for known API paths while unknown paths remain
+  404. Full verification passed: 643 backend tests, 148 frontend unit tests,
+  16 Playwright tests, production build, dependency audit, Docker build, and
+  public-API deployment smoke.

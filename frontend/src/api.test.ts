@@ -5,7 +5,9 @@ import {
   ApiRequestError,
   MALFORMED_RESPONSE_CODE,
   createExercise,
+  createWorkout,
   deleteExercise,
+  deleteWorkout,
   fetchCurrentUser,
   fetchStatsSummary,
   listExercises,
@@ -13,6 +15,8 @@ import {
   login,
   logout,
   registerUser,
+  saveWorkout,
+  updateCurrentUser,
   updateExercise,
 } from './api';
 
@@ -224,6 +228,45 @@ describe('mutating request headers', () => {
       load_type: 'single_weight',
     });
     expect(lastCall().url).toBe('/api/v1/exercises');
+  });
+
+  it('constructs profile and complete workout mutation requests', async () => {
+    respondWith(200, {});
+    await updateCurrentUser({ display_name: null, utc_offset_minutes: 180 });
+    expect(lastCall()).toMatchObject({
+      url: '/api/v1/auth/me',
+      init: { method: 'PATCH' },
+    });
+
+    await createWorkout({
+      id: '00000000-0000-4000-8000-000000000001',
+      started_at: '2026-10-08T10:00:00Z',
+    });
+    expect(lastCall()).toMatchObject({
+      url: '/api/v1/workouts',
+      init: { method: 'POST' },
+    });
+
+    await saveWorkout('workout/id', {
+      revision: 0,
+      save_id: '00000000-0000-4000-8000-000000000002',
+      name: null,
+      notes: null,
+      bodyweight_kg: null,
+      ended_at: null,
+      exercises: [],
+    });
+    expect(lastCall()).toMatchObject({
+      url: '/api/v1/workouts/workout%2Fid',
+      init: { method: 'PUT' },
+    });
+
+    fetchMock.mockResolvedValue(emptyResponse(204));
+    await deleteWorkout('workout/id', 7);
+    expect(lastCall()).toMatchObject({
+      url: '/api/v1/workouts/workout%2Fid?revision=7',
+      init: { method: 'DELETE' },
+    });
   });
 });
 

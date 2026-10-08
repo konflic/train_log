@@ -290,8 +290,8 @@
           bind:value={sideCount}
           disabled={loadType !== 'split_weight'}
         >
-          <option value={1}>1 (bilateral)</option>
-          <option value={2}>2 (per side)</option>
+          <option value={1}>1 (one side per set)</option>
+          <option value={2}>2 (both sides per set)</option>
         </select>
         {#if errors.fields.side_count !== undefined}
           <p class="mt-1 text-sm text-danger">{errors.fields.side_count}</p>

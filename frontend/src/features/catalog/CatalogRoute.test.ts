@@ -168,11 +168,13 @@ describe('CatalogRoute listing', () => {
     // Enum literals render through the local human-readable labels.
     expect(
       screen.getByText(
-        /Full body · Cable · Split weight \(per side\) · 2 sides/,
+        /Full body · Cable · Split weight \(per side\) · both sides per set/,
       ),
     ).toBeDefined();
     expect(
-      screen.getByText(/Arms · Dumbbell · Split weight \(per side\) · 2 sides/),
+      screen.getByText(
+        /Arms · Dumbbell · Split weight \(per side\) · both sides per set/,
+      ),
     ).toBeDefined();
     expect(
       screen.getByText(/Back · Bodyweight · Bodyweight · 100% bodyweight/),
