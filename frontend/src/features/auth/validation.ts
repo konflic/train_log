@@ -83,7 +83,3 @@ export function validateInitialWeight(value: string): string | null {
 export function validateAge(value: string): string | null {
   return validateRequiredWholeNumber(value, 'Age', MAX_AGE);
 }
-
-export function validateSex(value: string): string | null {
-  return value === 'male' || value === 'female' ? null : 'Sex is required';
-}

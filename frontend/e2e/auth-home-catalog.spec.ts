@@ -118,7 +118,6 @@ test.describe('read-only home', () => {
       page.getByRole('heading', { level: 1, name: 'Home' }),
     ).toBeVisible();
 
-    await expect(page.getByText(/No active workouts/)).toBeVisible();
     await expect(page.getByText(/No finished workouts yet/)).toBeVisible();
 
     const week = page.getByRole('region', { name: 'This week' });

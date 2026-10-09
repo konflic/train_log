@@ -11,7 +11,6 @@ import {
   validateInitialWeight,
   validatePassword,
   validateAge,
-  validateSex,
 } from './validation';
 
 describe('normalizeEmailInput', () => {
@@ -83,11 +82,5 @@ describe('metabolism profile validation', () => {
     expect(validateAge('31')).toBeNull();
     expect(validateAge('0')).toMatch(/whole positive/i);
     expect(validateAge(String(MAX_AGE + 1))).toMatch(/at most/i);
-  });
-
-  it('requires a binary sex selection', () => {
-    expect(validateSex('male')).toBeNull();
-    expect(validateSex('female')).toBeNull();
-    expect(validateSex('')).toMatch(/required/i);
   });
 });

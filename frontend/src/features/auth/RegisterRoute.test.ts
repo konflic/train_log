@@ -154,7 +154,6 @@ describe('RegisterRoute', () => {
       screen.getByText('Password must be at least 8 characters'),
     ).toBeDefined();
     expect(screen.getByText('Initial weight is required')).toBeDefined();
-    expect(screen.getByText('Sex is required')).toBeDefined();
     expect(screen.getByText('Age is required')).toBeDefined();
   });
 

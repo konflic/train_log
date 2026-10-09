@@ -109,14 +109,6 @@
       {themeMessage}
     </p>{/if}
 </section>
-<section class="mt-4 rounded-lg border border-edge bg-surface p-4">
-  <h2 class="text-lg font-semibold">Training</h2>
-  <a
-    href="#/training-plans"
-    class="mt-3 inline-flex min-h-11 items-center rounded-md border border-edge px-4"
-    >Manage training plans</a
-  >
-</section>
 <section
   class="mt-4 rounded-lg border border-edge bg-surface p-4"
   aria-labelledby="profile-heading"

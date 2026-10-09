@@ -11,7 +11,6 @@
     validateEmail,
     validateInitialWeight,
     validatePassword,
-    validateSex,
   } from './validation';
 
   const noErrors: FormFailure = { form: null, fields: {} };
@@ -20,7 +19,7 @@
   let password = $state('');
   let displayName = $state('');
   let initialWeight = $state('');
-  let sex = $state<'male' | 'female' | ''>('');
+  let sex = $state<'male' | 'female'>('male');
   let age = $state('');
   let submitting = $state(false);
   let registeredEmail = $state<string | null>(null);
@@ -61,10 +60,6 @@
     if (initialWeightError !== null) {
       fields.bodyweight_default_kg = initialWeightError;
     }
-    const sexError = validateSex(sex);
-    if (sexError !== null) {
-      fields.sex = sexError;
-    }
     const ageError = validateAge(age);
     if (ageError !== null) {
       fields.age = ageError;
@@ -74,7 +69,6 @@
       await focusAfterFailure();
       return;
     }
-    if (sex === '') return;
     submitting = true;
     const normalizedEmail = normalizeEmailInput(email);
     const trimmedName = displayName.trim();
@@ -264,12 +258,12 @@
           name="sex"
           class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
           bind:value={sex}
+          required
           aria-invalid={errors.fields.sex !== undefined}
           aria-describedby={errors.fields.sex !== undefined
             ? 'register-sex-error'
             : undefined}
         >
-          <option value="">Select sex</option>
           <option value="male">Male</option>
           <option value="female">Female</option>
         </select>

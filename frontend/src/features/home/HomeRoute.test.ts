@@ -83,12 +83,11 @@ beforeEach(() => {
 });
 
 describe('HomeRoute reads', () => {
-  it('issues the three bounded reads with profile-offset week bounds', async () => {
+  it('issues the two bounded reads with profile-offset week bounds', async () => {
     render(HomeRoute);
     await waitFor(() => expect(fetchStatsSummaryMock).toHaveBeenCalled());
 
     const calls = listWorkoutsMock.mock.calls.map((call) => call[0]);
-    expect(calls).toContainEqual({ status: 'active', page: 1, pageSize: 5 });
     expect(calls).toContainEqual({ status: 'finished', page: 1, pageSize: 5 });
 
     // Every read is abortable.
@@ -104,59 +103,56 @@ describe('HomeRoute reads', () => {
   });
 
   it('renders loading, then populated panels with relative times', async () => {
-    listWorkoutsMock.mockImplementation((query: { status: string }) =>
-      Promise.resolve({
-        items: [
-          {
-            id: query.status === 'active' ? 'w-active' : 'w-done',
-            name: query.status === 'active' ? 'Push day' : 'Leg day',
-            started_at: '2026-10-08T22:30:00Z',
-            ended_at: query.status === 'active' ? null : '2026-10-08T23:30:00Z',
-            bodyweight_kg: null,
-            revision: 0,
-          },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 5,
-      }),
-    );
+    listWorkoutsMock.mockResolvedValue({
+      items: [
+        {
+          id: 'w-done',
+          name: 'Leg day',
+          started_at: '2026-10-08T22:30:00Z',
+          ended_at: '2026-10-08T23:30:00Z',
+          bodyweight_kg: null,
+          revision: 0,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 5,
+    });
     render(HomeRoute);
     expect((await screen.findAllByRole('status')).length).toBeGreaterThan(0);
 
-    await waitFor(() => expect(screen.getByText('Push day')).toBeDefined());
-    expect(screen.getByText('Leg day')).toBeDefined();
-    expect(screen.getAllByText(/^Started \d+ hrs ago$/).length).toBe(2);
+    expect(await screen.findByText('Leg day')).toBeDefined();
+    expect(screen.getAllByText(/^Started \d+ hrs ago$/).length).toBe(1);
     expect(screen.getByText('Signed in as Ada')).toBeDefined();
   });
 
   it('renders empty states without a start-workout action', async () => {
     render(HomeRoute);
     await waitFor(() =>
-      expect(screen.getByText(/No active workouts/)).toBeDefined(),
+      expect(screen.getByText(/No finished workouts yet/)).toBeDefined(),
     );
     expect(screen.getByText(/No finished workouts yet/)).toBeDefined();
+    expect(
+      screen
+        .getByRole('link', { name: 'Manage training plans' })
+        .getAttribute('href'),
+    ).toBe('#/training-plans');
     expect(screen.queryByRole('link', { name: /start.*workout/i })).toBeNull();
   });
 
   it('isolates a failed panel and retries it without touching the others', async () => {
-    listWorkoutsMock.mockImplementation((query: { status: string }) =>
-      query.status === 'active'
-        ? Promise.reject(requestError(500, 'Server exploded'))
-        : Promise.resolve(emptyPage()),
-    );
+    listWorkoutsMock.mockRejectedValue(requestError(500, 'Server exploded'));
     render(HomeRoute);
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('Server exploded');
-    // The other panels still rendered their empty states.
-    expect(screen.getByText(/No finished workouts yet/)).toBeDefined();
+    // The weekly summary remains available.
     expect(screen.getByText(/Workouts/)).toBeDefined();
 
     listWorkoutsMock.mockResolvedValue(emptyPage());
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() =>
-      expect(screen.getByText(/No active workouts/)).toBeDefined(),
+      expect(screen.getByText(/No finished workouts yet/)).toBeDefined(),
     );
   });
 

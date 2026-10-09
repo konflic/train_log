@@ -1,6 +1,5 @@
 <script lang="ts">
   import { session } from '../auth/session.svelte';
-  import ActiveWorkoutsPanel from './ActiveWorkoutsPanel.svelte';
   import RecentHistoryPanel from './RecentHistoryPanel.svelte';
   import WeeklySummaryPanel from './WeeklySummaryPanel.svelte';
 
@@ -20,7 +19,22 @@
 {/if}
 
 <div class="mt-4 flex flex-col gap-4">
-  <ActiveWorkoutsPanel />
+  <section
+    class="rounded-lg border border-edge bg-surface p-4"
+    aria-labelledby="training-plans-heading"
+  >
+    <h2 id="training-plans-heading" class="text-lg font-semibold">
+      Training plans
+    </h2>
+    <p class="mt-1 text-sm text-muted">
+      Build reusable routines for your workouts.
+    </p>
+    <a
+      href="#/training-plans"
+      class="mt-3 inline-flex min-h-11 items-center rounded-md border border-edge px-4"
+      >Manage training plans</a
+    >
+  </section>
   <RecentHistoryPanel />
   <WeeklySummaryPanel {utcOffsetMinutes} />
 </div>
