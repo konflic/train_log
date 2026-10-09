@@ -119,6 +119,17 @@ git pull                       # or copy the new build context
 docker compose up -d --build   # entrypoint migrates before serving
 ```
 
+To replace the database while redeploying the configured remote host, run from
+this repository:
+
+```bash
+./redeploy.sh
+```
+
+It pulls `master`, removes the Compose volumes (including the SQLite database),
+and rebuilds the stack. Override `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_DIR`, or
+`SSH_KEY` only when deploying another host.
+
 Migrations are numbered, transactional, and refuse databases recorded by
 newer code, so a restart with the previous image after a failed upgrade is
 safe only if no newer migration ran. Back up before destructive schema
