@@ -168,7 +168,7 @@ def delete_exercise(entry_id: str, request: Request, user: CurrentUser) -> Respo
         )
     except EntryInUseError:
         raise ConflictError(
-            "This exercise is used by workout history and cannot be deleted",
+            "This exercise is used by a workout or training plan and cannot be deleted",
             code="entry_in_use",
         ) from None
     if not deleted:

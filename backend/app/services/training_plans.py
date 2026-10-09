@@ -27,10 +27,6 @@ class TrainingPlanCatalogError(Exception):
     """A plan references an unavailable catalog entry or invalid load target."""
 
 
-class TrainingPlanInUseError(Exception):
-    """A catalog relationship prevented deletion."""
-
-
 @dataclass(frozen=True, slots=True)
 class PlanSet:
     id: str

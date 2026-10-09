@@ -137,6 +137,14 @@
     if (activeSession.status === 'error') return 'Retry workout session check';
     return label;
   }
+
+  function retryActiveSession(event: MouseEvent, path: string): void {
+    if (path !== '/workouts/start' || activeSession.status !== 'error') return;
+    const accountId = session.user?.id;
+    if (!accountId) return;
+    event.preventDefault();
+    void activeSession.refresh(accountId);
+  }
 </script>
 
 <svelte:window
@@ -218,6 +226,7 @@
           <li class="flex-1">
             <a
               href="#{navPath(item.path)}"
+              onclick={(event) => retryActiveSession(event, item.path)}
               aria-label={navLabel(item.path, item.label)}
               aria-current={isCurrentPage(item.path) ? 'page' : undefined}
               title={navLabel(item.path, item.label)}

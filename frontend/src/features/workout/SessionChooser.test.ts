@@ -65,4 +65,18 @@ describe('SessionChooser', () => {
     expect(activeSession.workoutId).toBe('workout-1');
     expect(pushMock).toHaveBeenCalledWith('/workouts/workout-1?draft=draft-1');
   });
+
+  it('shows the active session instead of another start action', () => {
+    activeSession.setActive('workout-1');
+    render(SessionChooser);
+
+    expect(
+      screen
+        .getByRole('link', { name: 'Resume active session' })
+        .getAttribute('href'),
+    ).toBe('#/workouts/workout-1');
+    expect(
+      screen.queryByRole('button', { name: 'Freestyle session' }),
+    ).toBeNull();
+  });
 });
