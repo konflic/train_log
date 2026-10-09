@@ -57,7 +57,7 @@ class DuplicateNameError(Exception):
 
 
 class EntryInUseError(Exception):
-    """The entry is referenced by workout history and cannot be deleted."""
+    """The entry is referenced by stored workout or plan data."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,9 +290,9 @@ def update_custom_entry(
 def delete_custom_entry(database_path: str | Path, entry_id: str, *, owner_id: str) -> bool:
     """Delete the owner's custom entry; `False` when there was nothing to delete.
 
-    Referenced entries raise `EntryInUseError`: the `ON DELETE RESTRICT`
-    foreign key from `exercises.catalog_id` aborts the statement and the
-    transaction rolls back, so history always keeps its catalog reference.
+    Referenced entries raise `EntryInUseError`: an `ON DELETE RESTRICT`
+    foreign key aborts the statement and rolls the transaction back, preserving
+    workout history and reusable plans.
     """
     try:
         with connect(database_path) as conn, write_transaction(conn):

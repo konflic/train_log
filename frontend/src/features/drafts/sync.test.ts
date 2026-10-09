@@ -151,6 +151,12 @@ class MemoryStorage implements DraftStorage, DurableDraftStorage {
     this.saves.set(key, structuredClone(pending));
   }
 
+  async listCreates(accountId: string): Promise<PendingCreate[]> {
+    return Array.from(this.creates.values())
+      .filter((pending) => pending.account_id === accountId)
+      .map((pending) => structuredClone(pending));
+  }
+
   async getCreate(
     accountId: string,
     draftId: string,

@@ -143,6 +143,7 @@ interface DraftDatabaseSchema extends DBSchema {
 export interface DurableDraftStorage {
   putCreate(draft: WorkoutDraft, pending: PendingCreate): Promise<void>;
   putSave(pending: PendingSave): Promise<void>;
+  listCreates(accountId: string): Promise<PendingCreate[]>;
   getCreate(
     accountId: string,
     draftId: string,
@@ -282,6 +283,14 @@ class IndexedDbDraftStorage implements DraftStorage, DurableDraftStorage {
     }
     await store.put(pending);
     await transaction.done;
+  }
+
+  listCreates(accountId: string): Promise<PendingCreate[]> {
+    return this.database.getAllFromIndex(
+      PENDING_CREATE_STORE,
+      'by-account',
+      accountId,
+    );
   }
 
   getCreate(
@@ -818,9 +827,22 @@ function samePendingCreate(
     left.account_id === right.account_id &&
     left.draft_id === right.draft_id &&
     left.workout_id === right.workout_id &&
-    JSON.stringify(left.request) === JSON.stringify(right.request) &&
+    sameWorkoutCreateInput(left.request, right.request) &&
     left.prepared_change_number === right.prepared_change_number &&
     left.created_at === right.created_at
+  );
+}
+
+function sameWorkoutCreateInput(
+  left: WorkoutCreateInput,
+  right: WorkoutCreateInput,
+): boolean {
+  return (
+    left.id === right.id &&
+    left.started_at === right.started_at &&
+    left.session_type === right.session_type &&
+    left.source_plan_id === right.source_plan_id &&
+    left.source_plan_revision === right.source_plan_revision
   );
 }
 
@@ -1112,6 +1134,23 @@ export class PendingDraftRepository {
     } catch (error) {
       if (error instanceof MalformedDraftError) throw error;
       throw new DraftStorageError('Could not read the create request', {
+        cause: error,
+      });
+    }
+  }
+
+  async listCreates(accountId: string): Promise<PendingCreate[]> {
+    try {
+      const pendingCreates = await this.storage.listCreates(accountId);
+      return pendingCreates.map((pending) => {
+        if (!isPendingCreate(pending) || pending.account_id !== accountId) {
+          throw new MalformedDraftError();
+        }
+        return copyPending(pending);
+      });
+    } catch (error) {
+      if (error instanceof MalformedDraftError) throw error;
+      throw new DraftStorageError('Could not read create requests', {
         cause: error,
       });
     }

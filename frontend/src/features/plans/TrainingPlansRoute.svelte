@@ -12,6 +12,7 @@
     type TrainingPlan,
     type TrainingPlanContent,
     type TrainingPlanExerciseInput,
+    type TrainingPlanSetInput,
   } from '../../api';
   import { describeFailure } from '../../lib/failures';
   import { session } from '../auth/session.svelte';
@@ -26,6 +27,7 @@
     notes: null,
     exercises: [],
   });
+  let initialForm = $state<TrainingPlanContent | null>(null);
   let phase = $state<'loading' | 'list' | 'editing'>('loading');
   let busy = $state(false);
   let message = $state<string | null>(null);
@@ -80,12 +82,14 @@
   function beginCreate(): void {
     selected = null;
     form = { name: '', notes: null, exercises: [] };
+    initialForm = $state.snapshot(form);
     phase = 'editing';
   }
 
   function beginEdit(plan: TrainingPlan): void {
     selected = plan;
     form = inputFromPlan(plan);
+    initialForm = $state.snapshot(form);
     phase = 'editing';
   }
 
@@ -116,6 +120,22 @@
       : null;
   }
 
+  function setTargetSide(set: TrainingPlanSetInput, side: string): void {
+    set.side = side as TrainingPlanSetInput['side'];
+  }
+
+  function setSummary(set: TrainingPlanSetInput): string {
+    const targets = [
+      set.target_reps === null ? 'no reps target' : `${set.target_reps} reps`,
+      set.target_weight_kg === null ? null : `${set.target_weight_kg} kg`,
+      set.bw_percent_override === null
+        ? null
+        : `${set.bw_percent_override}% bodyweight`,
+      set.side === 'bilateral' ? null : set.side,
+    ].filter((target): target is string => target !== null);
+    return targets.join(', ');
+  }
+
   async function save(): Promise<void> {
     if (busy || form.name.trim() === '') return;
     busy = true;
@@ -136,12 +156,24 @@
       else plans.push(saved);
       selected = saved;
       form = inputFromPlan(saved);
+      initialForm = null;
       phase = 'list';
     } catch (error) {
       message = describeFailure(error);
     } finally {
       busy = false;
     }
+  }
+
+  function cancelEditing(): void {
+    if (
+      initialForm !== null &&
+      JSON.stringify($state.snapshot(form)) !== JSON.stringify(initialForm) &&
+      !window.confirm('Discard unsaved plan changes?')
+    )
+      return;
+    initialForm = null;
+    phase = 'list';
   }
 
   async function remove(plan: TrainingPlan): Promise<void> {
@@ -155,7 +187,8 @@
   }
 
   async function start(plan: TrainingPlan): Promise<void> {
-    if (busy || session.user === null) return;
+    if (busy || session.user === null || activeSession.workoutId !== null)
+      return;
     busy = true;
     message = null;
     try {
@@ -247,6 +280,33 @@
                     ))}
                 /></label
               >{/if}
+            {#if entry?.bodyweight_percent !== null && entry?.bodyweight_percent !== undefined}<label
+                class="text-sm"
+                >Bodyweight % override<input
+                  type="number"
+                  min="1"
+                  max="100"
+                  inputmode="numeric"
+                  value={set.bw_percent_override ?? ''}
+                  class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                  oninput={(event) =>
+                    (set.bw_percent_override = parseTarget(
+                      event.currentTarget.value,
+                    ))}
+                /></label
+              >{/if}
+            {#if entry?.load_type === 'split_weight' && entry.side_count === 1}<label
+                class="text-sm"
+                >Side<select
+                  class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                  value={set.side}
+                  onchange={(event) =>
+                    setTargetSide(set, event.currentTarget.value)}
+                  ><option value="left">Left</option><option value="right"
+                    >Right</option
+                  ></select
+                ></label
+              >{/if}
           </div>
           <button
             type="button"
@@ -287,7 +347,7 @@
       <button
         type="button"
         class="min-h-11 rounded-md border border-edge px-4"
-        onclick={() => (phase = 'list')}
+        onclick={cancelEditing}
       >
         Cancel
       </button>
@@ -301,15 +361,40 @@
     Create plan
   </button>
   {#if plans.length === 0}<p class="mt-4">No training plans yet.</p>{/if}
+  {#if activeSession.workoutId !== null}<p class="mt-4">
+      An active session is ready to resume.
+      <a
+        class="font-medium text-primary underline"
+        href={`#/workouts/${activeSession.workoutId}`}>Resume active session</a
+      >
+    </p>{/if}
   <ul class="mt-4 grid gap-3">
     {#each plans as plan (plan.id)}
       <li class="rounded-lg border border-edge bg-surface p-4">
         <h2 class="font-semibold">{plan.name}</h2>
         {#if plan.notes}<p class="mt-1 text-sm text-muted">{plan.notes}</p>{/if}
         <p class="mt-2 text-sm">{plan.exercises.length} exercises</p>
+        <details class="mt-2 text-sm">
+          <summary class="cursor-pointer font-medium">Preview targets</summary>
+          <ol class="mt-2 grid gap-2">
+            {#each plan.exercises as exercise (exercise.id)}
+              {@const entry = catalog.find(
+                (item) => item.id === exercise.catalog_id,
+              )}
+              <li>
+                <p>{entry?.name ?? 'Unavailable exercise'}</p>
+                <ul class="ml-4 list-disc">
+                  {#each exercise.sets as set (set.id)}
+                    <li>{setSummary(set)}</li>
+                  {/each}
+                </ul>
+              </li>
+            {/each}
+          </ol>
+        </details>
         <div class="mt-3 flex flex-wrap gap-2">
           <button
-            disabled={busy}
+            disabled={busy || activeSession.workoutId !== null}
             class="min-h-11 rounded-md bg-primary px-3 font-medium text-primary-content"
             onclick={() => void start(plan)}
           >
