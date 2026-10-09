@@ -31,7 +31,9 @@ when a second client or a measured deployment need justifies them.
   **whole kilograms**; fractional plate increments cannot be represented.
   If finer precision becomes necessary later, reconsider integer grams rather
   than introducing decimal or floating-point domain values.
-- Timed holds, distance/cardio, assisted movements, and arbitrary exercise metrics.
+- Timed holds, assisted movements, and arbitrary exercise metrics. Cardio is a
+  separately designed post-MVP extension; it is not part of the current
+  resistance-workout graph.
 - PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
 - Automatic conflict merging, background sync, and starting new workouts offline.
 - Repeat-last, a native app, and advanced charts.
@@ -241,6 +243,40 @@ For `split_weight`, `side_count=1` means one set represents one side, with
 `side_count=2`, one set covers both sides and `side=bilateral`. Other load types
 use `side_count=1` and `side=bilateral` in the MVP. Side-aware comparisons must
 not pair a left set with a right set.
+
+### Future cardio tracking type
+
+Cardio is not a `load_type`: `load_type` only describes how resistance weight is
+interpreted. Add cardio in a separately gated migration by introducing an
+exercise-level `tracking_kind` of `resistance|cardio`. Existing catalog and
+exercise rows become `resistance`; only resistance exercises use `load_type`,
+sets, bodyweight percentage, side count, and RPE.
+
+Each cardio catalog entry has a required `cardio_mode`:
+`walk|run|cycle|row|swim|elliptical|stair_climber|other`. A recorded cardio
+exercise snapshots that mode and has one or more ordered cardio intervals. An
+interval has these bounded, integer-only inputs:
+
+| Field | Unit | Required | Rules |
+|-------|------|----------|-------|
+| `duration_seconds` | seconds | yes | positive integer |
+| `distance_m` | metres | no | positive integer when known |
+| `average_heart_rate_bpm` | beats/minute | no | integer 20 through 300 when known |
+
+Do not store pace, speed, calories, VO2 estimates, elevation, generic machine
+levels, or heart-rate zones in the first cardio design. Pace/speed derive from
+duration and distance only when both are known. Calories depend on a chosen
+physiological model and must not be presented as a fact until that model,
+including its profile inputs and assumptions, is separately specified. Machine
+level and elevation are equipment-specific and need dedicated semantics rather
+than an unbounded metric bag.
+
+The future migration creates `cardio_intervals` keyed by `exercise_id`, with
+`interval_index` unique per exercise. A completed cardio exercise requires at
+least one interval; a resistance exercise cannot own cardio intervals, and a
+cardio exercise cannot own `sets`. The existing user bodyweight, sex, and age
+profile inputs may later support labeled metabolism estimates, but recording
+remains valid when old accounts have unknown profile values.
 
 ### Preserve historical inputs
 

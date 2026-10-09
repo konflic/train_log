@@ -6,9 +6,12 @@
   import { primeLoginAfterRegistration, session } from './session.svelte';
   import {
     normalizeEmailInput,
+    validateAge,
     validateDisplayName,
     validateEmail,
+    validateInitialWeight,
     validatePassword,
+    validateSex,
   } from './validation';
 
   const noErrors: FormFailure = { form: null, fields: {} };
@@ -16,6 +19,9 @@
   let email = $state('');
   let password = $state('');
   let displayName = $state('');
+  let initialWeight = $state('');
+  let sex = $state<'male' | 'female' | ''>('');
+  let age = $state('');
   let submitting = $state(false);
   let registeredEmail = $state<string | null>(null);
   let errors = $state<FormFailure>(noErrors);
@@ -51,11 +57,24 @@
     if (displayNameError !== null) {
       fields.display_name = displayNameError;
     }
+    const initialWeightError = validateInitialWeight(initialWeight);
+    if (initialWeightError !== null) {
+      fields.bodyweight_default_kg = initialWeightError;
+    }
+    const sexError = validateSex(sex);
+    if (sexError !== null) {
+      fields.sex = sexError;
+    }
+    const ageError = validateAge(age);
+    if (ageError !== null) {
+      fields.age = ageError;
+    }
     errors = { form: null, fields };
     if (Object.keys(fields).length > 0) {
       await focusAfterFailure();
       return;
     }
+    if (sex === '') return;
     submitting = true;
     const normalizedEmail = normalizeEmailInput(email);
     const trimmedName = displayName.trim();
@@ -65,6 +84,9 @@
         email: normalizedEmail,
         password,
         display_name: trimmedName === '' ? undefined : trimmedName,
+        bodyweight_default_kg: Number(initialWeight),
+        sex,
+        age: Number(age),
       });
       password = '';
       registeredEmail = normalizedEmail;
@@ -203,6 +225,81 @@
         {#if errors.fields.display_name !== undefined}
           <p id="register-display-name-error" class="mt-1 text-sm text-danger">
             {errors.fields.display_name}
+          </p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="register-initial-weight" class="block text-sm font-medium"
+          >Initial weight (kg)</label
+        >
+        <input
+          id="register-initial-weight"
+          name="bodyweight_default_kg"
+          type="number"
+          min="1"
+          step="1"
+          inputmode="numeric"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={initialWeight}
+          aria-invalid={errors.fields.bodyweight_default_kg !== undefined}
+          aria-describedby={errors.fields.bodyweight_default_kg !== undefined
+            ? 'register-initial-weight-error'
+            : undefined}
+        />
+        {#if errors.fields.bodyweight_default_kg !== undefined}
+          <p
+            id="register-initial-weight-error"
+            class="mt-1 text-sm text-danger"
+          >
+            {errors.fields.bodyweight_default_kg}
+          </p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="register-sex" class="block text-sm font-medium">Sex</label>
+        <select
+          id="register-sex"
+          name="sex"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={sex}
+          aria-invalid={errors.fields.sex !== undefined}
+          aria-describedby={errors.fields.sex !== undefined
+            ? 'register-sex-error'
+            : undefined}
+        >
+          <option value="">Select sex</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+        </select>
+        {#if errors.fields.sex !== undefined}
+          <p id="register-sex-error" class="mt-1 text-sm text-danger">
+            {errors.fields.sex}
+          </p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="register-age" class="block text-sm font-medium">Age</label>
+        <input
+          id="register-age"
+          name="age"
+          type="number"
+          min="1"
+          max="120"
+          step="1"
+          inputmode="numeric"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={age}
+          aria-invalid={errors.fields.age !== undefined}
+          aria-describedby={errors.fields.age !== undefined
+            ? 'register-age-error'
+            : undefined}
+        />
+        {#if errors.fields.age !== undefined}
+          <p id="register-age-error" class="mt-1 text-sm text-danger">
+            {errors.fields.age}
           </p>
         {/if}
       </div>

@@ -75,6 +75,8 @@ beforeEach(() => {
     email: 'user@example.test',
     display_name: 'Ada',
     bodyweight_default_kg: null,
+    sex: null,
+    age: null,
     utc_offset_minutes: OFFSET,
   };
   cleanup();

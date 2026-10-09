@@ -2,12 +2,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_DISPLAY_NAME_LENGTH,
+  MAX_AGE,
   MAX_EMAIL_LENGTH,
   MIN_PASSWORD_LENGTH,
   normalizeEmailInput,
   validateDisplayName,
   validateEmail,
+  validateInitialWeight,
   validatePassword,
+  validateAge,
+  validateSex,
 } from './validation';
 
 describe('normalizeEmailInput', () => {
@@ -68,5 +72,22 @@ describe('validateDisplayName', () => {
     expect(
       validateDisplayName('a'.repeat(MAX_DISPLAY_NAME_LENGTH + 1)),
     ).toMatch(/at most/i);
+  });
+});
+
+describe('metabolism profile validation', () => {
+  it('requires whole positive initial weights and ages within the supported range', () => {
+    expect(validateInitialWeight('75')).toBeNull();
+    expect(validateInitialWeight('')).toMatch(/required/i);
+    expect(validateInitialWeight('75.5')).toMatch(/whole/i);
+    expect(validateAge('31')).toBeNull();
+    expect(validateAge('0')).toMatch(/whole positive/i);
+    expect(validateAge(String(MAX_AGE + 1))).toMatch(/at most/i);
+  });
+
+  it('requires a binary sex selection', () => {
+    expect(validateSex('male')).toBeNull();
+    expect(validateSex('female')).toBeNull();
+    expect(validateSex('')).toMatch(/required/i);
   });
 });

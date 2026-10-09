@@ -81,11 +81,15 @@ def test_register_returns_explicit_public_profile(api_client: TestClient) -> Non
         "email",
         "display_name",
         "bodyweight_default_kg",
+        "sex",
+        "age",
         "utc_offset_minutes",
     }
     assert body["email"] == EMAIL
     assert body["display_name"] is None
     assert body["bodyweight_default_kg"] is None
+    assert body["sex"] is None
+    assert body["age"] is None
     assert body["utc_offset_minutes"] == 0
     # Registration does not log the user in.
     assert set_cookie_token(response) is None
@@ -96,6 +100,25 @@ def test_register_trims_display_name(api_client: TestClient) -> None:
     response = register(api_client, display_name="  Ada  ")
     assert response.status_code == 201
     assert response.json()["display_name"] == "Ada"
+
+
+def test_register_stores_metabolism_profile_inputs(api_client: TestClient) -> None:
+    response = register(
+        api_client,
+        bodyweight_default_kg=75,
+        sex="female",
+        age=31,
+    )
+    assert response.status_code == 201
+    assert response.json() | {"id": "ignored"} == {
+        "id": "ignored",
+        "email": EMAIL,
+        "display_name": None,
+        "bodyweight_default_kg": 75,
+        "sex": "female",
+        "age": 31,
+        "utc_offset_minutes": 0,
+    }
 
 
 def test_register_normalizes_email_before_storage(

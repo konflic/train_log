@@ -25,6 +25,8 @@ function makeUser(overrides: Partial<PublicUser> = {}): PublicUser {
     email: 'user@example.test',
     display_name: null,
     bodyweight_default_kg: null,
+    sex: null,
+    age: null,
     utc_offset_minutes: 0,
     ...overrides,
   };
@@ -60,6 +62,15 @@ describe('RegisterRoute', () => {
     await fireEvent.input(screen.getByLabelText(/Display name/), {
       target: { value: '  Ada  ' },
     });
+    await fireEvent.input(screen.getByLabelText('Initial weight (kg)'), {
+      target: { value: '75' },
+    });
+    await fireEvent.change(screen.getByLabelText('Sex'), {
+      target: { value: 'female' },
+    });
+    await fireEvent.input(screen.getByLabelText('Age'), {
+      target: { value: '31' },
+    });
     await fireEvent.submit(form());
 
     await waitFor(() =>
@@ -67,6 +78,9 @@ describe('RegisterRoute', () => {
         email: 'new@example.test',
         password: 'password123',
         display_name: 'Ada',
+        bodyweight_default_kg: 75,
+        sex: 'female',
+        age: 31,
       }),
     );
     // A successful registration does not imply a session.
@@ -103,12 +117,24 @@ describe('RegisterRoute', () => {
     await fireEvent.input(screen.getByLabelText(/Display name/), {
       target: { value: '   ' },
     });
+    await fireEvent.input(screen.getByLabelText('Initial weight (kg)'), {
+      target: { value: '75' },
+    });
+    await fireEvent.change(screen.getByLabelText('Sex'), {
+      target: { value: 'male' },
+    });
+    await fireEvent.input(screen.getByLabelText('Age'), {
+      target: { value: '31' },
+    });
     await fireEvent.submit(form());
     await waitFor(() =>
       expect(registerUserMock).toHaveBeenCalledWith({
         email: 'new@example.test',
         password: 'password123',
         display_name: undefined,
+        bodyweight_default_kg: 75,
+        sex: 'male',
+        age: 31,
       }),
     );
   });
@@ -127,6 +153,9 @@ describe('RegisterRoute', () => {
     expect(
       screen.getByText('Password must be at least 8 characters'),
     ).toBeDefined();
+    expect(screen.getByText('Initial weight is required')).toBeDefined();
+    expect(screen.getByText('Sex is required')).toBeDefined();
+    expect(screen.getByText('Age is required')).toBeDefined();
   });
 
   it('shows the duplicate-account conflict at form level', async () => {
@@ -148,6 +177,15 @@ describe('RegisterRoute', () => {
     });
     await fireEvent.input(screen.getByLabelText('Password'), {
       target: { value: 'password123' },
+    });
+    await fireEvent.input(screen.getByLabelText('Initial weight (kg)'), {
+      target: { value: '75' },
+    });
+    await fireEvent.change(screen.getByLabelText('Sex'), {
+      target: { value: 'female' },
+    });
+    await fireEvent.input(screen.getByLabelText('Age'), {
+      target: { value: '31' },
     });
     await fireEvent.submit(form());
     const alert = await screen.findByRole('alert');

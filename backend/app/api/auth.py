@@ -47,6 +47,8 @@ def _user_response(user: UserRecord) -> UserResponse:
         email=user.email,
         display_name=user.display_name,
         bodyweight_default_kg=user.bodyweight_default_kg,
+        sex=user.sex,
+        age=user.age,
         utc_offset_minutes=user.utc_offset_minutes,
     )
 
@@ -60,6 +62,9 @@ def register(payload: RegisterRequest, request: Request) -> UserResponse:
             email=payload.email,
             password_hash=hash_password(payload.password),
             display_name=payload.display_name,
+            bodyweight_default_kg=payload.bodyweight_default_kg,
+            sex=payload.sex,
+            age=payload.age,
         )
     except DuplicateEmailError:
         raise ConflictError(

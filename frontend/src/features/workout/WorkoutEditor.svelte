@@ -44,6 +44,8 @@
   let completionErrors = $state<Record<string, string>>({});
   let expandedExerciseId = $state<string | null>(null);
   let selectedNames = $state<Record<string, string>>({});
+  let draggingExerciseId = $state<string | null>(null);
+  let dropTargetExerciseId = $state<string | null>(null);
 
   const content = $derived(editor.current!.content);
   const total = $derived(provisionalTotal(content));
@@ -57,7 +59,12 @@
     content.exercises.filter((exercise) => exerciseProgress(exercise).complete),
   );
 
-  function edit(next: EditableWorkoutContent): void {
+  function saveLocally(next: EditableWorkoutContent): void {
+    if (sync) void sync.saveLocally(next);
+    else void editor.edit(next);
+  }
+
+  function syncChanges(next: EditableWorkoutContent): void {
     if (sync) void sync.commit(next);
     else void editor.edit(next);
   }
@@ -66,6 +73,7 @@
     exerciseId: string,
     setId: string,
     patch: Partial<SaveSetInput>,
+    synchronize = false,
   ): void {
     clearCompletionError(setId);
     const next = structuredClone(content);
@@ -73,7 +81,8 @@
     const set = exercise?.sets.find((item) => item.id === setId);
     if (!set) return;
     Object.assign(set, patch);
-    edit(next);
+    if (synchronize) syncChanges(next);
+    else saveLocally(next);
   }
 
   function clearCompletionError(setId: string): void {
@@ -89,7 +98,7 @@
     raw: string,
   ): void {
     clearCompletionError(setId);
-    edit(updateInteger(content, setId, field, raw));
+    saveLocally(updateInteger(content, setId, field, raw));
   }
 
   function completeSet(exerciseId: string, setId: string): void {
@@ -104,7 +113,7 @@
       return;
     }
     clearCompletionError(setId);
-    edit(next);
+    syncChanges(next);
   }
 
   function addExercise(entry: Exercise): void {
@@ -121,7 +130,7 @@
     next.provisional_load_snapshots[id] = snapshot;
     selectedNames = { ...selectedNames, [entry.id]: entry.name };
     expandedExerciseId = id;
-    edit(next);
+    syncChanges(next);
     onClosePicker();
   }
 
@@ -154,7 +163,7 @@
     next.provisional_load_snapshots[id] = snapshotFor(entry);
     selectedNames = { ...selectedNames, [entry.id]: entry.name };
     expandedExerciseId = id;
-    edit(next);
+    syncChanges(next);
     onClosePicker();
   }
 
@@ -164,7 +173,7 @@
     delete next.recorded_load_snapshots[exerciseId];
     delete next.provisional_load_snapshots[exerciseId];
     delete next.raw_fields[catalogIssueKey(exerciseId)];
-    edit(next);
+    syncChanges(next);
   }
 
   function confirmRemoveExercise(exercise: SaveExerciseInput): void {
@@ -181,7 +190,47 @@
       next.exercises[target],
       next.exercises[index],
     ];
-    edit(next);
+    syncChanges(next);
+  }
+
+  function startExerciseDrag(event: DragEvent, exerciseId: string): void {
+    if (locked) return;
+    draggingExerciseId = exerciseId;
+    event.dataTransfer?.setData('text/plain', exerciseId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function allowExerciseDrop(event: DragEvent, exerciseId: string): void {
+    if (!draggingExerciseId || draggingExerciseId === exerciseId) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropTargetExerciseId = exerciseId;
+  }
+
+  function dropExercise(event: DragEvent, targetId: string): void {
+    event.preventDefault();
+    const sourceId =
+      draggingExerciseId ?? event.dataTransfer?.getData('text/plain');
+    draggingExerciseId = null;
+    dropTargetExerciseId = null;
+    if (!sourceId || sourceId === targetId) return;
+
+    const next = structuredClone(content);
+    const sourceIndex = next.exercises.findIndex(
+      (exercise) => exercise.id === sourceId,
+    );
+    const targetIndex = next.exercises.findIndex(
+      (exercise) => exercise.id === targetId,
+    );
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [exercise] = next.exercises.splice(sourceIndex, 1);
+    next.exercises.splice(targetIndex, 0, exercise);
+    syncChanges(next);
+  }
+
+  function endExerciseDrag(): void {
+    draggingExerciseId = null;
+    dropTargetExerciseId = null;
   }
 
   function addSet(exercise: SaveExerciseInput): void {
@@ -196,7 +245,7 @@
     next.exercises
       .find((item) => item.id === exercise.id)
       ?.sets.push(emptySet(snapshot));
-    edit(next);
+    syncChanges(next);
   }
 
   function removeSet(exerciseId: string, setId: string): void {
@@ -211,7 +260,7 @@
     exercise.sets = exercise.sets.filter((item) => item.id !== setId);
     for (const field of ['reps', 'weight_kg', 'bw_percent_override', 'rpe'])
       delete next.raw_fields[fieldKey(setId, field)];
-    edit(next);
+    syncChanges(next);
   }
 
   function snapshotOf(exerciseId: string): LoadSnapshot | null {
@@ -289,23 +338,10 @@
   <div
     class="sticky top-0 z-10 rounded-lg border border-edge bg-surface p-3 shadow-sm"
   >
-    <p
-      id="workout-sync-status"
-      role="status"
-      class:text-sync-error={sync?.status === 'storage_error' ||
-        sync?.status === 'conflict' ||
-        sync?.status === 'correction_required' ||
-        sync?.status === 'error'}
-      class:text-sync-ok={sync?.status === 'synced'}
-      class:text-sync-pending={sync?.status === 'syncing' ||
-        sync?.status === 'finish_pending'}
-    >
-      {statusText()}
-    </p>
     {#if sync?.message}<p class="mt-1 text-sm text-muted">
         {sync.message}
       </p>{/if}
-    <div class="mt-2 flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-2">
       {#if sync?.status === 'storage_error' || sync?.status === 'offline' || sync?.status === 'finish_pending' || sync?.status === 'error' || (!sync && editor.status === 'failed')}
         <button
           id="workout-sync-retry-button"
@@ -330,6 +366,33 @@
           sync.status === 'correction_required'}
         onclick={() => void sync?.saveNow()}><ActionIcon name="save" /></button
       >
+      <span
+        id="workout-sync-status"
+        role="status"
+        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md"
+        class:text-sync-error={sync?.status === 'storage_error' ||
+          sync?.status === 'conflict' ||
+          sync?.status === 'correction_required' ||
+          sync?.status === 'error'}
+        class:text-sync-ok={sync?.status === 'synced'}
+        class:text-sync-pending={sync?.status === 'saving_local' ||
+          sync?.status === 'syncing' ||
+          sync?.status === 'finish_pending'}
+        class:text-muted={sync?.status === 'locally_saved' ||
+          sync?.status === 'offline' ||
+          sync?.status === 'authentication_required' ||
+          !sync}
+        aria-label={statusText()}
+        title={statusText()}
+      >
+        {#if sync?.status === 'synced'}
+          <ActionIcon name="finish" />
+        {:else if sync?.status === 'saving_local' || sync?.status === 'syncing'}
+          <ActionIcon name="refresh" />
+        {:else}
+          <ActionIcon name="save" />
+        {/if}
+      </span>
       <button
         id="workout-finish-button"
         class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
@@ -357,7 +420,7 @@
         disabled={locked}
         value={content.name ?? ''}
         oninput={(event) =>
-          edit({
+          saveLocally({
             ...structuredClone(content),
             name: event.currentTarget.value || null,
           })}
@@ -410,7 +473,11 @@
     <section
       id={`workout-exercise-${exercise.id}`}
       class="rounded-lg border border-edge bg-surface p-4"
+      class:border-primary={dropTargetExerciseId === exercise.id}
+      class:ring-2={dropTargetExerciseId === exercise.id}
       aria-label={`${exerciseName(exercise)} editor`}
+      ondragover={(event) => allowExerciseDrop(event, exercise.id)}
+      ondrop={(event) => dropExercise(event, exercise.id)}
     >
       <div class="flex items-start justify-between gap-2">
         <button
@@ -425,10 +492,7 @@
         >
           <h3 class="font-semibold">{exerciseName(exercise)}</h3>
           <p class="text-sm text-muted">
-            {progress.completedSets} of {progress.totalSets} sets completed ·
-            {snapshot?.load_type === 'bodyweight'
-              ? 'Bodyweight'
-              : 'Whole kilograms'}
+            {progress.completedSets} / {progress.totalSets}
           </p>
         </button>
         {#if expandedExerciseId === exercise.id}<div
@@ -465,9 +529,22 @@
               onclick={() => confirmRemoveExercise(exercise)}
               ><ActionIcon name="remove" /></button
             >
-          </div>{/if}
+          </div>{:else}
+          <button
+            id={`workout-exercise-drag-${exercise.id}`}
+            type="button"
+            draggable={!locked}
+            class="inline-flex min-h-11 min-w-11 shrink-0 cursor-grab items-center justify-center rounded-md border border-edge active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
+            disabled={locked}
+            aria-label={`Drag ${exerciseName(exercise)} to reorder`}
+            title={`Drag ${exerciseName(exercise)} to reorder`}
+            ondragstart={(event) => startExerciseDrag(event, exercise.id)}
+            ondragend={endExerciseDrag}><ActionIcon name="drag" /></button
+          >
+        {/if}
       </div>
       {#if expandedExerciseId === exercise.id}
+        {@const lastSet = exercise.sets.at(-1)}
         {#if catalogIssue(content, exercise.id)}
           <p role="alert" class="mt-2 text-sm text-danger">
             {catalogIssue(content, exercise.id)}
@@ -494,8 +571,8 @@
               <legend class="sr-only">Set {setIndex + 1}</legend>
               <div
                 class="grid gap-2 {snapshot?.load_type === 'bodyweight'
-                  ? 'grid-cols-[2rem_minmax(0,1fr)_auto]'
-                  : 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_auto]'}"
+                  ? 'grid-cols-[2rem_minmax(0,1fr)_2.75rem]'
+                  : 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]'}"
               >
                 <span
                   class="flex min-h-10 items-center justify-center text-sm font-medium"
@@ -549,7 +626,7 @@
                       title={`Edit set ${setIndex + 1}`}
                       disabled={locked}
                       onclick={() =>
-                        updateSet(exercise.id, set.id, { done: false })}
+                        updateSet(exercise.id, set.id, { done: false }, true)}
                       ><ActionIcon name="edit" /></button
                     >
                   {:else}
@@ -562,18 +639,6 @@
                       disabled={locked}
                       onclick={() => completeSet(exercise.id, set.id)}
                       ><ActionIcon name="finish" /></button
-                    >
-                  {/if}
-                  {#if setIndex === exercise.sets.length - 1}
-                    <button
-                      id={`workout-set-remove-${set.id}`}
-                      type="button"
-                      class="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
-                      aria-label={`Remove set ${setIndex + 1}`}
-                      title={`Remove set ${setIndex + 1}`}
-                      disabled={locked || set.done}
-                      onclick={() => removeSet(exercise.id, set.id)}
-                      ><ActionIcon name="remove" /></button
                     >
                   {/if}
                 </div>
@@ -626,15 +691,29 @@
             </fieldset>
           {/each}
         </div>
-        <button
-          id={`workout-set-add-${exercise.id}`}
-          type="button"
-          class="mt-3 min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-          aria-label={`Add set to ${exerciseName(exercise)}`}
-          title={`Add set to ${exerciseName(exercise)}`}
-          disabled={locked || exercise.sets.length >= MAX_SETS_PER_EXERCISE}
-          onclick={() => addSet(exercise)}><ActionIcon name="add" /></button
-        >
+        <div class="mt-3 flex gap-2">
+          <button
+            id={`workout-set-add-${exercise.id}`}
+            type="button"
+            class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
+            aria-label={`Add set to ${exerciseName(exercise)}`}
+            title={`Add set to ${exerciseName(exercise)}`}
+            disabled={locked || exercise.sets.length >= MAX_SETS_PER_EXERCISE}
+            onclick={() => addSet(exercise)}><ActionIcon name="add" /></button
+          >
+          {#if lastSet}
+            <button
+              id={`workout-set-remove-${lastSet.id}`}
+              type="button"
+              class="min-h-11 rounded-md border border-danger px-3 text-danger disabled:opacity-40"
+              aria-label={`Remove set ${exercise.sets.length}`}
+              title={`Remove set ${exercise.sets.length}`}
+              disabled={locked || lastSet.done}
+              onclick={() => removeSet(exercise.id, lastSet.id)}
+              ><ActionIcon name="remove" /></button
+            >
+          {/if}
+        </div>
       {/if}
     </section>
   {/each}

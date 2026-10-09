@@ -43,6 +43,9 @@ test.describe('authentication flow', () => {
     await page.getByLabel('Email').fill(email);
     await page.getByLabel('Password').fill(E2E_PASSWORD);
     await page.getByLabel(/Display name/).fill('E2E Tester');
+    await page.getByLabel('Initial weight (kg)').fill('75');
+    await page.getByLabel('Sex').selectOption('male');
+    await page.getByLabel('Age').fill('31');
     await page.getByRole('button', { name: 'Create account' }).click();
 
     // Registration does not imply a session.
@@ -98,6 +101,9 @@ test.describe('authentication flow', () => {
     await page.getByRole('link', { name: 'Create one' }).click();
     await page.getByLabel('Email').fill(email);
     await page.getByLabel('Password').fill(E2E_PASSWORD);
+    await page.getByLabel('Initial weight (kg)').fill('75');
+    await page.getByLabel('Sex').selectOption('female');
+    await page.getByLabel('Age').fill('31');
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.getByRole('alert')).toContainText('already exists');
   });

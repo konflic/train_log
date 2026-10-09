@@ -9,7 +9,7 @@ string/integer fields per the Stage 2 integer contract.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,6 +31,8 @@ DisplayName = Annotated[str, Field(strict=True, max_length=MAX_DISPLAY_NAME_LENG
 UtcOffsetMinutes = Annotated[
     int, Field(strict=True, ge=UTC_OFFSET_MIN_MINUTES, le=UTC_OFFSET_MAX_MINUTES)
 ]
+Age = Annotated[int, Field(strict=True, ge=1, le=120)]
+Sex = Literal["male", "female"]
 
 
 def normalize_email(value: str) -> str:
@@ -71,6 +73,9 @@ class RegisterRequest(BaseModel):
     email: Email
     password: Password
     display_name: DisplayName | None = None
+    bodyweight_default_kg: BodyweightKg | None = None
+    sex: Sex | None = None
+    age: Age | None = None
 
     @field_validator("email")
     @classmethod
@@ -133,4 +138,6 @@ class UserResponse(BaseModel):
     email: str
     display_name: str | None
     bodyweight_default_kg: int | None
+    sex: Sex | None
+    age: int | None
     utc_offset_minutes: int

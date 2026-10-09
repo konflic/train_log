@@ -53,6 +53,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
         "0002_seed_catalog",
         "0003_save_previous_performance_receipt",
         "0004_workout_sessions_and_training_plans",
+        "0005_user_metabolism_profile",
     ]
 
     with connect(database_path) as conn:
@@ -83,7 +84,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5]
 
         seed = conn.execute(
             "SELECT COUNT(*) AS n FROM exercise_catalog WHERE is_default = 1 AND created_by IS NULL"
@@ -263,15 +264,18 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         insert_exercise(txn, catalog_id="cat-custom-1")
         insert_set(txn, reps=8, weight_kg=12, done=1)
 
-    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4]
+    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4, 5]
 
     with connect(database_path) as conn:
         user = conn.execute(
-            "SELECT email, bodyweight_default_kg, utc_offset_minutes FROM users WHERE id = 'user-1'"
+            "SELECT email, bodyweight_default_kg, sex, age, utc_offset_minutes "
+            "FROM users WHERE id = 'user-1'"
         ).fetchone()
         assert user is not None
         assert user["email"] == "user-1@example.com"
         assert int(user["bodyweight_default_kg"]) == 81
+        assert user["sex"] is None
+        assert user["age"] is None
         assert int(user["utc_offset_minutes"]) == 180
 
         set_row = conn.execute(

@@ -24,6 +24,8 @@ USER_COLUMNS = (
     "password_hash",
     "display_name",
     "bodyweight_default_kg",
+    "sex",
+    "age",
     "utc_offset_minutes",
     "created_at",
     "updated_at",
@@ -46,6 +48,8 @@ class UserRecord:
     password_hash: str
     display_name: str | None
     bodyweight_default_kg: int | None
+    sex: str | None
+    age: int | None
     utc_offset_minutes: int
     created_at: str
     updated_at: str
@@ -58,6 +62,8 @@ def row_to_user(row: sqlite3.Row) -> UserRecord:
         password_hash=str(row["password_hash"]),
         display_name=row["display_name"],
         bodyweight_default_kg=row["bodyweight_default_kg"],
+        sex=row["sex"],
+        age=row["age"],
         utc_offset_minutes=int(row["utc_offset_minutes"]),
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
@@ -75,6 +81,9 @@ def create_user(
     email: str,
     password_hash: str,
     display_name: str | None = None,
+    bodyweight_default_kg: int | None = None,
+    sex: str | None = None,
+    age: int | None = None,
 ) -> UserRecord:
     """Insert a new user; raise `DuplicateEmailError` when the email exists."""
     user_id = str(uuid.uuid4())
@@ -83,13 +92,17 @@ def create_user(
         with connect(database_path) as conn, write_transaction(conn):
             conn.execute(
                 "INSERT INTO users (id, email, password_hash, display_name, "
-                "bodyweight_default_kg, utc_offset_minutes, created_at, updated_at) "
-                "VALUES (:id, :email, :password_hash, :display_name, NULL, 0, :now, :now)",
+                "bodyweight_default_kg, sex, age, utc_offset_minutes, created_at, updated_at) "
+                "VALUES (:id, :email, :password_hash, :display_name, "
+                ":bodyweight_default_kg, :sex, :age, 0, :now, :now)",
                 {
                     "id": user_id,
                     "email": email,
                     "password_hash": password_hash,
                     "display_name": display_name,
+                    "bodyweight_default_kg": bodyweight_default_kg,
+                    "sex": sex,
+                    "age": age,
                     "now": now,
                 },
             )
@@ -102,7 +115,9 @@ def create_user(
         email=email,
         password_hash=password_hash,
         display_name=display_name,
-        bodyweight_default_kg=None,
+        bodyweight_default_kg=bodyweight_default_kg,
+        sex=sex,
+        age=age,
         utc_offset_minutes=0,
         created_at=now,
         updated_at=now,

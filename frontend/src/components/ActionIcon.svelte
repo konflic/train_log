@@ -9,6 +9,7 @@
       | 'close'
       | 'edit'
       | 'down'
+      | 'drag'
       | 'finish'
       | 'history'
       | 'home'
@@ -43,6 +44,13 @@
     <path d="m4 20 4-1 11-11-3-3L5 16zM14 6l3 3" />
   {:else if name === 'down'}
     <path d="m6 9 6 6 6-6" />
+  {:else if name === 'drag'}
+    <circle cx="8" cy="6" r="1" fill="currentColor" />
+    <circle cx="16" cy="6" r="1" fill="currentColor" />
+    <circle cx="8" cy="12" r="1" fill="currentColor" />
+    <circle cx="16" cy="12" r="1" fill="currentColor" />
+    <circle cx="8" cy="18" r="1" fill="currentColor" />
+    <circle cx="16" cy="18" r="1" fill="currentColor" />
   {:else if name === 'finish'}
     <path d="M20 6 9 17l-5-5" />
   {:else if name === 'history'}

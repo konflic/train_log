@@ -8,6 +8,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 256;
 export const MAX_EMAIL_LENGTH = 254;
 export const MAX_DISPLAY_NAME_LENGTH = 100;
+export const MAX_AGE = 120;
 
 export function normalizeEmailInput(value: string): string {
   return value.trim().toLowerCase();
@@ -59,4 +60,30 @@ export function validateDisplayName(value: string): string | null {
     return `Display name must be at most ${MAX_DISPLAY_NAME_LENGTH} characters`;
   }
   return null;
+}
+
+function validateRequiredWholeNumber(
+  value: string,
+  label: string,
+  maximum = Number.MAX_SAFE_INTEGER,
+): string | null {
+  if (value === '') return `${label} is required`;
+  if (!/^[1-9]\d*$/.test(value))
+    return `${label} must be a whole positive number`;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > maximum)
+    return `${label} must be at most ${maximum}`;
+  return null;
+}
+
+export function validateInitialWeight(value: string): string | null {
+  return validateRequiredWholeNumber(value, 'Initial weight');
+}
+
+export function validateAge(value: string): string | null {
+  return validateRequiredWholeNumber(value, 'Age', MAX_AGE);
+}
+
+export function validateSex(value: string): string | null {
+  return value === 'male' || value === 'female' ? null : 'Sex is required';
 }

@@ -115,22 +115,8 @@ export class WorkoutSyncController {
   }
 
   async commit(content: EditableWorkoutContent): Promise<void> {
-    if (this.locked || this.destroyed) return;
-    const previousStatus = this.status;
-    this.status = 'saving_local';
-    this.message = null;
-    const write = this.editor.edit(content);
-    this.writes.add(write);
-    try {
-      await write;
-    } finally {
-      this.writes.delete(write);
-    }
-    if (this.editor.status === 'failed') {
-      this.status = 'storage_error';
-      this.message = 'The latest visible edit is not safely stored yet.';
-      return;
-    }
+    const previousStatus = await this.saveLocal(content);
+    if (previousStatus === null) return;
     if (previousStatus === 'correction_required') {
       const validation = contentError(this.editor.current!.content);
       if (validation !== null) {
@@ -159,6 +145,19 @@ export class WorkoutSyncController {
     this.scheduleAutosave();
   }
 
+  async saveLocally(content: EditableWorkoutContent): Promise<void> {
+    const previousStatus = await this.saveLocal(content);
+    if (previousStatus === null) return;
+    if (
+      previousStatus === 'authentication_required' ||
+      previousStatus === 'offline'
+    ) {
+      this.status = previousStatus;
+      return;
+    }
+    this.status = 'locally_saved';
+  }
+
   async retryLocalSave(): Promise<void> {
     this.status = 'saving_local';
     await this.editor.retry();
@@ -168,6 +167,28 @@ export class WorkoutSyncController {
     }
     this.status = 'locally_saved';
     this.scheduleAutosave();
+  }
+
+  private async saveLocal(
+    content: EditableWorkoutContent,
+  ): Promise<EditorSyncStatus | null> {
+    if (this.locked || this.destroyed) return null;
+    const previousStatus = this.status;
+    this.status = 'saving_local';
+    this.message = null;
+    const write = this.editor.edit(content);
+    this.writes.add(write);
+    try {
+      await write;
+    } finally {
+      this.writes.delete(write);
+    }
+    if (this.editor.status === 'failed') {
+      this.status = 'storage_error';
+      this.message = 'The latest visible edit is not safely stored yet.';
+      return null;
+    }
+    return previousStatus;
   }
 
   async loadRecovery(): Promise<void> {

@@ -43,13 +43,16 @@ test.describe('workout editor', () => {
   }) => {
     await gotoSignedIn(page);
     await startFreestyle(page);
-    await expect(page.locator('#workout-sync-status')).toHaveText('Synced.');
+    await expect(page.locator('#workout-sync-status')).toHaveAttribute(
+      'aria-label',
+      'Synced.',
+    );
     await expect(page.locator('#workout-editor')).not.toContainText(
       /revision/i,
     );
   });
 
-  test('swaps completed-set edit and last-set remove actions inline', async ({
+  test('keeps set actions inline and last-set removal beside add set', async ({
     page,
   }) => {
     await gotoSignedIn(page);
@@ -61,7 +64,9 @@ test.describe('workout editor', () => {
     await firstSet
       .getByRole('button', { name: 'Mark set 1 completed' })
       .click();
-    await expect(firstSet.locator('[id^="workout-set-remove-"]')).toBeVisible();
+    await expect(
+      exercise.getByRole('button', { name: 'Remove set 1' }),
+    ).toBeVisible();
 
     await exercise
       .getByRole('button', { name: 'Add set to Bench Press' })
@@ -72,16 +77,66 @@ test.describe('workout editor', () => {
       firstSet.getByRole('button', { name: 'Edit set 1' }),
     ).toBeVisible();
     await expect(
-      secondSet.getByRole('button', { name: 'Remove set 2' }),
+      exercise.getByRole('button', { name: 'Remove set 2' }),
     ).toBeVisible();
     await expect(
       exercise.getByRole('button', { name: /Move set/ }),
     ).toHaveCount(0);
 
-    await secondSet.getByRole('button', { name: 'Remove set 2' }).click();
+    await exercise.getByRole('button', { name: 'Remove set 2' }).click();
     await expect(exercise.getByRole('group', { name: 'Set 2' })).toHaveCount(0);
     await expect(
-      firstSet.getByRole('button', { name: 'Remove set 1' }),
+      exercise.getByRole('button', { name: 'Remove set 1' }),
     ).toBeVisible();
+  });
+
+  test('keeps field edits local until a set is completed', async ({ page }) => {
+    await gotoSignedIn(page);
+    await startFreestyle(page);
+    const exercise = await addExercise(page, 'Bench Press');
+    const firstSet = exercise.getByRole('group', { name: 'Set 1' });
+
+    await expect(page.locator('#workout-sync-status')).toHaveAttribute(
+      'aria-label',
+      'Synced.',
+    );
+    await firstSet.getByLabel('Set 1 reps').fill('8');
+    await firstSet.getByLabel('Set 1 weight in kilograms').fill('50');
+    await expect(page.locator('#workout-sync-status')).toHaveAttribute(
+      'aria-label',
+      'Not synced yet.',
+    );
+    await page.waitForTimeout(400);
+    await expect(page.locator('#workout-sync-status')).toHaveAttribute(
+      'aria-label',
+      'Not synced yet.',
+    );
+
+    await firstSet
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
+    await expect(page.locator('#workout-sync-status')).toHaveAttribute(
+      'aria-label',
+      'Synced.',
+    );
+  });
+
+  test('reorders compact exercise cards by dragging their handles', async ({
+    page,
+  }) => {
+    await gotoSignedIn(page);
+    await startFreestyle(page);
+    const benchPress = await addExercise(page, 'Bench Press');
+    await benchPress.locator('[id^="workout-exercise-toggle-"]').click();
+    const backSquat = await addExercise(page, 'Back Squat');
+    await backSquat.locator('[id^="workout-exercise-toggle-"]').click();
+
+    await benchPress
+      .getByRole('button', { name: 'Drag Bench Press to reorder' })
+      .dragTo(page.getByLabel('Back Squat editor'));
+
+    await expect(
+      page.locator('#workout-editor > section').first(),
+    ).toHaveAttribute('aria-label', 'Back Squat editor');
   });
 });

@@ -56,6 +56,8 @@ function makeUser(overrides: Partial<PublicUser> = {}): PublicUser {
     email: 'user@example.test',
     display_name: null,
     bodyweight_default_kg: null,
+    sex: null,
+    age: null,
     utc_offset_minutes: 0,
     ...overrides,
   };

@@ -36,6 +36,7 @@ export type LoadType = 'single_weight' | 'split_weight' | 'bodyweight';
 export type WorkoutStatus = 'active' | 'finished';
 export type WorkoutSessionType = 'freestyle' | 'from_plan';
 export type SetSide = 'left' | 'right' | 'bilateral';
+export type Sex = 'male' | 'female';
 
 /** The only public user shape (auth endpoints). */
 export interface PublicUser {
@@ -43,6 +44,8 @@ export interface PublicUser {
   email: string;
   display_name: string | null;
   bodyweight_default_kg: number | null;
+  sex: Sex | null;
+  age: number | null;
   utc_offset_minutes: number;
 }
 
@@ -50,6 +53,9 @@ export interface RegisterInput {
   email: string;
   password: string;
   display_name?: string | null;
+  bodyweight_default_kg?: number | null;
+  sex?: Sex | null;
+  age?: number | null;
 }
 
 export interface LoginInput {
