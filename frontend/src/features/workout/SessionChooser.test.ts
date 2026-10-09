@@ -63,7 +63,7 @@ describe('SessionChooser', () => {
     await waitFor(() => expect(startSessionMock).toHaveBeenCalledOnce());
     expect(startSessionMock).toHaveBeenCalledWith('account-1');
     expect(activeSession.workoutId).toBe('workout-1');
-    expect(pushMock).toHaveBeenCalledWith('/workouts/workout-1?draft=draft-1');
+    expect(pushMock).toHaveBeenCalledWith('/workouts/workout-1');
   });
 
   it('shows the active session instead of another start action', () => {

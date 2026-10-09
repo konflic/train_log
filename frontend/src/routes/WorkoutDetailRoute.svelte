@@ -21,11 +21,10 @@
     setLoad,
   } from '../features/history/history';
   import { describeFailure } from '../lib/failures';
-  import { formatTimestampAtOffset } from '../lib/offsetTime';
+  import { formatRelativeTime } from '../lib/relativeTime';
 
   let { params = {} }: { params?: { id?: string } } = $props();
   const workoutId = $derived(params.id ?? '');
-  const offset = $derived(session.user?.utc_offset_minutes ?? 0);
   let detail = $state<WorkoutDetail | null>(null);
   let catalog = $state(new Map<string, Exercise>());
   let phase = $state<'loading' | 'ready' | 'error'>('loading');
@@ -34,7 +33,7 @@
 
   function display(timestamp: string | null): string {
     if (timestamp === null) return 'Not finished';
-    return formatTimestampAtOffset(timestamp, offset) ?? timestamp;
+    return formatRelativeTime(timestamp) ?? timestamp;
   }
 
   async function load(): Promise<void> {

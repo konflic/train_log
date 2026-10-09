@@ -197,9 +197,7 @@
         revision: plan.revision,
       });
       activeSession.setActive(draft.workout_id);
-      await push(
-        `/workouts/${draft.workout_id}?draft=${encodeURIComponent(draft.draft_id)}`,
-      );
+      await push(`/workouts/${draft.workout_id}`);
     } catch (error) {
       message = describeFailure(error);
       await activeSession.refresh(session.user.id);

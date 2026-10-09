@@ -1,7 +1,5 @@
 <script lang="ts">
-  import type { Component } from 'svelte';
   import ActionIcon from './components/ActionIcon.svelte';
-  import { isRecoveryContextEvent } from './features/auth/recoveryContext';
   import Router, { replace, router } from 'svelte-spa-router';
   import LoginRoute from './features/auth/LoginRoute.svelte';
   import RegisterRoute from './features/auth/RegisterRoute.svelte';
@@ -13,20 +11,14 @@
   import HomeRoute from './features/home/HomeRoute.svelte';
   import TrainingPlansRoute from './features/plans/TrainingPlansRoute.svelte';
   import { initializeTheme } from './lib/theme';
+  import { initializeLocale } from './lib/i18n';
   import HistoryRoute from './routes/HistoryRoute.svelte';
   import WorkoutDetailRoute from './routes/WorkoutDetailRoute.svelte';
   import NotFoundRoute from './routes/NotFoundRoute.svelte';
   import SettingsRoute from './routes/SettingsRoute.svelte';
   import WorkoutRoute from './features/workout/WorkoutRoute.svelte';
-  import OfflineRecovery from './features/workout/OfflineRecovery.svelte';
   import SessionChooser from './features/workout/SessionChooser.svelte';
   import { activeSession } from './features/workout/activeSession.svelte';
-
-  let {
-    draftHarness: DraftHarness,
-  }: { draftHarness?: Component<{ accountId: string; localOnly: boolean }> } =
-    $props();
-  let localRecoverySelected = $state(false);
 
   // Hash route table: production serving needs no SPA rewrite rule. Feature
   // routes render clearly labeled placeholders until their owning stage.
@@ -68,6 +60,7 @@
   // first paint; applying it again keeps direct mounts (tests, HMR)
   // consistent with the shared theme module.
   initializeTheme();
+  initializeLocale();
 
   // Resolve the session once at startup from GET /auth/me.
   void session.initialize();
@@ -148,9 +141,6 @@
 </script>
 
 <svelte:window
-  onstorage={(event) => {
-    if (isRecoveryContextEvent(event)) session.refreshRecoveryContext();
-  }}
   onfocus={() => {
     if (session.user) void activeSession.refresh(session.user.id);
   }}
@@ -158,9 +148,10 @@
 
 <div class="flex min-h-dvh flex-col">
   <main
-    class="mx-auto w-full max-w-2xl flex-1 px-4 pt-4 {showChrome
-      ? 'pb-4'
-      : 'pb-8'}"
+    id="app-main-content"
+    class={showChrome
+      ? 'mx-auto w-full max-w-2xl flex-1 px-4 pt-4 pb-4'
+      : 'mx-auto flex w-full max-w-sm flex-1 items-center px-4 py-8'}
   >
     {#if session.status === 'loading'}
       <p role="status">Checking your session…</p>
@@ -177,41 +168,8 @@
       >
         Retry
       </button>
-      {#if session.recoveryAccountId !== null}
-        <p class="mt-4 text-muted">
-          Local drafts for the previously confirmed account are available on
-          this device. This does not sign you in.
-        </p>
-        <button
-          type="button"
-          class="mt-4 min-h-11 rounded-md border border-edge px-4"
-          onclick={() => {
-            localRecoverySelected = true;
-          }}
-        >
-          Recover local drafts only
-        </button>
-        {#if localRecoverySelected && DraftHarness}
-          {#key session.recoveryAccountId}
-            <DraftHarness
-              accountId={session.recoveryAccountId}
-              localOnly={true}
-            />
-          {/key}
-        {:else if localRecoverySelected}
-          {#key session.recoveryAccountId}
-            <OfflineRecovery accountId={session.recoveryAccountId} />
-          {/key}
-        {/if}
-      {/if}
     {:else if routerReady}
-      {#if DraftHarness && session.user !== null}
-        {#key session.user.id}
-          <DraftHarness accountId={session.user.id} localOnly={false} />
-        {/key}
-      {:else}
-        <Router {routes} />
-      {/if}
+      <Router {routes} />
     {:else}
       <p role="status">Redirecting to login…</p>
     {/if}

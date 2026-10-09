@@ -1,12 +1,7 @@
 <script lang="ts">
   import packageInfo from '../../package.json';
   import { updateCurrentUser } from '../api';
-  import {
-    inspectLocalWork,
-    synchronizeLocalWork,
-  } from '../features/auth/logout';
   import { session } from '../features/auth/session.svelte';
-  import { openDraftStorage } from '../db';
   import { describeFailure, mapFailureToForm } from '../lib/failures';
   import { resolveTheme, setPreferredTheme, type Theme } from '../lib/theme';
   import { formatUtcOffset } from '../lib/offsetTime';
@@ -27,9 +22,7 @@
   let offset = $state(session.user?.utc_offset_minutes ?? 0);
   let profileBusy = $state(false);
   let profileError = $state<string | null>(null);
-  let logoutMode = $state<'idle' | 'choices' | 'syncing' | 'discarding'>(
-    'idle',
-  );
+  let logoutBusy = $state(false);
   let logoutError = $state<string | null>(null);
 
   function wholePositiveOrNull(value: string): number | null | undefined {
@@ -71,49 +64,15 @@
   }
 
   async function beginLogout(): Promise<void> {
-    if (logoutMode !== 'idle' || session.user === null) return;
+    if (logoutBusy || session.user === null) return;
+    logoutBusy = true;
     logoutError = null;
     try {
-      const work = await inspectLocalWork(session.user.id);
-      logoutMode = work.dirty ? 'choices' : 'syncing';
-      if (!work.dirty) await synchronizeAndLogout();
-    } catch (error) {
-      logoutError = describeFailure(error);
-    }
-  }
-
-  async function synchronizeAndLogout(): Promise<void> {
-    const accountId = session.user?.id;
-    if (accountId === undefined) return;
-    logoutMode = 'syncing';
-    logoutError = null;
-    try {
-      await synchronizeLocalWork(accountId);
       await session.signOut();
     } catch (error) {
       logoutError = describeFailure(error);
-      logoutMode = 'choices';
-    }
-  }
-
-  async function discardAndLogout(): Promise<void> {
-    const accountId = session.user?.id;
-    if (accountId === undefined) return;
-    if (
-      !window.confirm(
-        'Discard every locally stored workout draft for this account and log out?',
-      )
-    )
-      return;
-    logoutMode = 'discarding';
-    logoutError = null;
-    try {
-      // Do not remove local work until the server accepted logout.
-      await session.signOut(false);
-      await (await openDraftStorage()).deleteAccount(accountId);
-    } catch (error) {
-      logoutError = describeFailure(error);
-      logoutMode = 'choices';
+    } finally {
+      logoutBusy = false;
     }
   }
 </script>
@@ -216,40 +175,13 @@
   {#if logoutError}<p role="alert" class="mt-3 text-sm text-danger">
       {logoutError}
     </p>{/if}
-  {#if logoutMode === 'choices'}
-    <p class="mt-3 text-sm text-muted">
-      Unsynchronized local drafts are retained. Choose whether to synchronize
-      them first or explicitly discard them.
-    </p>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="button"
-        class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
-        onclick={() => void synchronizeAndLogout()}
-        >Synchronize and log out</button
-      ><button
-        type="button"
-        class="min-h-11 rounded-md border border-danger px-4 font-medium text-danger"
-        onclick={() => void discardAndLogout()}
-        >Discard local work and log out</button
-      ><button
-        type="button"
-        class="min-h-11 rounded-md border border-edge px-4"
-        onclick={() => (logoutMode = 'idle')}>Cancel</button
-      >
-    </div>
-  {:else}
-    <button
-      type="button"
-      disabled={logoutMode !== 'idle'}
-      class="mt-3 min-h-11 rounded-md border border-danger px-4 font-medium text-danger disabled:opacity-40"
-      onclick={() => void beginLogout()}
-      >{logoutMode === 'syncing'
-        ? 'Synchronizing…'
-        : logoutMode === 'discarding'
-          ? 'Logging out…'
-          : 'Log out'}</button
-    >
-  {/if}
+  <button
+    id="settings-logout-button"
+    type="button"
+    disabled={logoutBusy}
+    class="mt-3 min-h-11 rounded-md border border-danger px-4 font-medium text-danger disabled:opacity-40"
+    onclick={() => void beginLogout()}
+    >{logoutBusy ? 'Logging out…' : 'Log out'}</button
+  >
 </section>
 <p class="mt-8 text-sm text-muted">Version {packageInfo.version}</p>

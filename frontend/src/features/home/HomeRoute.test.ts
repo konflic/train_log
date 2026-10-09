@@ -101,7 +101,7 @@ describe('HomeRoute reads', () => {
     );
   });
 
-  it('renders loading, then populated panels with offset-local times', async () => {
+  it('renders loading, then populated panels with relative times', async () => {
     listWorkoutsMock.mockImplementation((query: { status: string }) =>
       Promise.resolve({
         items: [
@@ -124,8 +124,7 @@ describe('HomeRoute reads', () => {
 
     await waitFor(() => expect(screen.getByText('Push day')).toBeDefined());
     expect(screen.getByText('Leg day')).toBeDefined();
-    // 22:30 UTC at UTC+3 is the next local day.
-    expect(screen.getAllByText('Started 2026-10-09 01:30:00').length).toBe(2);
+    expect(screen.getAllByText(/^Started \d+ hrs ago$/).length).toBe(2);
     expect(screen.getByText('Signed in as Ada')).toBeDefined();
   });
 

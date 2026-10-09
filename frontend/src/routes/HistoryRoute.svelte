@@ -6,7 +6,7 @@
     isUnauthorizedError,
   } from '../features/auth/session.svelte';
   import { describeFailure, isAbortError } from '../lib/failures';
-  import { formatTimestampAtOffset } from '../lib/offsetTime';
+  import { formatRelativeTime } from '../lib/relativeTime';
 
   const PAGE_SIZE = 20;
   let page = $state(1);
@@ -18,12 +18,8 @@
   let dateTo = $state('');
   let controller: AbortController | null = null;
   let requestId = 0;
-  const offset = $derived(session.user?.utc_offset_minutes ?? 0);
-
   function localTime(workout: WorkoutSummary): string {
-    return (
-      formatTimestampAtOffset(workout.started_at, offset) ?? workout.started_at
-    );
+    return formatRelativeTime(workout.started_at) ?? workout.started_at;
   }
 
   async function load(nextPage = page): Promise<void> {

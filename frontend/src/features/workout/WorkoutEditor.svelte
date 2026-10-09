@@ -8,6 +8,7 @@
   } from '../../db';
   import type { LocalDraftEditor } from '../drafts/editor.svelte';
   import type { WorkoutSyncController } from './sync.svelte';
+  import { formatRelativeTime } from '../../lib/relativeTime';
   import ExercisePicker from './ExercisePicker.svelte';
   import {
     MAX_EXERCISES,
@@ -203,28 +204,13 @@
     const exercise = next.exercises.find((item) => item.id === exerciseId);
     if (
       !exercise ||
+      exercise.sets.at(-1)?.id !== setId ||
       exercise.sets.some((item) => item.id === setId && item.done)
     )
       return;
     exercise.sets = exercise.sets.filter((item) => item.id !== setId);
     for (const field of ['reps', 'weight_kg', 'bw_percent_override', 'rpe'])
       delete next.raw_fields[fieldKey(setId, field)];
-    edit(next);
-  }
-
-  function moveSet(exerciseId: string, index: number, direction: -1 | 1): void {
-    const next = structuredClone(content);
-    const sets = next.exercises.find((item) => item.id === exerciseId)?.sets;
-    const target = index + direction;
-    if (
-      !sets ||
-      target < 0 ||
-      target >= sets.length ||
-      sets[index].done ||
-      sets[target].done
-    )
-      return;
-    [sets[index], sets[target]] = [sets[target], sets[index]];
     edit(next);
   }
 
@@ -257,11 +243,9 @@
       return `Locally saved change ${editor.savedChange}. Offline recovery mode.`;
     }
     if (sync.status === 'saving_local') return 'Saving locally…';
-    if (sync.status === 'locally_saved')
-      return `Locally saved change ${editor.savedChange}. Waiting to sync.`;
+    if (sync.status === 'locally_saved') return 'Not synced yet.';
     if (sync.status === 'syncing') return 'Syncing durable changes…';
-    if (sync.status === 'synced')
-      return `Synced at revision ${editor.current!.base_revision}.`;
+    if (sync.status === 'synced') return 'Synced.';
     if (sync.status === 'offline') return 'Offline. Changes remain local.';
     if (sync.status === 'authentication_required')
       return sync.finishPending
@@ -297,6 +281,7 @@
   />
 {/if}
 <section
+  id="workout-editor"
   aria-label="Workout editor"
   class:hidden={pickerTarget !== undefined}
   class="flex flex-col gap-4"
@@ -305,6 +290,7 @@
     class="sticky top-0 z-10 rounded-lg border border-edge bg-surface p-3 shadow-sm"
   >
     <p
+      id="workout-sync-status"
       role="status"
       class:text-sync-error={sync?.status === 'storage_error' ||
         sync?.status === 'conflict' ||
@@ -322,6 +308,7 @@
     <div class="mt-2 flex flex-wrap gap-2">
       {#if sync?.status === 'storage_error' || sync?.status === 'offline' || sync?.status === 'finish_pending' || sync?.status === 'error' || (!sync && editor.status === 'failed')}
         <button
+          id="workout-sync-retry-button"
           class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
           type="button"
           aria-label={retryLabel()}
@@ -331,6 +318,7 @@
         >
       {/if}
       <button
+        id="workout-save-button"
         class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3 disabled:opacity-40"
         type="button"
         aria-label="Save now"
@@ -343,6 +331,7 @@
         onclick={() => void sync?.saveNow()}><ActionIcon name="save" /></button
       >
       <button
+        id="workout-finish-button"
         class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
         type="button"
         disabled={!sync?.canFinish}
@@ -353,9 +342,9 @@
   </div>
 
   <div class="grid gap-3 rounded-lg border border-edge bg-surface p-4">
-    <p class="text-sm text-muted">
-      Started {editor.current!.started_at} · base revision {editor.current!
-        .base_revision}
+    <p id="workout-started-at" class="text-sm text-muted">
+      Started {formatRelativeTime(editor.current!.started_at) ??
+        editor.current!.started_at}
     </p>
     <div>
       <label class="block text-sm font-medium" for="workout-name"
@@ -419,11 +408,13 @@
     {/if}
     {@const snapshot = snapshotOf(exercise.id)}
     <section
+      id={`workout-exercise-${exercise.id}`}
       class="rounded-lg border border-edge bg-surface p-4"
       aria-label={`${exerciseName(exercise)} editor`}
     >
       <div class="flex items-start justify-between gap-2">
         <button
+          id={`workout-exercise-toggle-${exercise.id}`}
           type="button"
           class="min-h-11 min-w-0 flex-1 text-left"
           aria-expanded={expandedExerciseId === exercise.id}
@@ -444,6 +435,7 @@
             class="flex shrink-0 gap-2"
           >
             <button
+              id={`workout-exercise-move-up-${exercise.id}`}
               type="button"
               class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
               disabled={locked || exerciseIndex === 0}
@@ -453,6 +445,7 @@
               ><ActionIcon name="up" /></button
             >
             <button
+              id={`workout-exercise-move-down-${exercise.id}`}
               type="button"
               class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
               disabled={locked ||
@@ -463,6 +456,7 @@
               ><ActionIcon name="down" /></button
             >
             <button
+              id={`workout-exercise-remove-${exercise.id}`}
               type="button"
               class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
               aria-label={`Remove ${exerciseName(exercise)}`}
@@ -479,6 +473,7 @@
             {catalogIssue(content, exercise.id)}
           </p>
           <button
+            id={`workout-exercise-replace-${exercise.id}`}
             type="button"
             class="mt-2 min-h-11 rounded-md border border-edge px-3"
             disabled={locked}
@@ -490,19 +485,27 @@
             {@const error = setError(content, exercise, set)}
             {@const validationError = error ?? completionErrors[set.id]}
             <fieldset
+              id={`workout-set-${set.id}`}
               class="rounded-md border border-edge p-3"
               aria-describedby={validationError
                 ? `set-error-${set.id}`
                 : undefined}
             >
               <legend class="px-1 font-medium">Set {setIndex + 1}</legend>
-              <div class="grid grid-cols-2 gap-3">
-                <label class="text-sm font-medium"
+              <div
+                class="grid gap-2 {snapshot?.load_type === 'bodyweight'
+                  ? 'grid-cols-[minmax(0,1fr)_2.75rem]'
+                  : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem]'}"
+              >
+                <label
+                  class="text-sm font-medium"
+                  for={`workout-set-${set.id}-reps`}
                   >Reps<input
+                    id={`workout-set-${set.id}-reps`}
                     inputmode="numeric"
                     step="1"
                     disabled={locked || set.done}
-                    class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                    class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                     value={rawValue(content, set, 'reps')}
                     oninput={(event) =>
                       updateIntegerField(
@@ -514,11 +517,13 @@
                 >
                 {#if snapshot?.load_type !== 'bodyweight'}<label
                     class="text-sm font-medium"
+                    for={`workout-set-${set.id}-weight`}
                     >Weight (kg)<input
+                      id={`workout-set-${set.id}-weight`}
                       inputmode="numeric"
                       step="1"
                       disabled={locked || set.done}
-                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                       value={rawValue(content, set, 'weight_kg')}
                       oninput={(event) =>
                         updateIntegerField(
@@ -528,13 +533,31 @@
                         )}
                     /></label
                   >{/if}
+                {#if setIndex === exercise.sets.length - 1}
+                  <button
+                    id={`workout-set-remove-${set.id}`}
+                    type="button"
+                    class="mt-5 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
+                    aria-label={`Remove set ${setIndex + 1}`}
+                    title={`Remove set ${setIndex + 1}`}
+                    disabled={locked || set.done}
+                    onclick={() => removeSet(exercise.id, set.id)}
+                    ><ActionIcon name="remove" /></button
+                  >
+                {:else}
+                  <span aria-hidden="true"></span>
+                {/if}
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-3">
                 {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
                     class="text-sm font-medium"
+                    for={`workout-set-${set.id}-bodyweight-override`}
                     >Bodyweight % override<input
+                      id={`workout-set-${set.id}-bodyweight-override`}
                       inputmode="numeric"
                       step="1"
                       disabled={locked || set.done}
-                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                       value={rawValue(content, set, 'bw_percent_override')}
                       oninput={(event) =>
                         updateIntegerField(
@@ -546,8 +569,10 @@
                   >{/if}
                 {#if snapshot?.load_type === 'split_weight' && snapshot.side_count === 1}<label
                     class="text-sm font-medium"
+                    for={`workout-set-${set.id}-side`}
                     >Side<select
-                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      id={`workout-set-${set.id}-side`}
+                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                       value={set.side}
                       disabled={locked || set.done}
                       onchange={(event) =>
@@ -570,6 +595,7 @@
                 </p>{/if}
               <div class="mt-3 flex flex-wrap gap-2">
                 {#if set.done}<button
+                    id={`workout-set-edit-${set.id}`}
                     type="button"
                     class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
                     aria-label={`Edit set ${setIndex + 1}`}
@@ -579,6 +605,7 @@
                       updateSet(exercise.id, set.id, { done: false })}
                     ><ActionIcon name="edit" /></button
                   >{:else}<button
+                    id={`workout-set-complete-${set.id}`}
                     type="button"
                     aria-label={`Mark set ${setIndex + 1} completed`}
                     title={`Mark set ${setIndex + 1} completed`}
@@ -587,42 +614,12 @@
                     onclick={() => completeSet(exercise.id, set.id)}
                     ><ActionIcon name="finish" /></button
                   >{/if}
-                <button
-                  type="button"
-                  class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                  disabled={locked ||
-                    set.done ||
-                    setIndex === 0 ||
-                    exercise.sets[setIndex - 1].done}
-                  aria-label={`Move set ${setIndex + 1} up`}
-                  title={`Move set ${setIndex + 1} up`}
-                  onclick={() => moveSet(exercise.id, setIndex, -1)}
-                  ><ActionIcon name="up" /></button
-                ><button
-                  type="button"
-                  class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                  disabled={locked ||
-                    set.done ||
-                    setIndex === exercise.sets.length - 1 ||
-                    exercise.sets[setIndex + 1].done}
-                  aria-label={`Move set ${setIndex + 1} down`}
-                  title={`Move set ${setIndex + 1} down`}
-                  onclick={() => moveSet(exercise.id, setIndex, 1)}
-                  ><ActionIcon name="down" /></button
-                ><button
-                  type="button"
-                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
-                  aria-label={`Remove set ${setIndex + 1}`}
-                  title={`Remove set ${setIndex + 1}`}
-                  disabled={locked || set.done}
-                  onclick={() => removeSet(exercise.id, set.id)}
-                  ><ActionIcon name="remove" /></button
-                >
               </div>
             </fieldset>
           {/each}
         </div>
         <button
+          id={`workout-set-add-${exercise.id}`}
           type="button"
           class="mt-3 min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
           aria-label={`Add set to ${exerciseName(exercise)}`}
@@ -634,10 +631,10 @@
     </section>
   {/each}
   <button
+    id="workout-exercise-add-button"
     type="button"
     class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
     disabled={locked || content.exercises.length >= MAX_EXERCISES}
-    onclick={() => choosePicker()}
-    ><ActionIcon name="add" /> Add exercise</button
+    onclick={() => choosePicker()}>Add exercise</button
   >
 </section>

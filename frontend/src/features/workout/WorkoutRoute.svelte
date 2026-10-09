@@ -3,18 +3,13 @@
   import { SvelteURLSearchParams } from 'svelte/reactivity';
   import { push, replace, router } from 'svelte-spa-router';
   import {
-    ApiRequestError,
-    createWorkout,
-    getExercise,
     getWorkout,
     listExercises,
     listWorkouts,
-    saveWorkout,
     type Exercise,
   } from '../../api';
   import {
     DraftRepository,
-    createRecoveryDraft,
     openDraftStorage,
     openDurableDraftStorage,
     PendingDraftRepository,
@@ -28,17 +23,13 @@
     editorKey,
     localEditors,
   } from '../drafts/editor.svelte';
-  import { DraftSyncCoordinator } from '../drafts/sync';
   import WorkoutEditor from './WorkoutEditor.svelte';
-  import { copyDraftToNewWorkout, draftFromDetail } from './model';
+  import { draftFromDetail } from './model';
   import { WorkoutSyncController } from './sync.svelte';
   import { activeSession } from './activeSession.svelte';
 
   let { params = {} }: { params?: { id?: string } } = $props();
   const workoutId = $derived(params.id ?? 'current');
-  const preferredDraftId = $derived(
-    new SvelteURLSearchParams(router.querystring ?? '').get('draft'),
-  );
   const pickerTarget = $derived.by(() => {
     const query = new SvelteURLSearchParams(router.querystring ?? '');
     if (query.get('picker') !== 'exercise') return undefined;
@@ -48,10 +39,7 @@
   let repository = $state<DraftRepository | null>(null);
   let editor = $state<LocalDraftEditor | null>(null);
   let sync = $state<WorkoutSyncController | null>(null);
-  let choices = $state<WorkoutDraft[]>([]);
-  let phase = $state<'loading' | 'choosing' | 'editing' | 'finished' | 'error'>(
-    'loading',
-  );
+  let phase = $state<'loading' | 'editing' | 'finished' | 'error'>('loading');
   let message = $state('');
   let catalog = $state<Exercise[]>([]);
   let reauthOpen = $state(false);
@@ -59,8 +47,6 @@
   let reauthPassword = $state('');
   let reauthBusy = $state(false);
   let reauthMessage = $state<string | null>(null);
-  let recoveryBusy = $state(false);
-  let recoveryMessage = $state<string | null>(null);
   let alive = true;
 
   async function setup(): Promise<void> {
@@ -91,9 +77,12 @@
   async function useEditor(draft: WorkoutDraft): Promise<void> {
     if (!repository || !accountId) return;
     const key = editorKey(accountId, draft.workout_id);
+    const previous = localEditors.get(key);
+    if (previous?.current) {
+      editorAssociations.release(key, previous.current.draft_id);
+    }
     editorAssociations.associate(key, draft.draft_id);
-    const active =
-      localEditors.get(key) ?? new LocalDraftEditor(repository, draft);
+    const active = new LocalDraftEditor(repository, draft);
     localEditors.set(key, active);
     editor = active;
     const operations = new PendingDraftRepository(
@@ -117,34 +106,16 @@
     // local source for validation and provisional calculations.
     void loadCatalog();
     await sync.initialize();
-    // Do not expose a writable editor while its initial authoritative recovery
-    // check is still in flight; otherwise a concurrent deletion can race the
-    // first load and lock input before the user can make a local edit.
+    // Do not expose a writable editor until its server state is checked.
     phase = 'editing';
     activeSession.setActive(draft.workout_id);
   }
 
   async function resume(id: string): Promise<void> {
     if (!repository || !accountId) return;
-    const documentEditor = localEditors.get(editorKey(accountId, id));
-    if (documentEditor?.current) {
-      await useEditor($state.snapshot(documentEditor.current));
-      return;
-    }
     const existing = await repository.listByAccountWorkout(accountId, id);
-    const preferred = existing.drafts.find(
-      (draft) => draft.draft_id === preferredDraftId,
-    );
-    if (preferred) {
-      await useEditor(preferred);
-      return;
-    }
-    if (existing.drafts.length > 0) {
-      choices = existing.drafts;
-      phase = 'choosing';
-      return;
-    }
     const detail = await getWorkout(id);
+    await discardStoredWorkout(existing.drafts);
     if (detail.ended_at !== null) {
       phase = 'finished';
       return;
@@ -154,16 +125,23 @@
     await useEditor(draft);
   }
 
-  async function recover(source: WorkoutDraft): Promise<void> {
+  async function discardStoredWorkout(drafts: WorkoutDraft[]): Promise<void> {
     if (!repository || !accountId) return;
-    try {
-      const draft = createRecoveryDraft($state.snapshot(source));
-      await repository.put(accountId, draft);
-      await useEditor(draft);
-    } catch (error) {
-      message = describeFailure(error);
-      phase = 'error';
-    }
+    const draftRepository = repository;
+    const operations = new PendingDraftRepository(
+      draftRepository,
+      await openDurableDraftStorage(),
+    );
+    await Promise.all(
+      drafts.map(async (draft) => {
+        await operations.discardPending(accountId, draft.draft_id);
+        await draftRepository.delete(
+          accountId,
+          draft.workout_id,
+          draft.draft_id,
+        );
+      }),
+    );
   }
 
   async function loadCatalog(): Promise<void> {
@@ -196,123 +174,6 @@
     void replace(workoutPath());
   }
 
-  async function currentCatalogFor(
-    source: WorkoutDraft,
-  ): Promise<Map<string, Exercise | null>> {
-    const ids = [
-      ...new Set(source.content.exercises.map((item) => item.catalog_id)),
-    ];
-    const entries = await Promise.all(
-      ids.map(async (id): Promise<[string, Exercise | null]> => {
-        try {
-          return [id, await getExercise(id)];
-        } catch (error) {
-          if (error instanceof ApiRequestError && error.problem.status === 404)
-            return [id, null];
-          throw error;
-        }
-      }),
-    );
-    return new Map(entries);
-  }
-
-  function releaseCurrentEditor(): void {
-    sync?.destroy();
-    if (!editor?.current) return;
-    const current = editor.current;
-    const key = editorKey(current.account_id, current.workout_id);
-    editorAssociations.release(key, current.draft_id);
-    localEditors.delete(key);
-  }
-
-  async function copyConflictToNew(): Promise<void> {
-    if (!repository || !accountId || !editor?.current || recoveryBusy) return;
-    recoveryBusy = true;
-    recoveryMessage = null;
-    try {
-      const source = $state.snapshot(editor.current);
-      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-      const draft = copyDraftToNewWorkout(
-        source,
-        await currentCatalogFor(source),
-        now,
-      );
-      const operations = new PendingDraftRepository(
-        repository,
-        await openDurableDraftStorage(),
-      );
-      const coordinator = new DraftSyncCoordinator(
-        accountId,
-        draft.draft_id,
-        operations,
-        { create: createWorkout, get: getWorkout, save: saveWorkout },
-        () => session.user?.id ?? null,
-      );
-      await coordinator.prepareCreate(draft);
-      await coordinator.sendCreate();
-      const acknowledged = await repository.get(
-        accountId,
-        draft.workout_id,
-        draft.draft_id,
-      );
-      if (!acknowledged)
-        throw new Error('The copied local workout is unavailable.');
-      releaseCurrentEditor();
-      await useEditor(acknowledged);
-      void replace(
-        `/workouts/${acknowledged.workout_id}?draft=${acknowledged.draft_id}`,
-      );
-    } catch (error) {
-      recoveryMessage = describeFailure(error);
-    } finally {
-      recoveryBusy = false;
-    }
-  }
-
-  async function useServerVersion(): Promise<void> {
-    if (
-      !sync ||
-      !window.confirm('Discard local changes and use the server version?')
-    )
-      return;
-    recoveryBusy = true;
-    await sync.useServerVersion();
-    recoveryBusy = false;
-  }
-
-  async function replaceServerVersion(): Promise<void> {
-    if (
-      !sync ||
-      !window.confirm(
-        'Replace the current server version with this entire local workout?',
-      )
-    )
-      return;
-    recoveryBusy = true;
-    await sync.replaceServerVersion();
-    recoveryBusy = false;
-  }
-
-  async function discardDeletedWorkout(): Promise<void> {
-    if (
-      !sync ||
-      !window.confirm(
-        'Discard this local copy? The server workout was deleted.',
-      )
-    )
-      return;
-    recoveryBusy = true;
-    try {
-      await sync.discardDeletedWorkout();
-      releaseCurrentEditor();
-      await replace('/');
-    } catch (error) {
-      recoveryMessage = describeFailure(error);
-    } finally {
-      recoveryBusy = false;
-    }
-  }
-
   async function reauthenticate(): Promise<void> {
     if (!sync || reauthBusy) return;
     reauthBusy = true;
@@ -327,7 +188,7 @@
       if (sync.status !== 'authentication_required') reauthOpen = false;
       else
         reauthMessage =
-          'This account does not own the draft. Sign in as the original account.';
+          'This account does not own the workout. Sign in as the original account.';
     } catch (error) {
       reauthMessage = describeFailure(error);
     } finally {
@@ -340,15 +201,7 @@
     return () => {
       alive = false;
       sync?.destroy();
-      // The document-local association intentionally survives route teardown,
-      // so returning to the session reuses the same editor identity.
     };
-  });
-
-  $effect(() => {
-    if (sync?.status === 'conflict' && sync.recoveryStatus === 'idle') {
-      void sync.loadRecovery();
-    }
   });
 </script>
 
@@ -358,32 +211,10 @@
 />
 
 {#if phase === 'loading'}
-  <h1 tabindex="-1">Preparing workout</h1>
-  <p role="status" class="mt-2 text-muted">
-    Creating or loading your locally persistent editor…
-  </p>
-{:else if phase === 'choosing'}
-  <h1 tabindex="-1">Choose a local draft</h1>
-  <p class="mt-2 text-muted">
-    Each tab keeps a separate editable recovery copy.
-  </p>
-  <ul class="mt-4 flex flex-col gap-2">
-    {#each choices as draft (draft.draft_id)}<li
-        class="rounded-lg border border-edge bg-surface p-4"
-      >
-        <p>Draft updated {draft.updated_at}</p>
-        <p class="text-sm text-muted">
-          Change {draft.change_number} · base revision {draft.base_revision}
-        </p>
-        <button
-          type="button"
-          class="mt-3 min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
-          onclick={() => void recover(draft)}>Recover this draft</button
-        >
-      </li>{/each}
-  </ul>
+  <h1 id="workout-loading-heading" tabindex="-1">Loading active workout</h1>
+  <p role="status" class="mt-2 text-muted">Getting the latest workout data…</p>
 {:else if phase === 'editing' && editor !== null && sync !== null}
-  <h1 tabindex="-1">
+  <h1 id="active-workout-heading" tabindex="-1">
     {pickerTarget === undefined
       ? 'Active workout'
       : pickerTarget === null
@@ -400,90 +231,30 @@
   />
   {#if sync.status === 'conflict'}
     <section
+      id="workout-sync-conflict"
       class="mt-4 rounded-lg border border-edge bg-surface p-4"
-      aria-labelledby="recovery-heading"
+      aria-labelledby="workout-conflict-heading"
     >
-      <h2 id="recovery-heading" class="font-semibold">Choose what to keep</h2>
+      <h2 id="workout-conflict-heading" class="font-semibold">
+        Workout changed elsewhere
+      </h2>
       <p class="mt-1 text-sm text-muted">
-        Changes are not merged automatically. Your local copy stays stored until
-        the selected action succeeds.
+        Reload to use the latest saved workout data. Unsynced changes in this
+        tab will be discarded.
       </p>
-      <p class="mt-2 text-sm">
-        Local copy: change {editor.current!.change_number}, based on revision
-        {editor.current!.base_revision}.
-      </p>
-      {#if sync.recoveryStatus === 'loading'}
-        <p role="status" class="mt-2 text-sm text-muted">
-          Loading server version…
-        </p>
-      {:else if sync.recoveryStatus === 'ready' && sync.serverCopy}
-        <p class="mt-2 text-sm">
-          Server copy: revision {sync.serverCopy.revision},
-          {sync.serverCopy.ended_at === null ? 'active' : 'finished'}.
-        </p>
-      {:else if sync.recoveryStatus === 'deleted'}
-        <p class="mt-2 text-sm">The server workout was deleted.</p>
-      {:else if sync.recoveryStatus === 'error'}
-        <button
-          type="button"
-          class="mt-3 min-h-11 rounded-md border border-edge px-3"
-          onclick={() => void sync?.loadRecovery()}>Retry server check</button
-        >
-      {/if}
-      {#if recoveryMessage}<p role="alert" class="mt-2 text-sm text-danger">
-          {recoveryMessage}
-        </p>{/if}
-      {#if sync.recoveryStatus === 'ready' || sync.recoveryStatus === 'deleted'}
-        <div class="mt-3 flex flex-wrap gap-2">
-          {#if sync.recoveryStatus === 'ready'}
-            <button
-              type="button"
-              disabled={recoveryBusy}
-              class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-              onclick={() => void useServerVersion()}>Use server version</button
-            >
-          {/if}
-          {#if sync.recoveryStatus === 'deleted' || sync.serverCopy?.ended_at !== null}
-            <button
-              type="button"
-              disabled={recoveryBusy}
-              class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-              onclick={() => void copyConflictToNew()}
-              >Copy local work to new workout</button
-            >
-          {:else}
-            <p class="text-sm text-muted">
-              Finish or discard the active server session before copying this
-              work to a new session.
-            </p>
-          {/if}
-          {#if sync.canReplaceServer}
-            <button
-              type="button"
-              disabled={recoveryBusy}
-              class="min-h-11 rounded-md bg-primary px-3 font-medium text-primary-content disabled:opacity-40"
-              onclick={() => void replaceServerVersion()}
-              >Replace server version</button
-            >
-          {/if}
-          {#if sync.recoveryStatus === 'deleted'}
-            <button
-              type="button"
-              disabled={recoveryBusy}
-              class="min-h-11 rounded-md border border-danger px-3 text-danger disabled:opacity-40"
-              onclick={() => void discardDeletedWorkout()}
-              >Discard local copy</button
-            >
-          {/if}
-        </div>
-      {/if}
+      <button
+        id="workout-reload-server-button"
+        type="button"
+        class="mt-3 min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
+        onclick={() => window.location.reload()}>Reload workout</button
+      >
     </section>
   {/if}
   {#if sync.status === 'authentication_required'}
     <section class="mt-4 rounded-lg border border-edge bg-surface p-4">
       <h2 class="font-semibold">Authentication required</h2>
       <p class="mt-1 text-sm text-muted">
-        Your local draft and any exact pending request are retained.
+        Your latest workout changes will resume after you sign in.
       </p>
       {#if !reauthOpen}
         <button

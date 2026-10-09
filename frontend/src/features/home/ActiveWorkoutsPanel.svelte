@@ -2,10 +2,8 @@
   import { onDestroy, onMount } from 'svelte';
   import { listWorkouts, type WorkoutSummary } from '../../api';
   import { describeFailure, isAbortError } from '../../lib/failures';
-  import { formatTimestampAtOffset } from '../../lib/offsetTime';
+  import { formatRelativeTime } from '../../lib/relativeTime';
   import { isUnauthorizedError, session } from '../auth/session.svelte';
-
-  let { utcOffsetMinutes }: { utcOffsetMinutes: number } = $props();
 
   const PAGE_SIZE = 5;
 
@@ -49,10 +47,7 @@
   }
 
   function startedAt(workout: WorkoutSummary): string {
-    return (
-      formatTimestampAtOffset(workout.started_at, utcOffsetMinutes) ??
-      workout.started_at
-    );
+    return formatRelativeTime(workout.started_at) ?? workout.started_at;
   }
 
   onMount(() => {

@@ -81,6 +81,8 @@ beforeEach(() => {
 describe('LoginRoute', () => {
   it('renders real labels and autocomplete attributes', () => {
     render(LoginRoute);
+    expect(document.getElementById('login-screen')).not.toBeNull();
+    expect(document.getElementById('login-logo-placeholder')).not.toBeNull();
     const email = screen.getByLabelText('Email');
     const password = screen.getByLabelText('Password');
     expect(email.getAttribute('autocomplete')).toBe('username');
@@ -88,6 +90,7 @@ describe('LoginRoute', () => {
     expect(password.getAttribute('autocomplete')).toBe('current-password');
     expect(password.getAttribute('type')).toBe('password');
     expect(screen.getByRole('button', { name: 'Log in' })).toBeDefined();
+    expect(document.getElementById('login-submit-button')).not.toBeNull();
   });
 
   it('blocks clearly invalid input without a request', async () => {

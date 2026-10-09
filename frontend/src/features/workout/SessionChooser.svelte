@@ -15,9 +15,7 @@
     try {
       const draft = await startSession(session.user.id);
       activeSession.setActive(draft.workout_id);
-      await push(
-        `/workouts/${draft.workout_id}?draft=${encodeURIComponent(draft.draft_id)}`,
-      );
+      await push(`/workouts/${draft.workout_id}`);
     } catch (error) {
       message = describeFailure(error);
       await activeSession.refresh(session.user.id);
@@ -43,6 +41,7 @@
   <div class="mt-5 grid gap-3">
     <button
       type="button"
+      id="start-freestyle-session-button"
       class="min-h-11 rounded-lg bg-primary px-4 text-left font-medium text-primary-content disabled:opacity-40"
       disabled={busy}
       onclick={() => void startFreestyle()}
@@ -50,6 +49,7 @@
       Freestyle session
     </button>
     <a
+      id="start-plan-session-link"
       href="#/training-plans"
       class="flex min-h-11 items-center rounded-lg border border-edge px-4 font-medium"
       >Plan session</a

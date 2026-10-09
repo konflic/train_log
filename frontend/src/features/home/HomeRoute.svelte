@@ -20,7 +20,7 @@
 {/if}
 
 <div class="mt-4 flex flex-col gap-4">
-  <ActiveWorkoutsPanel {utcOffsetMinutes} />
-  <RecentHistoryPanel {utcOffsetMinutes} />
+  <ActiveWorkoutsPanel />
+  <RecentHistoryPanel />
   <WeeklySummaryPanel {utcOffsetMinutes} />
 </div>
