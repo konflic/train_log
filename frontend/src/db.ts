@@ -773,9 +773,17 @@ function isPendingCreate(value: unknown): value is PendingCreate {
     isNonEmptyString(value.draft_id) &&
     isNonEmptyString(value.workout_id) &&
     isRecord(value.request) &&
-    fields(value.request, 'id started_at') &&
+    (fields(value.request, 'id started_at') ||
+      fields(value.request, 'id started_at session_type') ||
+      fields(
+        value.request,
+        'id started_at session_type source_plan_id source_plan_revision',
+      )) &&
     value.request.id === value.workout_id &&
     timestamp(value.request.started_at) &&
+    (value.request.session_type === undefined ||
+      value.request.session_type === 'freestyle' ||
+      value.request.session_type === 'from_plan') &&
     typeof value.prepared_change_number === 'number' &&
     Number.isSafeInteger(value.prepared_change_number) &&
     value.prepared_change_number >= 0 &&
@@ -810,8 +818,7 @@ function samePendingCreate(
     left.account_id === right.account_id &&
     left.draft_id === right.draft_id &&
     left.workout_id === right.workout_id &&
-    left.request.id === right.request.id &&
-    left.request.started_at === right.request.started_at &&
+    JSON.stringify(left.request) === JSON.stringify(right.request) &&
     left.prepared_change_number === right.prepared_change_number &&
     left.created_at === right.created_at
   );
@@ -1008,6 +1015,11 @@ export class PendingDraftRepository {
   async prepareCreate(
     accountId: string,
     draft: WorkoutDraft,
+    request: WorkoutCreateInput = {
+      id: draft.workout_id,
+      started_at: draft.started_at,
+      session_type: 'freestyle',
+    },
   ): Promise<PendingCreate> {
     if (!isWorkoutDraft(draft) || draft.account_id !== accountId) {
       throw new MalformedDraftError();
@@ -1016,7 +1028,7 @@ export class PendingDraftRepository {
       account_id: accountId,
       draft_id: draft.draft_id,
       workout_id: draft.workout_id,
-      request: { id: draft.workout_id, started_at: draft.started_at },
+      request,
       prepared_change_number: draft.change_number,
       created_at: new Date().toISOString(),
     };

@@ -129,17 +129,13 @@ describe('HomeRoute reads', () => {
     expect(screen.getByText('Signed in as Ada')).toBeDefined();
   });
 
-  it('renders empty states and a quick-start action', async () => {
+  it('renders empty states without a start-workout action', async () => {
     render(HomeRoute);
     await waitFor(() =>
       expect(screen.getByText(/No active workouts/)).toBeDefined(),
     );
     expect(screen.getByText(/No finished workouts yet/)).toBeDefined();
-    expect(
-      screen
-        .getByRole('link', { name: 'Quick start workout' })
-        .getAttribute('href'),
-    ).toBe('#/workouts/current');
+    expect(screen.queryByRole('link', { name: /start.*workout/i })).toBeNull();
   });
 
   it('isolates a failed panel and retries it without touching the others', async () => {

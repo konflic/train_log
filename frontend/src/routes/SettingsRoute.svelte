@@ -51,8 +51,7 @@
     if (profileBusy) return;
     const parsedBodyweight = wholePositiveOrNull(bodyweight);
     if (parsedBodyweight === undefined) {
-      profileError =
-        'Default bodyweight must be a whole positive kilogram value.';
+      profileError = 'Bodyweight must be a whole positive kilogram value.';
       return;
     }
     profileBusy = true;
@@ -151,6 +150,14 @@
       {themeMessage}
     </p>{/if}
 </section>
+<section class="mt-4 rounded-lg border border-edge bg-surface p-4">
+  <h2 class="text-lg font-semibold">Training</h2>
+  <a
+    href="#/training-plans"
+    class="mt-3 inline-flex min-h-11 items-center rounded-md border border-edge px-4"
+    >Manage training plans</a
+  >
+</section>
 <section
   class="mt-4 rounded-lg border border-edge bg-surface p-4"
   aria-labelledby="profile-heading"
@@ -171,7 +178,7 @@
       /></label
     >
     <label class="text-sm font-medium"
-      >Default bodyweight (kg)<input
+      >Bodyweight (kg)<input
         bind:value={bodyweight}
         inputmode="numeric"
         class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"

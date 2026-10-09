@@ -58,6 +58,7 @@ MAX_EXERCISE_NOTES_LENGTH = 300
 MAX_CATALOG_ID_LENGTH = 100
 
 WorkoutStatus = Literal["active", "finished"]
+WorkoutSessionType = Literal["freestyle", "from_plan"]
 Side = Literal["left", "right", "bilateral"]
 
 # Raw UUID text may carry hyphens, braces, or a `urn:uuid:` prefix; the parsed
@@ -112,6 +113,9 @@ class CreateWorkoutRequest(BaseModel):
 
     id: UuidText
     started_at: TimestampText
+    session_type: WorkoutSessionType = "freestyle"
+    source_plan_id: UuidText | None = None
+    source_plan_revision: NonNegativeInteger | None = None
 
     @field_validator("id")
     @classmethod
@@ -122,6 +126,20 @@ class CreateWorkoutRequest(BaseModel):
     @classmethod
     def _normalize_started_at(cls, value: str) -> str:
         return normalize_timestamp(value)
+
+    @field_validator("source_plan_id")
+    @classmethod
+    def _normalize_source_plan_id(cls, value: str | None) -> str | None:
+        return None if value is None else normalize_uuid(value)
+
+    @model_validator(mode="after")
+    def validate_session_source(self) -> CreateWorkoutRequest:
+        planned = self.session_type == "from_plan"
+        if planned != (self.source_plan_id is not None):
+            raise ValueError("source_plan_id is required only for from_plan sessions")
+        if planned != (self.source_plan_revision is not None):
+            raise ValueError("source_plan_revision is required only for from_plan sessions")
+        return self
 
 
 class SaveSetRequest(BaseModel):
@@ -353,6 +371,8 @@ class WorkoutSummaryResponse(BaseModel):
     ended_at: str | None
     bodyweight_kg: int | None
     revision: int
+    session_type: WorkoutSessionType | None
+    source_plan_id: str | None
 
 
 class WorkoutDetailResponse(BaseModel):
@@ -368,6 +388,8 @@ class WorkoutDetailResponse(BaseModel):
     bodyweight_kg: int | None
     revision: int
     last_save_id: str | None
+    session_type: WorkoutSessionType | None
+    source_plan_id: str | None
     exercises: list[ExerciseNodeResponse]
 
 

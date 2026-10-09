@@ -125,14 +125,18 @@ def finish_session(
     exercise_id: int = 1,
 ) -> str:
     """Create, fill, and finish one session through the public save protocol."""
+    if bodyweight_kg is not None:
+        profile = client.patch("/api/v1/auth/me", json={"bodyweight_default_kg": bodyweight_kg})
+        assert profile.status_code == 200, profile.text
     created = client.post(WORKOUTS_URL, json={"id": str(uuid.uuid4()), "started_at": started_at})
     assert created.status_code == 201, created.text
     workout_id = str(created.json()["id"])
+    recorded_bodyweight = created.json()["bodyweight_kg"]
     resolved_sets = sets if sets is not None else [set_body(uid(exercise_id * 100 + 1))]
     saved = client.put(
         f"{WORKOUTS_URL}/{workout_id}",
         json=save_body(
-            bodyweight_kg=bodyweight_kg,
+            bodyweight_kg=recorded_bodyweight,
             ended_at=ended_at,
             exercises=[
                 {

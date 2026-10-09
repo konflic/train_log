@@ -34,6 +34,7 @@ export type Equipment =
 
 export type LoadType = 'single_weight' | 'split_weight' | 'bodyweight';
 export type WorkoutStatus = 'active' | 'finished';
+export type WorkoutSessionType = 'freestyle' | 'from_plan';
 export type SetSide = 'left' | 'right' | 'bilateral';
 
 /** The only public user shape (auth endpoints). */
@@ -114,6 +115,8 @@ export interface WorkoutSummary {
   ended_at: string | null;
   bodyweight_kg: number | null;
   revision: number;
+  session_type?: WorkoutSessionType | null;
+  source_plan_id?: string | null;
 }
 
 export interface WorkoutPage {
@@ -134,6 +137,9 @@ export interface WorkoutListQuery {
 export interface WorkoutCreateInput {
   id: string;
   started_at: string;
+  session_type?: WorkoutSessionType;
+  source_plan_id?: string | null;
+  source_plan_revision?: number | null;
 }
 
 export interface SaveSetInput {
@@ -236,7 +242,63 @@ export interface WorkoutDetail {
   bodyweight_kg: number | null;
   revision: number;
   last_save_id: string | null;
+  session_type?: WorkoutSessionType | null;
+  source_plan_id?: string | null;
   exercises: ExerciseNode[];
+}
+
+export interface TrainingPlanSetInput {
+  target_reps: number | null;
+  target_weight_kg: number | null;
+  side: SetSide;
+  bw_percent_override: number | null;
+}
+
+export interface TrainingPlanExerciseInput {
+  catalog_id: string;
+  notes: string | null;
+  sets: TrainingPlanSetInput[];
+}
+
+export interface TrainingPlanContent {
+  name: string;
+  notes: string | null;
+  exercises: TrainingPlanExerciseInput[];
+}
+
+export interface TrainingPlanSet extends TrainingPlanSetInput {
+  id: string;
+  set_index: number;
+}
+
+export interface TrainingPlanExercise {
+  id: string;
+  catalog_id: string;
+  order_index: number;
+  notes: string | null;
+  sets: TrainingPlanSet[];
+}
+
+export interface TrainingPlan {
+  id: string;
+  name: string;
+  notes: string | null;
+  revision: number;
+  exercises: TrainingPlanExercise[];
+}
+
+export interface TrainingPlanSummary {
+  id: string;
+  name: string;
+  notes: string | null;
+  revision: number;
+}
+
+export interface TrainingPlanPage {
+  items: TrainingPlanSummary[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface MuscleGroupFrequency {
@@ -662,6 +724,67 @@ export function deleteWorkout(
     query: listQuery([['revision', revision]]),
     signal,
   });
+}
+
+// --- Training plans ---------------------------------------------------------
+
+export function listTrainingPlans(
+  page = 1,
+  pageSize = 50,
+  signal?: AbortSignal,
+): Promise<TrainingPlanPage> {
+  return sendJson<TrainingPlanPage>('GET', '/training-plans', {
+    query: listQuery([
+      ['page', page],
+      ['pageSize', pageSize],
+    ]),
+    signal,
+  });
+}
+
+export function getTrainingPlan(
+  planId: string,
+  signal?: AbortSignal,
+): Promise<TrainingPlan> {
+  return sendJson<TrainingPlan>(
+    'GET',
+    `/training-plans/${encodeURIComponent(planId)}`,
+    { signal },
+  );
+}
+
+export function createTrainingPlan(
+  input: TrainingPlanContent,
+  signal?: AbortSignal,
+): Promise<TrainingPlan> {
+  return sendJson<TrainingPlan>('POST', '/training-plans', {
+    body: input,
+    signal,
+  });
+}
+
+export function updateTrainingPlan(
+  planId: string,
+  input: TrainingPlanContent & { revision: number },
+  signal?: AbortSignal,
+): Promise<TrainingPlan> {
+  return sendJson<TrainingPlan>(
+    'PUT',
+    `/training-plans/${encodeURIComponent(planId)}`,
+    { body: input, signal },
+  );
+}
+
+export function deleteTrainingPlan(
+  planId: string,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendNoContent(
+    'DELETE',
+    `/training-plans/${encodeURIComponent(planId)}`,
+    { query: listQuery([['revision', revision]]), signal },
+  );
 }
 
 /** GET /stats/summary: bounded statistics for inclusive local-date bounds. */

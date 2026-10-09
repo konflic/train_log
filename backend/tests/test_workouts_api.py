@@ -41,9 +41,20 @@ DETAIL_FIELDS = {
     "bodyweight_kg",
     "revision",
     "last_save_id",
+    "session_type",
+    "source_plan_id",
     "exercises",
 }
-SUMMARY_FIELDS = {"id", "name", "started_at", "ended_at", "bodyweight_kg", "revision"}
+SUMMARY_FIELDS = {
+    "id",
+    "name",
+    "started_at",
+    "ended_at",
+    "bodyweight_kg",
+    "revision",
+    "session_type",
+    "source_plan_id",
+}
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "code", "request_id"}
 
 
@@ -139,6 +150,8 @@ def test_create_returns_authoritative_detail(api_client: TestClient) -> None:
     assert body["bodyweight_kg"] == 80
     assert body["revision"] == 0
     assert body["last_save_id"] is None
+    assert body["session_type"] == "freestyle"
+    assert body["source_plan_id"] is None
     assert body["exercises"] == []
 
 
@@ -319,6 +332,8 @@ def test_get_detail_returns_full_graph(api_client: TestClient, migrated_db: Path
         "bodyweight_kg": 75,
         "revision": 2,
         "last_save_id": "save-1",
+        "session_type": None,
+        "source_plan_id": None,
         "exercises": [
             {
                 "id": "e-1",
@@ -399,12 +414,18 @@ def test_get_detail_foreign_or_unknown_404(make_app) -> None:
 
 def seed_listing(client: TestClient, database_path: Path) -> list[str]:
     """Three own workouts (one finished) plus one foreign; returns own ids."""
-    ids = [
-        create_workout(client, started_at="2026-01-01T08:00:00Z").json()["id"],
-        create_workout(client, started_at="2026-01-02T08:00:00Z").json()["id"],
-        create_workout(client, started_at="2026-01-03T22:00:00Z").json()["id"],
-    ]
-    finish_workout(database_path, ids[1], "2026-01-02T09:30:00Z")
+    user_id = str(client.get("/api/v1/auth/me").json()["id"])
+    ids = [str(uuid.uuid4()) for _ in range(3)]
+    with connect(database_path) as conn, write_transaction(conn):
+        insert_workout(conn, ids[0], user_id=user_id, started_at="2026-01-01T08:00:00Z")
+        insert_workout(
+            conn,
+            ids[1],
+            user_id=user_id,
+            started_at="2026-01-02T08:00:00Z",
+            ended_at="2026-01-02T09:30:00Z",
+        )
+        insert_workout(conn, ids[2], user_id=user_id, started_at="2026-01-03T22:00:00Z")
     return ids
 
 
@@ -523,6 +544,7 @@ def test_recorded_bodyweight_survives_profile_edits(
     assert update_profile(api_client, bodyweight_default_kg=95).status_code == 200
     # The recorded snapshot is unchanged; new workouts record the new default.
     assert api_client.get(f"{WORKOUTS_URL}/{workout_id}").json()["bodyweight_kg"] == 80
+    finish_workout(migrated_db, workout_id, "2026-01-01T09:00:00Z")
     new_id = create_workout(api_client).json()["id"]
     assert api_client.get(f"{WORKOUTS_URL}/{new_id}").json()["bodyweight_kg"] == 95
     listing = api_client.get(WORKOUTS_URL).json()
@@ -538,6 +560,7 @@ def test_profile_bodyweight_cleared_after_create_keeps_snapshot(
     assert update_profile(api_client, bodyweight_default_kg=80).status_code == 200
     workout_id = create_workout(api_client).json()["id"]
     assert update_profile(api_client, bodyweight_default_kg=None).status_code == 200
+    finish_workout(migrated_db, workout_id, "2026-01-01T09:00:00Z")
     assert create_workout(api_client).json()["bodyweight_kg"] is None
     assert api_client.get(f"{WORKOUTS_URL}/{workout_id}").json()["bodyweight_kg"] == 80
 

@@ -274,10 +274,13 @@ export class DraftSyncCoordinator {
       base_detail_id: detail.id,
       base_revision: detail.revision,
       started_at: detail.started_at,
-      content: {
-        ...draft.content,
-        bodyweight_kg: detail.bodyweight_kg,
-      },
+      content:
+        detail.exercises.length > 0
+          ? contentFromDetail(detail, draft.content.raw_fields)
+          : {
+              ...draft.content,
+              bodyweight_kg: detail.bodyweight_kg,
+            },
       updated_at: new Date().toISOString(),
     };
     // A create response is empty by design. Keep the locally prepared graph and

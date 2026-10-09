@@ -13,7 +13,6 @@
   } from '../../api';
   import {
     DraftRepository,
-    createDraftId,
     createRecoveryDraft,
     openDraftStorage,
     openDurableDraftStorage,
@@ -32,11 +31,10 @@
   import WorkoutEditor from './WorkoutEditor.svelte';
   import { copyDraftToNewWorkout, draftFromDetail } from './model';
   import { WorkoutSyncController } from './sync.svelte';
+  import { activeSession } from './activeSession.svelte';
 
   let { params = {} }: { params?: { id?: string } } = $props();
-  const workoutId = $derived(
-    params.id ?? (router.location === '/workouts/current' ? 'current' : 'new'),
-  );
+  const workoutId = $derived(params.id ?? 'current');
   const preferredDraftId = $derived(
     new URLSearchParams(router.querystring ?? '').get('draft'),
   );
@@ -51,8 +49,6 @@
   let message = $state('');
   let catalog = $state<Exercise[]>([]);
   let catalogMessage = $state<string | null>(null);
-  let createCoordinator = $state<DraftSyncCoordinator | null>(null);
-  let pendingCreateDraftId = $state<string | null>(null);
   let reauthOpen = $state(false);
   let reauthEmail = $state('');
   let reauthPassword = $state('');
@@ -69,7 +65,6 @@
     try {
       repository = new DraftRepository(await openDraftStorage());
       if (workoutId === 'current') await openCurrent();
-      else if (workoutId === 'new') await quickStart();
       else await resume(workoutId);
     } catch (error) {
       if (!alive) return;
@@ -85,14 +80,15 @@
       pageSize: 1,
     });
     const current = active.items[0];
-    await replace(current ? `/workouts/${current.id}` : '/workouts/new');
+    await replace(current ? `/workouts/${current.id}` : '/workouts/start');
   }
 
   async function useEditor(draft: WorkoutDraft): Promise<void> {
     if (!repository || !accountId) return;
     const key = editorKey(accountId, draft.workout_id);
     editorAssociations.associate(key, draft.draft_id);
-    const active = new LocalDraftEditor(repository, draft);
+    const active =
+      localEditors.get(key) ?? new LocalDraftEditor(repository, draft);
     localEditors.set(key, active);
     editor = active;
     const operations = new PendingDraftRepository(
@@ -107,6 +103,7 @@
       onFinished: () => {
         editorAssociations.release(key, draft.draft_id);
         localEditors.delete(key);
+        activeSession.clear(draft.workout_id);
         phase = 'finished';
         void replace(`/workouts/${draft.workout_id}`);
       },
@@ -119,96 +116,16 @@
     // check is still in flight; otherwise a concurrent deletion can race the
     // first load and lock input before the user can make a local edit.
     phase = 'editing';
-  }
-
-  async function quickStart(): Promise<void> {
-    if (!repository || !accountId) return;
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-    const draft: WorkoutDraft = {
-      account_id: accountId,
-      workout_id: createDraftId(),
-      draft_id: createDraftId(),
-      base_detail_id: '',
-      base_revision: 0,
-      started_at: now,
-      content: {
-        name: null,
-        notes: null,
-        bodyweight_kg: null,
-        ended_at: null,
-        exercises: [],
-        raw_fields: {},
-        recorded_load_snapshots: {},
-        provisional_load_snapshots: {},
-      },
-      change_number: 0,
-      acknowledged_change_number: 0,
-      created_at: now,
-      updated_at: now,
-    };
-    // A newly created workout must satisfy the persisted-draft invariant before
-    // the POST is allowed to leave the browser.
-    draft.base_detail_id = draft.workout_id;
-    const operations = new PendingDraftRepository(
-      repository,
-      await openDurableDraftStorage(),
-    );
-    createCoordinator = new DraftSyncCoordinator(
-      accountId,
-      draft.draft_id,
-      operations,
-      {
-        create: createWorkout,
-        get: getWorkout,
-        save: async () => getWorkout(draft.workout_id),
-      },
-      () => session.user?.id ?? null,
-    );
-    pendingCreateDraftId = draft.draft_id;
-    await createCoordinator.prepareCreate(draft);
-    try {
-      await createCoordinator.sendCreate();
-    } catch (error) {
-      message =
-        'Workout creation is pending. Retry uses the same saved workout ID.';
-      phase = 'error';
-      throw error;
-    }
-    const acknowledged = await repository.get(
-      accountId,
-      draft.workout_id,
-      draft.draft_id,
-    );
-    if (!acknowledged)
-      throw new Error('The created local workout is unavailable.');
-    await useEditor(acknowledged);
-    void replace(`/workouts/${draft.workout_id}?draft=${draft.draft_id}`);
-  }
-
-  async function retryCreate(): Promise<void> {
-    if (!createCoordinator) return;
-    phase = 'loading';
-    try {
-      await createCoordinator.sendCreate();
-      if (!repository || !accountId) return;
-      const drafts = await repository.listByAccount(accountId);
-      const acknowledged = drafts.drafts.find(
-        (draft) => draft.draft_id === pendingCreateDraftId,
-      );
-      if (!acknowledged)
-        throw new Error('The created local workout is unavailable.');
-      await useEditor(acknowledged);
-      void replace(
-        `/workouts/${acknowledged.workout_id}?draft=${acknowledged.draft_id}`,
-      );
-    } catch (error) {
-      message = describeFailure(error);
-      phase = 'error';
-    }
+    activeSession.setActive(draft.workout_id);
   }
 
   async function resume(id: string): Promise<void> {
     if (!repository || !accountId) return;
+    const documentEditor = localEditors.get(editorKey(accountId, id));
+    if (documentEditor?.current) {
+      await useEditor($state.snapshot(documentEditor.current));
+      return;
+    }
     const existing = await repository.listByAccountWorkout(accountId, id);
     const preferred = existing.drafts.find(
       (draft) => draft.draft_id === preferredDraftId,
@@ -398,12 +315,8 @@
     return () => {
       alive = false;
       sync?.destroy();
-      if (editor?.current) {
-        editorAssociations.release(
-          editorKey(editor.current.account_id, editor.current.workout_id),
-          editor.current.draft_id,
-        );
-      }
+      // The document-local association intentionally survives route teardown,
+      // so returning to the session reuses the same editor identity.
     };
   });
 
@@ -498,13 +411,20 @@
               onclick={() => void useServerVersion()}>Use server version</button
             >
           {/if}
-          <button
-            type="button"
-            disabled={recoveryBusy}
-            class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-            onclick={() => void copyConflictToNew()}
-            >Copy local work to new workout</button
-          >
+          {#if sync.recoveryStatus === 'deleted' || sync.serverCopy?.ended_at !== null}
+            <button
+              type="button"
+              disabled={recoveryBusy}
+              class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
+              onclick={() => void copyConflictToNew()}
+              >Copy local work to new workout</button
+            >
+          {:else}
+            <p class="text-sm text-muted">
+              Finish or discard the active server session before copying this
+              work to a new session.
+            </p>
+          {/if}
           {#if sync.canReplaceServer}
             <button
               type="button"
@@ -597,12 +517,8 @@
 {:else}
   <h1 tabindex="-1">Workout unavailable</h1>
   <p role="alert" class="mt-2 text-danger">{message}</p>
-  {#if createCoordinator}<button
-      type="button"
-      class="mt-4 min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
-      onclick={() => void retryCreate()}>Retry workout creation</button
-    >{:else}<a
-      class="mt-4 inline-flex min-h-11 items-center rounded-md border border-edge px-4"
-      href="#/">Back home</a
-    >{/if}
+  <a
+    class="mt-4 inline-flex min-h-11 items-center rounded-md border border-edge px-4"
+    href="#/">Back home</a
+  >
 {/if}

@@ -19,11 +19,6 @@
   </p>
 {/if}
 
-<a
-  href="#/workouts/current"
-  class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-4 font-medium text-primary-content"
-  >Quick start workout</a
->
 <div class="mt-4 flex flex-col gap-4">
   <ActiveWorkoutsPanel {utcOffsetMinutes} />
   <RecentHistoryPanel {utcOffsetMinutes} />

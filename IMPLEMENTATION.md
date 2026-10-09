@@ -84,6 +84,12 @@ remain out of scope.
   is deferred beyond the MVP. Gate G12c/G12 passed locally on 2026-10-08 with 192
   unit, 38 Chromium, and 643 backend tests; detailed evidence is in the Stage 12c
   contract.
+- **Workout-session redesign (Stages 12d-12g):** implemented on branch
+  `workout-session-flow-redesign`. Explicit freestyle/plan starts, account-wide
+  single-active enforcement, reusable training plans, Settings-only bodyweight
+  snapshots, shell-level resume state, and stable navigation/recovery replace
+  quick start and routine draft selection. Local gate evidence: 649 backend
+  tests, 196 frontend unit tests, production build, and 40 Chromium tests.
 - **Next:** Stage 13 history/detail and remaining Settings work.
 
 ## Documentation ownership
@@ -147,7 +153,7 @@ development or production database.
 | C. Frontend | **9** | Frontend foundation, theme, router, API and integer helpers | Component/unit tests against backend | 2 |
 | C | **10** | Auth, read-only Home, Catalog | Component + Playwright | 2.5 |
 | C | **11a-11c** | IndexedDB drafts, durable pending work, recovery/account handling | Three coordinator/browser gates | 3 |
-| C | **12a-12c** | Editor, synchronization/finish, conflict recovery | Three editor/E2E gates | 4 |
+| C | **12a-12g** | Editor, sync/finish, recovery, explicit sessions, training plans | Backend, unit, build, and browser gates | 4 |
 | C | **13** | History/detail, Settings, logout | Playwright | 2.5 |
 | D. Operations | **14** | Minimal admin API/panel, account controls, audit | Admin API/security + Playwright | 3 |
 | E. Hardening | **15** | Acceptance evidence and production deployment smoke | Full CI + deployment/restart checks | 4 |
@@ -412,6 +418,24 @@ uses independent graph IDs and visibly handles unavailable/incompatible entries.
 > tested with invited QA/beta users on a dedicated human-QA database separate
 > from production and automated E2E. Stage 15 remains the production gate.
 
+#### Stages 12d-12g - Workout session flow redesign
+
+**Status:** implemented on branch `workout-session-flow-redesign`; combined gate
+passed locally on 2026-10-09.
+
+**Detailed plan and completion evidence:**
+[`implementation/workout-session-flow-redesign.md`](implementation/workout-session-flow-redesign.md).
+
+Replace route-triggered quick start with an explicit chooser, enforce one active
+session per account, keep the shell's center action tied to the authoritative
+active session, make bodyweight a Settings-derived immutable snapshot, and add
+owner-scoped reusable training plans with atomic independent graph copying.
+
+**Gate G12d-G12g:** exact/concurrent starts, plan ownership/revisions and graph
+copying, bodyweight immutability, no-side-effect browsing, navigation/reload,
+offline/conflict recovery, production build, and complete backend/frontend suites
+pass. Copy-to-new remains unavailable while an active server session exists.
+
 ### Stage 13 - History/detail, Settings, and logout
 
 **Detailed plan:**
@@ -518,15 +542,15 @@ as they merge.
 | # | Check | Stages that prove it |
 |---|-------|----------------------|
 | 1 | Offline edit -> reload -> reconnect recovers every acknowledged edit | 11a-11c, 12a-12b, 15 |
-| 2 | Lost create/save/finish retry has no duplicate/regeneration/double increment/early delete | 5, 6c, 7, 11b, 12b, 13, 15 |
+| 2 | Explicit start/no-side-effect browsing and lost create/save/finish retry preserve one identity | 5, 6c, 7, 11b, 12b, 12d-12g, 13, 15 |
 | 3 | In-flight save response cannot overwrite newer edits | 11b, 12b, 15 |
 | 4 | Two tabs conflict atomically and preserve both drafts | 6c, 11a, 11c, 12c, 15 |
 | 5 | Finish accepts unsynced sets atomically | 6c, 12b, 15 |
 | 6 | Foreign workout/nested/catalog IDs never leak or partially write | 3-6c, 15 |
 | 7 | Reorder/remove/add works under unique indexes | 6b, 12a, 15 |
-| 8 | Explicit conflict choices preserve work without silent merging | 11c, 12c, 15 |
+| 8 | Explicit conflict choices preserve work without silent merging or a second active session | 11c, 12c, 12d-12g, 15 |
 | 9 | Strict integers, floor arithmetic, negative/unknown cases | 2, 4-7, 8a-8b, 9, 15 |
-| 10 | Profile/catalog edits do not rewrite recorded totals | 5, 8a-8b, 13, 15 |
+| 10 | Immutable bodyweight/plan snapshots and profile/catalog edits preserve history | 5, 8a-8b, 12d-12g, 13, 15 |
 | 11 | Session expiry/account switch/delete recovery preserves or explicitly discards drafts | 3, 7, 11b-11c, 12b, 13, 15 |
 | 12 | CSRF/cookies/logout and secret-free output | 3, 13-15 |
 | 13 | Backup restore and older-schema upgrade preserve data/indexes/FKs | 1, 14, 15 |

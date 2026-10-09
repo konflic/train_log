@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import {
     DraftRepository,
-    createRecoveryDraft,
     openDraftStorage,
     type WorkoutDraft,
   } from '../../db';
@@ -33,11 +32,11 @@
   async function recover(source: WorkoutDraft): Promise<void> {
     if (!repository) return;
     try {
-      const draft = createRecoveryDraft($state.snapshot(source));
-      await repository.put(accountId, draft);
+      const draft = $state.snapshot(source);
       const key = editorKey(accountId, draft.workout_id);
       editorAssociations.associate(key, draft.draft_id);
-      const active = new LocalDraftEditor(repository, draft);
+      const active =
+        localEditors.get(key) ?? new LocalDraftEditor(repository, draft);
       localEditors.set(key, active);
       editor = active;
     } catch (cause) {

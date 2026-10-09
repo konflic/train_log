@@ -108,8 +108,11 @@ test.describe('read-only home', () => {
     );
 
     await expect(
-      page.getByRole('link', { name: 'Quick start workout' }),
-    ).toHaveAttribute('href', '#/workouts/current');
+      page.getByRole('link', { name: 'Start workout session' }),
+    ).toBeVisible();
+    await expect(page.getByRole('main')).not.toContainText(
+      'Quick start workout',
+    );
   });
 });
 

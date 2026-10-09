@@ -59,6 +59,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -85,6 +86,8 @@ WORKOUT_COLUMNS = (
     "last_save_hash",
     "created_at",
     "updated_at",
+    "session_type",
+    "source_plan_id",
 )
 
 EXERCISE_COLUMNS = (
@@ -115,6 +118,14 @@ SQLITE_MAX_INTEGER = (1 << 63) - 1
 
 class CreateConflictError(Exception):
     """The workout id exists with different content or a different owner."""
+
+
+class ActiveSessionConflictError(Exception):
+    """A different unfinished workout already belongs to the account."""
+
+
+class PlanRevisionConflictError(Exception):
+    """The selected plan changed after it was previewed."""
 
 
 class WorkoutNotFoundError(Exception):
@@ -179,6 +190,8 @@ class WorkoutRecord:
     last_save_hash: str | None
     created_at: str
     updated_at: str
+    session_type: str | None
+    source_plan_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,6 +452,8 @@ def row_to_workout(row: sqlite3.Row) -> WorkoutRecord:
         last_save_hash=row["last_save_hash"],
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
+        session_type=row["session_type"],
+        source_plan_id=row["source_plan_id"],
     )
 
 
@@ -937,6 +952,10 @@ def save_workout(
             raise WorkoutFinishedError(stored.revision)
         if stored.revision >= MAX_SAFE_INTEGER:
             raise RevisionExhaustedError(stored.revision)
+        if payload.bodyweight_kg != stored.bodyweight_kg:
+            raise GraphValidationError(
+                "bodyweight_kg", "recorded bodyweight is a read-only Settings snapshot"
+            )
 
         # Exact retries and protocol conflicts resolved above do not need the
         # clock. For a new save, one timestamp is both the finish ceiling and
@@ -1019,7 +1038,16 @@ def delete_workout(
         )
 
 
-def create_request_hash(*, user_id: str, workout_id: str, started_at: str) -> str:
+def create_request_hash(
+    *,
+    user_id: str,
+    workout_id: str,
+    started_at: str,
+    session_type: str = "freestyle",
+    source_plan_id: str | None = None,
+    source_plan_revision: int | None = None,
+    legacy_shape: bool = False,
+) -> str:
     """Fingerprint a validated create request canonically (PLAN.md §6).
 
     The owner is part of the fingerprint: two users submitting identical
@@ -1027,8 +1055,19 @@ def create_request_hash(*, user_id: str, workout_id: str, started_at: str) -> st
     overwrite another user's row. Compact sorted-key JSON over already
     normalized values makes the hash independent of field order and spelling.
     """
+    content: dict[str, object] = {
+        "user_id": user_id,
+        "id": workout_id,
+        "started_at": started_at,
+    }
+    if not legacy_shape:
+        content.update(
+            session_type=session_type,
+            source_plan_id=source_plan_id,
+            source_plan_revision=source_plan_revision,
+        )
     canonical = json.dumps(
-        {"user_id": user_id, "id": workout_id, "started_at": started_at},
+        content,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
@@ -1043,6 +1082,9 @@ def create_workout(
     workout_id: str,
     started_at: str,
     request_hash: str,
+    session_type: str = "freestyle",
+    source_plan_id: str | None = None,
+    source_plan_revision: int | None = None,
 ) -> tuple[WorkoutRecord, bool]:
     """Insert an empty active workout at revision 0; return it plus `created`.
 
@@ -1054,6 +1096,58 @@ def create_workout(
     """
     now = now_timestamp()
     with connect(database_path) as conn, write_transaction(conn):
+        existing = conn.execute(
+            f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts WHERE id = :id",
+            {"id": workout_id},
+        ).fetchone()
+        if existing is not None:
+            if (
+                str(existing["user_id"]) != owner_id
+                or str(existing["create_request_hash"]) != request_hash
+            ):
+                raise CreateConflictError(workout_id)
+            return row_to_workout(existing), False
+
+        active = conn.execute(
+            "SELECT id FROM workouts WHERE user_id = :owner_id AND ended_at IS NULL LIMIT 1",
+            {"owner_id": owner_id},
+        ).fetchone()
+        if active is not None:
+            raise ActiveSessionConflictError(str(active["id"]))
+
+        plan = None
+        plan_exercises: list[sqlite3.Row] = []
+        plan_sets: dict[str, list[sqlite3.Row]] = {}
+        if session_type == "from_plan":
+            plan = conn.execute(
+                "SELECT id, name, revision FROM training_plans "
+                "WHERE id = :id AND user_id = :owner_id",
+                {"id": source_plan_id, "owner_id": owner_id},
+            ).fetchone()
+            if plan is None:
+                raise CatalogUnavailableError
+            if int(plan["revision"]) != source_plan_revision:
+                raise PlanRevisionConflictError
+            plan_exercises = conn.execute(
+                "SELECT pe.id, pe.catalog_id, pe.order_index, pe.notes, c.load_type, "
+                "c.bodyweight_percent, c.side_count FROM training_plan_exercises pe "
+                "JOIN exercise_catalog c ON c.id = pe.catalog_id "
+                "WHERE pe.plan_id = ? ORDER BY pe.order_index",
+                (source_plan_id,),
+            ).fetchall()
+            plan_exercise_ids = [str(item["id"]) for item in plan_exercises]
+            plan_sets = {item: [] for item in plan_exercise_ids}
+            if plan_exercise_ids:
+                placeholders = ", ".join("?" for _ in plan_exercise_ids)
+                for item in conn.execute(
+                    "SELECT plan_exercise_id, set_index, target_reps, target_weight_kg, "
+                    "side, bw_percent_override FROM training_plan_sets "
+                    f"WHERE plan_exercise_id IN ({placeholders}) "
+                    "ORDER BY plan_exercise_id, set_index",
+                    plan_exercise_ids,
+                ).fetchall():
+                    plan_sets[str(item["plan_exercise_id"])].append(item)
+
         profile = conn.execute(
             "SELECT bodyweight_default_kg FROM users WHERE id = :owner_id",
             {"owner_id": owner_id},
@@ -1063,9 +1157,11 @@ def create_workout(
             conn.execute(
                 "INSERT INTO workouts (id, user_id, name, started_at, ended_at, "
                 "notes, bodyweight_kg, revision, create_request_hash, "
-                "last_save_id, last_save_hash, created_at, updated_at) "
+                "last_save_id, last_save_hash, created_at, updated_at, session_type, "
+                "source_plan_id) "
                 "VALUES (:id, :user_id, NULL, :started_at, NULL, NULL, "
-                ":bodyweight_kg, 0, :create_request_hash, NULL, NULL, :now, :now)",
+                ":bodyweight_kg, 0, :create_request_hash, NULL, NULL, :now, :now, "
+                ":session_type, :source_plan_id)",
                 {
                     "id": workout_id,
                     "user_id": owner_id,
@@ -1073,12 +1169,16 @@ def create_workout(
                     "bodyweight_kg": bodyweight_kg,
                     "create_request_hash": request_hash,
                     "now": now,
+                    "session_type": session_type,
+                    "source_plan_id": source_plan_id,
                 },
             )
         except sqlite3.IntegrityError as exc:
             # The primary key is the authoritative race check: re-read the
             # winner and accept only an exact owner+fingerprint match. A
             # missing owner fails the user FK and is re-raised unchanged.
+            if "workouts.user_id" in str(exc):
+                raise ActiveSessionConflictError(owner_id) from exc
             if "workouts.id" not in str(exc):
                 raise
             existing = conn.execute(
@@ -1092,24 +1192,48 @@ def create_workout(
             ):
                 raise CreateConflictError(workout_id) from exc
             return row_to_workout(existing), False
-        return (
-            WorkoutRecord(
-                id=workout_id,
-                user_id=owner_id,
-                name=None,
-                started_at=started_at,
-                ended_at=None,
-                notes=None,
-                bodyweight_kg=bodyweight_kg,
-                revision=0,
-                create_request_hash=request_hash,
-                last_save_id=None,
-                last_save_hash=None,
-                created_at=now,
-                updated_at=now,
-            ),
-            True,
-        )
+        if plan is not None:
+            conn.execute(
+                "UPDATE workouts SET name = ? WHERE id = ?", (str(plan["name"]), workout_id)
+            )
+            for plan_exercise in plan_exercises:
+                exercise_id = str(uuid.uuid4())
+                conn.execute(
+                    "INSERT INTO exercises (id, workout_id, catalog_id, order_index, notes, "
+                    "load_type, bodyweight_percent, side_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        exercise_id,
+                        workout_id,
+                        str(plan_exercise["catalog_id"]),
+                        int(plan_exercise["order_index"]),
+                        plan_exercise["notes"],
+                        str(plan_exercise["load_type"]),
+                        plan_exercise["bodyweight_percent"],
+                        int(plan_exercise["side_count"]),
+                    ),
+                )
+                conn.executemany(
+                    "INSERT INTO sets (id, exercise_id, set_index, reps, weight_kg, "
+                    "bw_percent_override, rpe, side, done) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0)",
+                    [
+                        (
+                            str(uuid.uuid4()),
+                            exercise_id,
+                            int(item["set_index"]),
+                            item["target_reps"],
+                            item["target_weight_kg"],
+                            item["bw_percent_override"],
+                            str(item["side"]),
+                        )
+                        for item in plan_sets[str(plan_exercise["id"])]
+                    ],
+                )
+        created = conn.execute(
+            f"SELECT {', '.join(WORKOUT_COLUMNS)} FROM workouts WHERE id = ?", (workout_id,)
+        ).fetchone()
+        if created is None:
+            raise RuntimeError("created workout vanished")
+        return row_to_workout(created), True
 
 
 def local_date_bounds(

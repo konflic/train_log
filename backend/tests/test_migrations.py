@@ -22,6 +22,9 @@ EXPECTED_TABLES = {
     "workout_save_previous_performance",
     "exercises",
     "sets",
+    "training_plans",
+    "training_plan_exercises",
+    "training_plan_sets",
     "schema_migrations",
 }
 
@@ -31,6 +34,9 @@ EXPECTED_INDEXES = {
     "uidx_exercise_catalog_owner_name",
     "idx_workouts_user_started",
     "idx_exercises_catalog_workout",
+    "idx_training_plans_user_name",
+    "idx_training_plan_exercises_catalog",
+    "uidx_workouts_one_explicit_active",
 }
 
 
@@ -46,6 +52,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
         "0001_initial_schema",
         "0002_seed_catalog",
         "0003_save_previous_performance_receipt",
+        "0004_workout_sessions_and_training_plans",
     ]
 
     with connect(database_path) as conn:
@@ -76,7 +83,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3]
+        assert versions == [1, 2, 3, 4]
 
         seed = conn.execute(
             "SELECT COUNT(*) AS n FROM exercise_catalog WHERE is_default = 1 AND created_by IS NULL"
@@ -247,10 +254,16 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         insert_user(txn, bodyweight_default_kg=81, utc_offset_minutes=180)
         insert_catalog_entry(txn, name="My Curl")
         insert_workout(txn, bodyweight_kg=80)
+        insert_workout(
+            txn,
+            "workout-legacy-2",
+            started_at="2025-01-02T12:00:00Z",
+            create_request_hash="legacy-create-2",
+        )
         insert_exercise(txn, catalog_id="cat-custom-1")
         insert_set(txn, reps=8, weight_kg=12, done=1)
 
-    assert [m.version for m in migrate.migrate(database_path)] == [2, 3]
+    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4]
 
     with connect(database_path) as conn:
         user = conn.execute(
@@ -274,6 +287,13 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         assert int(set_row["reps"]) == 8
         assert int(set_row["weight_kg"]) == 12
 
+        legacy_active = conn.execute(
+            "SELECT COUNT(*) FROM workouts "
+            "WHERE user_id = 'user-1' AND ended_at IS NULL AND session_type IS NULL"
+        ).fetchone()
+        assert legacy_active is not None
+        assert int(legacy_active[0]) == 2
+
         indexes = {
             row["name"]
             for row in conn.execute(
@@ -292,4 +312,4 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3]
+        assert versions == [1, 2, 3, 4]
