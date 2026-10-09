@@ -38,6 +38,7 @@
   } = $props();
   let pickerOpen = $state(false);
   let pickerTarget = $state<string | null>(null);
+  let completionErrors = $state<Record<string, string>>({});
 
   const content = $derived(editor.current!.content);
   const total = $derived(provisionalTotal(content));
@@ -48,15 +49,12 @@
     else void editor.edit(next);
   }
 
-  function updateText(field: 'name' | 'notes', value: string): void {
-    edit({ ...structuredClone(content), [field]: value === '' ? null : value });
-  }
-
   function updateSet(
     exerciseId: string,
     setId: string,
     patch: Partial<SaveSetInput>,
   ): void {
+    clearCompletionError(setId);
     const next = structuredClone(content);
     const exercise = next.exercises.find((item) => item.id === exerciseId);
     const set = exercise?.sets.find((item) => item.id === setId);
@@ -65,11 +63,34 @@
     edit(next);
   }
 
-  function updateExercise(exerciseId: string, notes: string): void {
+  function clearCompletionError(setId: string): void {
+    if (!(setId in completionErrors)) return;
+    const next = { ...completionErrors };
+    delete next[setId];
+    completionErrors = next;
+  }
+
+  function updateIntegerField(
+    setId: string,
+    field: 'reps' | 'weight_kg' | 'bw_percent_override' | 'rpe',
+    raw: string,
+  ): void {
+    clearCompletionError(setId);
+    edit(updateInteger(content, setId, field, raw));
+  }
+
+  function completeSet(exerciseId: string, setId: string): void {
     const next = structuredClone(content);
     const exercise = next.exercises.find((item) => item.id === exerciseId);
-    if (!exercise) return;
-    exercise.notes = notes === '' ? null : notes;
+    const set = exercise?.sets.find((item) => item.id === setId);
+    if (!exercise || !set) return;
+    set.done = true;
+    const error = setError(next, exercise, set);
+    if (error) {
+      completionErrors = { ...completionErrors, [setId]: error };
+      return;
+    }
+    clearCompletionError(setId);
     edit(next);
   }
 
@@ -130,6 +151,12 @@
     edit(next);
   }
 
+  function confirmRemoveExercise(exercise: SaveExerciseInput): void {
+    if (!window.confirm(`Remove ${exerciseName(exercise)} from this workout?`))
+      return;
+    removeExercise(exercise.id);
+  }
+
   function moveExercise(index: number, direction: -1 | 1): void {
     const next = structuredClone(content);
     const target = index + direction;
@@ -159,7 +186,11 @@
   function removeSet(exerciseId: string, setId: string): void {
     const next = structuredClone(content);
     const exercise = next.exercises.find((item) => item.id === exerciseId);
-    if (!exercise) return;
+    if (
+      !exercise ||
+      exercise.sets.some((item) => item.id === setId && item.done)
+    )
+      return;
     exercise.sets = exercise.sets.filter((item) => item.id !== setId);
     for (const field of ['reps', 'weight_kg', 'bw_percent_override', 'rpe'])
       delete next.raw_fields[fieldKey(setId, field)];
@@ -170,7 +201,14 @@
     const next = structuredClone(content);
     const sets = next.exercises.find((item) => item.id === exerciseId)?.sets;
     const target = index + direction;
-    if (!sets || target < 0 || target >= sets.length) return;
+    if (
+      !sets ||
+      target < 0 ||
+      target >= sets.length ||
+      sets[index].done ||
+      sets[target].done
+    )
+      return;
     [sets[index], sets[target]] = [sets[target], sets[index]];
     edit(next);
   }
@@ -300,7 +338,11 @@
         maxlength="100"
         disabled={locked}
         value={content.name ?? ''}
-        oninput={(event) => updateText('name', event.currentTarget.value)}
+        oninput={(event) =>
+          edit({
+            ...structuredClone(content),
+            name: event.currentTarget.value || null,
+          })}
       />
     </div>
     <p class="text-sm text-muted">
@@ -310,38 +352,25 @@
         : `${content.bodyweight_kg} kg`}. Change bodyweight in Settings for
       future sessions.
     </p>
-    <div>
-      <label class="block text-sm font-medium" for="workout-notes">Notes</label>
-      <textarea
-        id="workout-notes"
-        class="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        maxlength="2000"
-        disabled={locked}
-        value={content.notes ?? ''}
-        oninput={(event) => updateText('notes', event.currentTarget.value)}
-      ></textarea>
-    </div>
+    <section aria-labelledby="provisional-total">
+      <h2 id="provisional-total" class="font-semibold">
+        Provisional completed-set total
+      </h2>
+      <p class="mt-1">
+        {total.knownVolume === null
+          ? 'Unknown'
+          : `${total.knownVolume} kg·reps`} from
+        {total.completedSetCount} completed {total.completedSetCount === 1
+          ? 'set'
+          : 'sets'}.
+      </p>
+      {#if total.unknownSetCount > 0}<p class="text-sm text-muted">
+          {total.unknownSetCount} completed {total.unknownSetCount === 1
+            ? 'set has'
+            : 'sets have'} an unknown load.
+        </p>{/if}
+    </section>
   </div>
-
-  <section
-    class="rounded-lg border border-edge bg-surface p-4"
-    aria-labelledby="provisional-total"
-  >
-    <h2 id="provisional-total" class="font-semibold">
-      Provisional completed-set total
-    </h2>
-    <p class="mt-1">
-      {total.knownVolume === null ? 'Unknown' : `${total.knownVolume} kg·reps`} from
-      {total.completedSetCount} completed {total.completedSetCount === 1
-        ? 'set'
-        : 'sets'}.
-    </p>
-    {#if total.unknownSetCount > 0}<p class="text-sm text-muted">
-        {total.unknownSetCount} completed {total.unknownSetCount === 1
-          ? 'set has'
-          : 'sets have'} an unknown load.
-      </p>{/if}
-  </section>
 
   <button
     type="button"
@@ -409,35 +438,35 @@
               : 'Whole kilograms'}
           </p>
         </div>
-        <button
-          type="button"
-          class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
-          aria-label={`Remove ${exerciseName(exercise)}`}
-          title={`Remove ${exerciseName(exercise)}`}
-          disabled={locked}
-          onclick={() => removeExercise(exercise.id)}
-          ><ActionIcon name="remove" /></button
-        >
-      </div>
-      <div class="mt-2 flex gap-2">
-        <button
-          type="button"
-          class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-          disabled={locked || exerciseIndex === 0}
-          aria-label={`Move ${exerciseName(exercise)} up`}
-          title={`Move ${exerciseName(exercise)} up`}
-          onclick={() => moveExercise(exerciseIndex, -1)}
-          ><ActionIcon name="up" /></button
-        >
-        <button
-          type="button"
-          class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-          disabled={locked || exerciseIndex === content.exercises.length - 1}
-          aria-label={`Move ${exerciseName(exercise)} down`}
-          title={`Move ${exerciseName(exercise)} down`}
-          onclick={() => moveExercise(exerciseIndex, 1)}
-          ><ActionIcon name="down" /></button
-        >
+        <div class="flex shrink-0 gap-2">
+          <button
+            type="button"
+            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
+            disabled={locked || exerciseIndex === 0}
+            aria-label={`Move ${exerciseName(exercise)} up`}
+            title={`Move ${exerciseName(exercise)} up`}
+            onclick={() => moveExercise(exerciseIndex, -1)}
+            ><ActionIcon name="up" /></button
+          >
+          <button
+            type="button"
+            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
+            disabled={locked || exerciseIndex === content.exercises.length - 1}
+            aria-label={`Move ${exerciseName(exercise)} down`}
+            title={`Move ${exerciseName(exercise)} down`}
+            onclick={() => moveExercise(exerciseIndex, 1)}
+            ><ActionIcon name="down" /></button
+          >
+          <button
+            type="button"
+            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
+            aria-label={`Remove ${exerciseName(exercise)}`}
+            title={`Remove ${exerciseName(exercise)}`}
+            disabled={locked}
+            onclick={() => confirmRemoveExercise(exercise)}
+            ><ActionIcon name="remove" /></button
+          >
+        </div>
       </div>
       {#if catalogIssue(content, exercise.id)}
         <p role="alert" class="mt-2 text-sm text-danger">
@@ -450,24 +479,15 @@
           onclick={() => choosePicker(exercise.id)}>Replace exercise</button
         >
       {/if}
-      <label
-        class="mt-3 block text-sm font-medium"
-        for={`exercise-notes-${exercise.id}`}>Exercise notes</label
-      >
-      <textarea
-        id={`exercise-notes-${exercise.id}`}
-        class="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        maxlength="300"
-        disabled={locked}
-        value={exercise.notes ?? ''}
-        oninput={(event) =>
-          updateExercise(exercise.id, event.currentTarget.value)}></textarea>
       <div class="mt-4 flex flex-col gap-3">
         {#each exercise.sets as set, setIndex (set.id)}
           {@const error = setError(content, exercise, set)}
+          {@const validationError = error ?? completionErrors[set.id]}
           <fieldset
             class="rounded-md border border-edge p-3"
-            aria-describedby={error ? `set-error-${set.id}` : undefined}
+            aria-describedby={validationError
+              ? `set-error-${set.id}`
+              : undefined}
           >
             <legend class="px-1 font-medium">Set {setIndex + 1}</legend>
             <div class="grid grid-cols-2 gap-3">
@@ -475,17 +495,14 @@
                 >Reps<input
                   inputmode="numeric"
                   step="1"
-                  disabled={locked}
+                  disabled={locked || set.done}
                   class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                   value={rawValue(content, set, 'reps')}
                   oninput={(event) =>
-                    edit(
-                      updateInteger(
-                        content,
-                        set.id,
-                        'reps',
-                        event.currentTarget.value,
-                      ),
+                    updateIntegerField(
+                      set.id,
+                      'reps',
+                      event.currentTarget.value,
                     )}
                 /></label
               >
@@ -494,36 +511,30 @@
                   >Weight (kg)<input
                     inputmode="numeric"
                     step="1"
-                    disabled={locked}
+                    disabled={locked || set.done}
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={rawValue(content, set, 'weight_kg')}
                     oninput={(event) =>
-                      edit(
-                        updateInteger(
-                          content,
-                          set.id,
-                          'weight_kg',
-                          event.currentTarget.value,
-                        ),
+                      updateIntegerField(
+                        set.id,
+                        'weight_kg',
+                        event.currentTarget.value,
                       )}
                   /></label
                 >{/if}
-              {#if snapshot?.bodyweight_percent !== null}<label
+              {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
                   class="text-sm font-medium"
                   >Bodyweight % override<input
                     inputmode="numeric"
                     step="1"
-                    disabled={locked}
+                    disabled={locked || set.done}
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={rawValue(content, set, 'bw_percent_override')}
                     oninput={(event) =>
-                      edit(
-                        updateInteger(
-                          content,
-                          set.id,
-                          'bw_percent_override',
-                          event.currentTarget.value,
-                        ),
+                      updateIntegerField(
+                        set.id,
+                        'bw_percent_override',
+                        event.currentTarget.value,
                       )}
                   /></label
                 >{/if}
@@ -532,7 +543,7 @@
                   >Side<select
                     class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
                     value={set.side}
-                    disabled={locked}
+                    disabled={locked || set.done}
                     onchange={(event) =>
                       updateSet(exercise.id, set.id, {
                         side: event.currentTarget.value as SaveSetInput['side'],
@@ -543,32 +554,39 @@
                   ></label
                 >{/if}
             </div>
-            {#if error}<p
+            {#if validationError}<p
                 id={`set-error-${set.id}`}
                 role="alert"
                 class="mt-2 text-sm text-danger"
               >
-                {error}
+                {validationError}
               </p>{/if}
             <div class="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                aria-pressed={set.done}
-                aria-label={set.done
-                  ? `Mark set ${setIndex + 1} incomplete`
-                  : `Mark set ${setIndex + 1} completed`}
-                class="min-h-11 rounded-md border px-3 font-medium {set.done
-                  ? 'border-primary bg-primary text-primary-content'
-                  : 'border-edge'}"
-                disabled={locked}
-                onclick={() =>
-                  updateSet(exercise.id, set.id, { done: !set.done })}
-                >{set.done ? 'Completed' : 'Mark completed'}</button
-              >
+              {#if set.done}<button
+                  type="button"
+                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+                  aria-label={`Edit set ${setIndex + 1}`}
+                  title={`Edit set ${setIndex + 1}`}
+                  disabled={locked}
+                  onclick={() =>
+                    updateSet(exercise.id, set.id, { done: false })}
+                  ><ActionIcon name="edit" /></button
+                >{:else}<button
+                  type="button"
+                  aria-label={`Mark set ${setIndex + 1} completed`}
+                  title={`Mark set ${setIndex + 1} completed`}
+                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+                  disabled={locked}
+                  onclick={() => completeSet(exercise.id, set.id)}
+                  ><ActionIcon name="finish" /></button
+                >{/if}
               <button
                 type="button"
                 class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={locked || setIndex === 0}
+                disabled={locked ||
+                  set.done ||
+                  setIndex === 0 ||
+                  exercise.sets[setIndex - 1].done}
                 aria-label={`Move set ${setIndex + 1} up`}
                 title={`Move set ${setIndex + 1} up`}
                 onclick={() => moveSet(exercise.id, setIndex, -1)}
@@ -576,17 +594,20 @@
               ><button
                 type="button"
                 class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={locked || setIndex === exercise.sets.length - 1}
+                disabled={locked ||
+                  set.done ||
+                  setIndex === exercise.sets.length - 1 ||
+                  exercise.sets[setIndex + 1].done}
                 aria-label={`Move set ${setIndex + 1} down`}
                 title={`Move set ${setIndex + 1} down`}
                 onclick={() => moveSet(exercise.id, setIndex, 1)}
                 ><ActionIcon name="down" /></button
               ><button
                 type="button"
-                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3"
+                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
                 aria-label={`Remove set ${setIndex + 1}`}
                 title={`Remove set ${setIndex + 1}`}
-                disabled={locked}
+                disabled={locked || set.done}
                 onclick={() => removeSet(exercise.id, set.id)}
                 ><ActionIcon name="remove" /></button
               >

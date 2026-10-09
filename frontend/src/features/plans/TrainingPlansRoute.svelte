@@ -280,7 +280,7 @@
                     ))}
                 /></label
               >{/if}
-            {#if entry?.bodyweight_percent !== null && entry?.bodyweight_percent !== undefined}<label
+            {#if entry?.load_type !== 'bodyweight' && entry?.bodyweight_percent !== null && entry?.bodyweight_percent !== undefined}<label
                 class="text-sm"
                 >Bodyweight % override<input
                   type="number"

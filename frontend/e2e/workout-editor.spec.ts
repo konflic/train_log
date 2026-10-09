@@ -186,7 +186,7 @@ test.describe('synchronized workout editor', () => {
     await expect(exercise.getByLabel('Weight (kg)')).toHaveValue('12');
     await expect(
       exercise.getByRole('button', { name: 'Mark set 1 completed' }),
-    ).toHaveAttribute('aria-pressed', 'false');
+    ).toBeVisible();
   });
 
   test('starts freestyle, autosaves a graph, and recovers its acknowledged draft', async ({
@@ -212,14 +212,27 @@ test.describe('synchronized workout editor', () => {
     await page.getByRole('button', { name: 'Bench Press' }).click();
     const exercise = page.getByLabel('Bench Press editor');
     await expect(exercise.getByLabel('RPE')).toHaveCount(0);
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await exercise.getByRole('button', { name: 'Remove Bench Press' }).click();
+    await expect(exercise).toBeVisible();
     await exercise.getByLabel('Reps').fill('8');
+    await exercise
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
+    await expect(exercise.getByRole('alert')).toContainText(
+      'A completed weighted set needs a weight.',
+    );
+    await expect(
+      exercise.getByRole('button', { name: 'Mark set 1 completed' }),
+    ).toBeVisible();
     await exercise.getByLabel('Weight (kg)').fill('50');
     await exercise
       .getByRole('button', { name: 'Mark set 1 completed' })
       .click();
     await expect(
-      exercise.getByRole('button', { name: 'Mark set 1 incomplete' }),
-    ).toHaveAttribute('aria-pressed', 'true');
+      exercise.getByRole('button', { name: 'Edit set 1' }),
+    ).toBeVisible();
+    await expect(exercise.getByLabel('Reps')).toBeDisabled();
     await expect(
       page.getByText('400 kg·reps from 1 completed set.'),
     ).toBeVisible();
@@ -243,6 +256,10 @@ test.describe('synchronized workout editor', () => {
       'Synced at revision 2',
     );
     expect(putCount).toBe(2);
+    await exercise.getByRole('button', { name: 'Edit set 1' }).click();
+    await expect(
+      exercise.getByRole('group', { name: 'Set 1' }).getByLabel('Reps'),
+    ).toBeEnabled();
   });
 
   test('finishes the latest locally saved graph in one final PUT', async ({
@@ -573,7 +590,6 @@ test.describe('synchronized workout editor', () => {
     await page.getByLabel('Workout name').fill('Server version');
     await expect(page.getByRole('status')).toContainText('revision 1');
     await second.getByLabel('Workout name').fill('Preserved local version');
-    await second.getByLabel('Notes').fill('Keep local notes');
     await expect(second.getByRole('status')).toContainText('Conflict');
     await expect(
       second.getByRole('button', { name: 'Copy local work to new workout' }),
@@ -584,7 +600,6 @@ test.describe('synchronized workout editor', () => {
     await expect(second.getByLabel('Workout name')).toHaveValue(
       'Preserved local version',
     );
-    await expect(second.getByLabel('Notes')).toHaveValue('Keep local notes');
     expect((await workoutDetail(second, sourceId)).name).toBe('Server version');
     const activeCount = await second.evaluate(async () => {
       const response = await fetch('/api/v1/workouts?status=active');
