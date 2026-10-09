@@ -5,6 +5,17 @@ function workoutIdOf(url: string): string {
   return new URL(url).hash.split('/').at(-1)!.split('?')[0];
 }
 
+async function startFreestyle(
+  page: import('@playwright/test').Page,
+): Promise<void> {
+  await page.getByRole('link', { name: 'Start workout session' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Choose session type' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Freestyle session' }).click();
+  await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+}
+
 async function workoutDetail(
   page: import('@playwright/test').Page,
   id: string,
@@ -49,20 +60,136 @@ async function deleteWorkout(
 }
 
 test.describe('synchronized workout editor', () => {
-  test('opens the sole current workout from the center navigation action', async ({
+  test('opens the chooser without starting and then resumes the started session', async ({
     page,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Current workout' }).click();
+    await page.getByRole('link', { name: 'Start workout session' }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Choose session type' }),
+    ).toBeVisible();
+    const before = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/workouts?status=active');
+      return (await response.json()).total;
+    });
+    expect(before).toBe(0);
+    await page.getByRole('button', { name: 'Freestyle session' }).click();
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     const workoutId = workoutIdOf(page.url());
 
     await page.getByRole('link', { name: 'Home' }).click();
-    await page.getByRole('link', { name: 'Current workout' }).click();
+    await page.getByRole('link', { name: 'Resume active session' }).click();
     await expect(page).toHaveURL(new RegExp(`#/workouts/${workoutId}`));
   });
 
-  test('quick-starts, autosaves a graph, and recovers its acknowledged draft', async ({
+  test('keeps one session and removes the rejected start from local recovery', async ({
+    page,
+    context,
+  }) => {
+    await gotoSignedIn(page);
+    const second = await context.newPage();
+    await gotoApp(second);
+    await Promise.all(
+      [page, second].map(async (current) => {
+        await current
+          .getByRole('link', { name: 'Start workout session' })
+          .click();
+        await expect(
+          current.getByRole('heading', { name: 'Choose session type' }),
+        ).toBeVisible();
+      }),
+    );
+
+    await Promise.all(
+      [page, second].map((current) =>
+        current.getByRole('button', { name: 'Freestyle session' }).click(),
+      ),
+    );
+    await expect
+      .poll(
+        () =>
+          [page, second].filter((current) =>
+            /#\/workouts\/[0-9a-f-]+\?draft=/.test(current.url()),
+          ).length,
+      )
+      .toBe(1);
+    const rejected = /\?draft=/.test(page.url()) ? second : page;
+    await expect(rejected.getByRole('alert')).toContainText(
+      'active workout session already exists',
+    );
+
+    const activeCount = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/workouts?status=active');
+      return (await response.json()).total;
+    });
+    expect(activeCount).toBe(1);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            new Promise<{ drafts: number; creates: number }>(
+              (resolve, reject) => {
+                const request = indexedDB.open('basefit-drafts');
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                  const database = request.result;
+                  const transaction = database.transaction(
+                    ['drafts', 'pending_creates'],
+                    'readonly',
+                  );
+                  const drafts = transaction.objectStore('drafts').count();
+                  const creates = transaction
+                    .objectStore('pending_creates')
+                    .count();
+                  transaction.oncomplete = () =>
+                    resolve({ drafts: drafts.result, creates: creates.result });
+                  transaction.onerror = () => reject(transaction.error);
+                };
+              },
+            ),
+        ),
+      )
+      .toEqual({ drafts: 1, creates: 0 });
+  });
+
+  test('creates a plan without starting and explicitly starts its copied graph', async ({
+    page,
+  }) => {
+    await gotoSignedIn(page);
+    await page.getByRole('link', { name: 'Start workout session' }).click();
+    await page.getByRole('link', { name: 'Plan session' }).click();
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Training plans' }),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Create plan' }).click();
+    await page.getByLabel('Name').fill('Arms plan');
+    await page.getByRole('button', { name: 'Add exercise' }).click();
+    await page
+      .getByLabel('Exercise 1')
+      .selectOption({ label: 'Dumbbell Curl' });
+    await page.getByLabel('Target reps').fill('8');
+    await page.getByLabel('Target kg').fill('12');
+    await page.getByRole('button', { name: 'Save plan' }).click();
+
+    const beforeStart = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/workouts?status=active');
+      return (await response.json()).total;
+    });
+    expect(beforeStart).toBe(0);
+
+    const plan = page.getByRole('listitem').filter({ hasText: 'Arms plan' });
+    await plan.getByRole('button', { name: 'Start session' }).click();
+    await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    const exercise = page.getByLabel('Dumbbell Curl editor');
+    await expect(exercise.getByLabel('Reps')).toHaveValue('8');
+    await expect(exercise.getByLabel('Weight (kg)')).toHaveValue('12');
+    await expect(
+      exercise.getByRole('button', { name: 'Mark set 1 completed' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('starts freestyle, autosaves a graph, and recovers its acknowledged draft', async ({
     page,
   }) => {
     await gotoSignedIn(page);
@@ -72,7 +199,7 @@ test.describe('synchronized workout editor', () => {
       await route.continue();
     });
 
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     await expect(
       page.getByRole('heading', { level: 1, name: 'Active workout' }),
@@ -122,7 +249,7 @@ test.describe('synchronized workout editor', () => {
     page,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await page.getByRole('button', { name: 'Add exercise' }).click();
     await page.getByRole('button', { name: 'Bench Press' }).click();
     const exercise = page.getByLabel('Bench Press editor');
@@ -173,7 +300,7 @@ test.describe('synchronized workout editor', () => {
       await route.continue();
     });
 
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await page.getByRole('button', { name: 'Add exercise' }).click();
     await page.getByRole('button', { name: 'Bench Press' }).click();
     const weight = page
@@ -227,7 +354,7 @@ test.describe('synchronized workout editor', () => {
       }
     });
 
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await page.getByLabel('Workout name').fill('Exact retry');
     await expect(page.getByRole('status')).toContainText('Offline');
     await page.getByRole('button', { name: 'Save now' }).click();
@@ -271,7 +398,7 @@ test.describe('synchronized workout editor', () => {
       }
     });
 
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page.getByRole('status')).toContainText(
       'Synced at revision 0',
     );
@@ -298,7 +425,7 @@ test.describe('synchronized workout editor', () => {
     context,
   }) => {
     const email = await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page.getByRole('status')).toContainText(
       'Synced at revision 0',
     );
@@ -323,7 +450,7 @@ test.describe('synchronized workout editor', () => {
     page,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page.getByRole('status')).toContainText(
       'Synced at revision 0',
     );
@@ -354,7 +481,7 @@ test.describe('synchronized workout editor', () => {
     context,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page.getByRole('status')).toContainText(
       'Synced at revision 0',
     );
@@ -404,7 +531,7 @@ test.describe('synchronized workout editor', () => {
     context,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     const workoutId = workoutIdOf(page.url());
     const second = await context.newPage();
@@ -430,12 +557,12 @@ test.describe('synchronized workout editor', () => {
     );
   });
 
-  test('copies retained local conflict work to an independently identified workout', async ({
+  test('does not copy conflict work while the account has an active session', async ({
     page,
     context,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     const sourceId = workoutIdOf(page.url());
     const second = await context.newPage();
@@ -448,22 +575,22 @@ test.describe('synchronized workout editor', () => {
     await second.getByLabel('Workout name').fill('Preserved local version');
     await second.getByLabel('Notes').fill('Keep local notes');
     await expect(second.getByRole('status')).toContainText('Conflict');
-    await second
-      .getByRole('button', { name: 'Copy local work to new workout' })
-      .click();
-
-    await expect(second).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
-    const copiedId = workoutIdOf(second.url());
-    expect(copiedId).not.toBe(sourceId);
-    await expect(second.getByRole('status')).toContainText('revision 1');
+    await expect(
+      second.getByRole('button', { name: 'Copy local work to new workout' }),
+    ).toHaveCount(0);
+    await expect(second.getByLabel('Choose what to keep')).toContainText(
+      'Finish or discard the active server session',
+    );
     await expect(second.getByLabel('Workout name')).toHaveValue(
       'Preserved local version',
     );
     await expect(second.getByLabel('Notes')).toHaveValue('Keep local notes');
     expect((await workoutDetail(second, sourceId)).name).toBe('Server version');
-    expect((await workoutDetail(second, copiedId)).name).toBe(
-      'Preserved local version',
-    );
+    const activeCount = await second.evaluate(async () => {
+      const response = await fetch('/api/v1/workouts?status=active');
+      return (await response.json()).total;
+    });
+    expect(activeCount).toBe(1);
   });
 
   test('offers only copy or discard after the server workout is deleted', async ({
@@ -471,7 +598,7 @@ test.describe('synchronized workout editor', () => {
     context,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     const workoutId = workoutIdOf(page.url());
     const second = await context.newPage();
@@ -509,7 +636,7 @@ test.describe('synchronized workout editor', () => {
     context,
   }) => {
     await gotoSignedIn(page);
-    await page.getByRole('link', { name: 'Quick start workout' }).click();
+    await startFreestyle(page);
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
     const workoutId = workoutIdOf(page.url());
     const second = await context.newPage();

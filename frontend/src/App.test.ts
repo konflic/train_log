@@ -191,13 +191,19 @@ describe('authenticated application shell', () => {
     const links = nav.querySelectorAll('a');
     expect(
       Array.from(links).map((link) => link.getAttribute('aria-label')),
-    ).toEqual(['Home', 'Catalog', 'Current workout', 'History', 'Settings']);
+    ).toEqual([
+      'Home',
+      'Catalog',
+      'Start workout session',
+      'History',
+      'Settings',
+    ]);
     expect(nav.querySelectorAll('svg')).toHaveLength(5);
     expect(
       screen
-        .getByRole('link', { name: 'Current workout' })
+        .getByRole('link', { name: 'Start workout session' })
         .getAttribute('href'),
-    ).toBe('#/workouts/current');
+    ).toBe('#/workouts/start');
     // Keyboard-visible navigation: real anchors with hash targets.
     for (const link of links) {
       expect(link.getAttribute('href')).toMatch(/^#\//);

@@ -181,14 +181,22 @@ def seed_finished_session(
     bodyweight_kg: int | None = None,
 ) -> tuple[str, str, list[str]]:
     """Create, fill, and finish one session; returns its id, exercise id, set ids."""
+    if bodyweight_kg is not None:
+        assert (
+            client.patch(
+                "/api/v1/auth/me", json={"bodyweight_default_kg": bodyweight_kg}
+            ).status_code
+            == 200
+        )
     workout_id = create(client, started_at)
+    recorded_bodyweight = detail(client, workout_id)["bodyweight_kg"]
     resolved_sets = sets if sets is not None else [set_body(uid(exercise_id * 10 + 1))]
     save(
         client,
         workout_id,
         save_body(
             revision=0,
-            bodyweight_kg=bodyweight_kg,
+            bodyweight_kg=recorded_bodyweight,
             ended_at=ended_at,
             exercises=[exercise_body(uid(exercise_id), sets=resolved_sets)],
         ),
@@ -490,6 +498,7 @@ def test_profile_and_catalog_edits_do_not_change_reported_history(alice: TestCli
     assert created.status_code == 201
     catalog_id = str(created.json()["id"])
 
+    assert alice.patch("/api/v1/auth/me", json={"bodyweight_default_kg": 75}).status_code == 200
     previous_id = create(alice, PREVIOUS_START)
     save(
         alice,
@@ -539,6 +548,7 @@ def test_recorded_bodyweights_drive_the_comparison(alice: TestClient) -> None:
     previous_id, _, _ = seed_finished_session(
         alice, sets=[set_body(uid(11), reps=8, weight_kg=100)], bodyweight_kg=70
     )
+    assert alice.patch("/api/v1/auth/me", json={"bodyweight_default_kg": 90}).status_code == 200
     current_id = create(alice, CURRENT_START)
     saved = save(
         alice,

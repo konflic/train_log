@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from helpers import insert_workout
 
 from app.db import connect, write_transaction
 from app.numbers import MAX_SAFE_INTEGER
@@ -48,6 +49,8 @@ DETAIL_FIELDS = {
     "bodyweight_kg",
     "revision",
     "last_save_id",
+    "session_type",
+    "source_plan_id",
     "exercises",
 }
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "code", "request_id"}
@@ -214,6 +217,9 @@ def test_put_follows_csrf_and_json_conventions(make_app) -> None:
 
 def test_save_returns_authoritative_detail_and_receipt(api_client: TestClient) -> None:
     register_and_login(api_client)
+    assert (
+        api_client.patch("/api/v1/auth/me", json={"bodyweight_default_kg": 82}).status_code == 200
+    )
     workout_id = create(api_client)
     body = save_body(
         revision=0,
@@ -522,9 +528,11 @@ def test_foreign_workout_save_is_404(make_app, migrated_db: Path) -> None:
 
 
 def test_graph_and_catalog_conflicts_are_generic(make_app, migrated_db: Path) -> None:
-    with two_users(make_app) as (alice, bob, _alice_id, _bob_id):
+    with two_users(make_app) as (alice, bob, alice_id, _bob_id):
         first_id = create(alice)
-        second_id = create(alice)
+        second_id = str(uuid.uuid4())
+        with connect(migrated_db) as conn, write_transaction(conn):
+            insert_workout(conn, second_id, user_id=alice_id, started_at=STARTED_AT)
         seeded = save_body(
             revision=0,
             save_id=SAVE_1,

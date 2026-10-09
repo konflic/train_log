@@ -11,6 +11,7 @@
   } from './features/auth/session.svelte';
   import CatalogRoute from './features/catalog/CatalogRoute.svelte';
   import HomeRoute from './features/home/HomeRoute.svelte';
+  import TrainingPlansRoute from './features/plans/TrainingPlansRoute.svelte';
   import { initializeTheme } from './lib/theme';
   import HistoryRoute from './routes/HistoryRoute.svelte';
   import WorkoutDetailRoute from './routes/WorkoutDetailRoute.svelte';
@@ -18,6 +19,8 @@
   import SettingsRoute from './routes/SettingsRoute.svelte';
   import WorkoutRoute from './features/workout/WorkoutRoute.svelte';
   import OfflineRecovery from './features/workout/OfflineRecovery.svelte';
+  import SessionChooser from './features/workout/SessionChooser.svelte';
+  import { activeSession } from './features/workout/activeSession.svelte';
 
   let {
     draftHarness: DraftHarness,
@@ -33,6 +36,8 @@
     '/history': HistoryRoute,
     '/history/:id': WorkoutDetailRoute,
     '/settings': SettingsRoute,
+    '/training-plans': TrainingPlansRoute,
+    '/workouts/start': SessionChooser,
     '/workouts/current': WorkoutRoute,
     '/workouts/:id': WorkoutRoute,
     '/login': LoginRoute,
@@ -48,7 +53,11 @@
   }> = [
     { path: '/', label: 'Home', icon: 'home' },
     { path: '/catalog', label: 'Catalog', icon: 'catalog' },
-    { path: '/workouts/current', label: 'Current workout', icon: 'workout' },
+    {
+      path: '/workouts/start',
+      label: 'Start workout session',
+      icon: 'workout',
+    },
     { path: '/history', label: 'History', icon: 'history' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
@@ -65,7 +74,7 @@
 
   function isCurrentPage(path: string): boolean {
     const current = router.location;
-    if (path === '/workouts/current') return current.startsWith('/workouts/');
+    if (path === '/workouts/start') return current.startsWith('/workouts/');
     return path === '/'
       ? current === '/'
       : current === path || current.startsWith(`${path}/`);
@@ -101,11 +110,41 @@
       void replace('/login');
     }
   });
+
+  $effect(() => {
+    const accountId = session.user?.id;
+    if (session.status === 'authenticated' && accountId) {
+      void activeSession.refresh(accountId);
+    } else if (session.status === 'anonymous') {
+      activeSession.reset();
+    }
+  });
+
+  const workoutPath = $derived(
+    activeSession.workoutId === null
+      ? '/workouts/start'
+      : `/workouts/${activeSession.workoutId}`,
+  );
+
+  function navPath(path: string): string {
+    return path === '/workouts/start' ? workoutPath : path;
+  }
+
+  function navLabel(path: string, label: string): string {
+    if (path !== '/workouts/start') return label;
+    if (activeSession.workoutId !== null) return 'Resume active session';
+    if (activeSession.status === 'loading') return label;
+    if (activeSession.status === 'error') return 'Retry workout session check';
+    return label;
+  }
 </script>
 
 <svelte:window
   onstorage={(event) => {
     if (isRecoveryContextEvent(event)) session.refreshRecoveryContext();
+  }}
+  onfocus={() => {
+    if (session.user) void activeSession.refresh(session.user.id);
   }}
 />
 
@@ -178,15 +217,21 @@
         {#each navItems as item (item.path)}
           <li class="flex-1">
             <a
-              href="#{item.path}"
-              aria-label={item.label}
+              href="#{navPath(item.path)}"
+              aria-label={navLabel(item.path, item.label)}
               aria-current={isCurrentPage(item.path) ? 'page' : undefined}
-              title={item.label}
+              title={navLabel(item.path, item.label)}
               class="flex min-h-11 min-w-11 w-full items-center justify-center px-2 py-3 {isCurrentPage(
                 item.path,
               )
                 ? 'text-primary'
-                : 'text-muted'}"
+                : 'text-muted'} {item.path === '/workouts/start' &&
+              activeSession.workoutId !== null
+                ? 'text-sync-ok drop-shadow-[0_0_6px_currentColor]'
+                : ''} {item.path === '/workouts/start' &&
+              activeSession.status === 'loading'
+                ? 'animate-pulse'
+                : ''}"
             >
               <ActionIcon name={item.icon} size={22} />
             </a>

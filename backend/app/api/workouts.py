@@ -42,7 +42,7 @@ percentages stay a client calculation over the shared BigInt floor helper.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import BeforeValidator
@@ -64,16 +64,19 @@ from app.schemas.workouts import (
     SetValuesResponse,
     WorkoutDetailResponse,
     WorkoutListResponse,
+    WorkoutSessionType,
     WorkoutStatus,
     WorkoutSummaryResponse,
 )
 from app.services import workouts
 from app.services.workouts import (
+    ActiveSessionConflictError,
     CatalogUnavailableError,
     CreateConflictError,
     ExerciseRecord,
     GraphConflictError,
     GraphValidationError,
+    PlanRevisionConflictError,
     RevisionConflictError,
     RevisionExhaustedError,
     SaveIdConflictError,
@@ -211,6 +214,8 @@ def _summary_response(record: workouts.WorkoutRecord) -> WorkoutSummaryResponse:
         ended_at=record.ended_at,
         bodyweight_kg=record.bodyweight_kg,
         revision=record.revision,
+        session_type=cast(WorkoutSessionType | None, record.session_type),
+        source_plan_id=record.source_plan_id,
     )
 
 
@@ -225,6 +230,8 @@ def _detail_response(graph: WorkoutGraph) -> WorkoutDetailResponse:
         bodyweight_kg=workout.bodyweight_kg,
         revision=workout.revision,
         last_save_id=workout.last_save_id,
+        session_type=cast(WorkoutSessionType | None, workout.session_type),
+        source_plan_id=workout.source_plan_id,
         # Previous performance is parallel to the graph; `strict` turns any
         # misalignment into a loud failure instead of a dropped comparison.
         exercises=[
@@ -274,7 +281,13 @@ def create_workout(
     bodyweight snapshot, no graph, and no save receipt yet.
     """
     fingerprint = workouts.create_request_hash(
-        user_id=user.id, workout_id=payload.id, started_at=payload.started_at
+        user_id=user.id,
+        workout_id=payload.id,
+        started_at=payload.started_at,
+        session_type=payload.session_type,
+        source_plan_id=payload.source_plan_id,
+        source_plan_revision=payload.source_plan_revision,
+        legacy_shape="session_type" not in payload.model_fields_set,
     )
     try:
         _, created = workouts.create_workout(
@@ -283,12 +296,29 @@ def create_workout(
             workout_id=payload.id,
             started_at=payload.started_at,
             request_hash=fingerprint,
+            session_type=payload.session_type,
+            source_plan_id=payload.source_plan_id,
+            source_plan_revision=payload.source_plan_revision,
         )
     except CreateConflictError:
         # Generic detail: the id may belong to another user, whose data must
         # stay indistinguishable from a plain content conflict.
         raise ConflictError(
             "A workout with this id already exists", code="create_conflict"
+        ) from None
+    except ActiveSessionConflictError:
+        raise ConflictError(
+            "An active workout session already exists", code="active_session_exists"
+        ) from None
+    except CatalogUnavailableError:
+        raise ConflictError(
+            "The selected training plan or catalog graph is unavailable",
+            code="plan_unavailable",
+        ) from None
+    except PlanRevisionConflictError:
+        raise ConflictError(
+            "The selected training plan changed after it was previewed",
+            code="plan_revision_conflict",
         ) from None
     if not created:
         response.status_code = 200

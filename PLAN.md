@@ -34,7 +34,7 @@ when a second client or a measured deployment need justifies them.
 - Timed holds, distance/cardio, assisted movements, and arbitrary exercise metrics.
 - PostgreSQL support, horizontal scaling, database pools, and PgBouncer.
 - Automatic conflict merging, background sync, and starting new workouts offline.
-- Repeat-last, templates, a native app, and advanced charts.
+- Repeat-last, a native app, and advanced charts.
 - Admin impersonation, password viewing/reset, workout inspection/editing, and
   default-catalog management. The Phase 1 admin panel is limited to account
   operations.
@@ -205,8 +205,13 @@ zero denominators produce `null`, not an exception or fabricated percentage.
   bodyweight default and a user-chosen fixed UTC offset (whole minutes,
   default 0 = UTC) for calendar-based statistics and local-time display.
 - **Session**: an expiring, revocable login stored in the database.
-- **Workout**: session metadata, a recorded bodyweight, an integer revision,
-  and an ordered graph of exercises and sets. `ended_at=null` means active.
+- **WorkoutSession**: explicitly started training with a `freestyle` or
+  `from_plan` type, optional source-plan reference, read-only bodyweight
+  snapshot, integer revision, and ordered graph. `ended_at=null` means active;
+  each account has at most one active explicitly started session.
+- **TrainingPlan**: reusable owner-private preparation with a revision and an
+  ordered exercise/set target graph. Saving or previewing a plan never creates
+  a workout session.
 - **ExerciseCatalog**: global default exercises plus owner-private custom ones.
 - **Exercise**: a workout entry referencing a catalog ID and storing its load
   settings as a snapshot.
@@ -215,8 +220,7 @@ zero denominators produce `null`, not an exception or fabricated percentage.
 - **AdminAuditEvent**: immutable record of an administrative actor, target,
   action, required reason, request ID, and timestamp. It contains no password,
   session token, or workout content.
-- Later: **BodyweightEntry**, **WorkoutTemplate**, **TemplateExercise**, and
-  **TemplateSet**. Do not create their tables or endpoints in Phase 1.
+- Later: **BodyweightEntry**. Do not create its table or endpoints in Phase 1.
 
 ### Load types
 
@@ -240,9 +244,9 @@ not pair a left set with a right set.
 
 ### Preserve historical inputs
 
-- At workout creation, copy the user's current default into
-  `workouts.bodyweight_kg`; keep `null` if unknown. A user can explicitly correct
-  that workout's recorded bodyweight through bulk-save.
+- At explicit session start, copy the user's current Settings value into
+  `workouts.bodyweight_kg`; keep `null` if unknown. The snapshot is read-only;
+  later Settings changes apply only to newly started sessions.
 - When first persisting an exercise instance, copy `load_type`,
   `bodyweight_percent`, and `side_count` from its visible catalog entry. The
   client displays catalog-based provisional calculations until acknowledged.
@@ -367,13 +371,40 @@ workouts
   ended_at TEXT
   notes TEXT
   bodyweight_kg INTEGER                # recorded input, not a live profile lookup
+  session_type TEXT                   # null for legacy; freestyle|from_plan for new starts
+  source_plan_id TEXT FK training_plans(id) ON DELETE SET NULL
   revision INTEGER NOT NULL            # starts at 0, increments per accepted save
   create_request_hash TEXT NOT NULL    # immutable fingerprint for create retries
   last_save_id TEXT                    # last accepted save UUID
   last_save_hash TEXT                  # fingerprint of that validated request
   created_at TEXT NOT NULL
   updated_at TEXT NOT NULL
-  # index: (user_id, started_at, id)
+  # indexes: (user_id, started_at, id); unique explicit active session per user
+
+training_plans
+  id TEXT PK
+  user_id TEXT NOT NULL FK users(id) ON DELETE CASCADE
+  name TEXT NOT NULL
+  notes TEXT
+  revision INTEGER NOT NULL
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+
+training_plan_exercises
+  id TEXT PK
+  plan_id TEXT NOT NULL FK training_plans(id) ON DELETE CASCADE
+  catalog_id TEXT NOT NULL FK exercise_catalog(id) ON DELETE RESTRICT
+  order_index INTEGER NOT NULL
+  notes TEXT
+
+training_plan_sets
+  id TEXT PK
+  plan_exercise_id TEXT NOT NULL FK training_plan_exercises(id) ON DELETE CASCADE
+  set_index INTEGER NOT NULL
+  target_reps INTEGER
+  target_weight_kg INTEGER
+  side TEXT NOT NULL
+  bw_percent_override INTEGER
 
 workout_save_previous_performance
   workout_id TEXT PK FK workouts(id) ON DELETE CASCADE
@@ -450,7 +481,7 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 | GET | /auth/me | Current public profile |
 | PATCH | /auth/me | Update display name, default bodyweight, UTC offset |
 | GET | /workouts | History; date and active/finished filters |
-| POST | /workouts | Create an empty active workout with a client-generated ID |
+| POST | /workouts | Explicitly start a freestyle or plan-derived session |
 | GET | /workouts/{id} | Graph, recorded load inputs, revision, last save ID, and previous performance |
 | PUT | /workouts/{id} | Full-graph save, including metadata and optional finish |
 | DELETE | /workouts/{id}?revision=N | Delete only at the expected revision |
@@ -459,6 +490,11 @@ and `pageSize`, return `total`, and have stable ordering with an ID tie-breaker.
 | POST | /exercises | Create owner-private custom entry |
 | PATCH | /exercises/{id} | Edit own custom entry for future instances |
 | DELETE | /exercises/{id} | Delete own unreferenced entry |
+| GET | /training-plans | List the caller's reusable plans |
+| POST | /training-plans | Create an owner-private plan |
+| GET | /training-plans/{id} | Read an owned plan and target graph |
+| PUT | /training-plans/{id} | Revision-checked full-plan update |
+| DELETE | /training-plans/{id} | Revision-checked plan deletion |
 | GET | /stats/summary | Basic eligible workout/set counts and volume |
 | GET | /admin/users | Bounded user search/list with account metadata only |
 | POST | /admin/users/{id}/disable | Disable an account and revoke its sessions atomically |
@@ -471,12 +507,20 @@ write endpoints. A workout's graph is small enough to save together.
 
 ### Creation
 
-- Creation requires a client-generated UUID and `started_at`; the server
-  records bodyweight from the profile and returns revision 0. Creation requires
-  connectivity in the MVP. Persist the create request locally until acknowledged.
+- Creation requires a client-generated UUID, `started_at`, and session type.
+  A plan-derived start also requires the owned plan ID and expected revision.
+  The server records bodyweight from Settings and returns revision 0. Creation
+  requires connectivity in the MVP. Persist the immutable create request locally
+  until acknowledged.
 - Fingerprint the validated create request using a canonical representation.
   Retrying the same ID and fingerprint returns the existing owned workout;
   different content for that ID returns 409. Never return another user's row.
+- Resolve an exact retry before checking for another active session. A different
+  start is rejected when the account already has an unfinished session, including
+  under concurrent requests from another tab or device.
+- Plan start validates ownership, revision, and catalog visibility and copies the
+  graph atomically with independent IDs, incomplete sets, and unset actual RPE.
+  Later plan edits or deletion cannot alter the copied session.
 
 ### Bulk-save contract
 
@@ -484,7 +528,8 @@ write endpoints. A workout's graph is small enough to save together.
 
 - `revision`: the revision the client edited.
 - `save_id`: a fresh UUID for this immutable save attempt, reused on its retries.
-- All writable workout metadata, recorded `bodyweight_kg`, and `ended_at`.
+- All writable workout metadata and `ended_at`. Recorded `bodyweight_kg`, session
+  origin, and load snapshots are server-controlled.
 - The complete ordered exercise/set graph. Every row has a client-generated ID;
   omitted existing rows are deleted. Array order determines dense stored indexes.
   Load snapshots, owner IDs, and server timestamps are not writable fields.
@@ -529,8 +574,9 @@ This bounded receipt avoids a generic idempotency service or operation log.
 ### Client persistence and conflict handling
 
 - Partition IndexedDB by account ID, workout ID, and a unique editor/draft ID.
-  Separate tabs must not overwrite each other's local drafts. Recover existing
-  drafts explicitly on relaunch and keep one editor per workout within a tab.
+  Separate tabs must not overwrite each other's local drafts. Resume an
+  unambiguous active session automatically and keep one editor per workout within
+  a tab; show recovery choices only for genuine alternatives or conflicts.
   Persist each edit before displaying it as locally saved. Handle storage
   failures visibly; browser storage eviction is possible, so local persistence
   is not a universal backup.
@@ -546,7 +592,8 @@ This bounded receipt avoids a generic idempotency service or operation log.
 - On conflict, stop automatic saves and retain the local draft. Offer to use
   the server copy, copy the local draft into a new workout, or explicitly replace
   the server copy using a newly fetched revision where lifecycle permits. No
-  automatic merging or per-set last-write-wins.
+  automatic merging or per-set last-write-wins. Copy-to-new cannot bypass the
+  one-active-session rule.
 - Sync runs while the app is open, on edits and reconnection. Phase 1 can continue
   an already loaded workout offline and recover drafts after relaunch when the
   app loads. Cold-starting the entire app without a network requires the later
@@ -614,23 +661,27 @@ This bounded receipt avoids a generic idempotency service or operation log.
 ## 8. Frontend Screens
 
 1. **Auth**: register/login; reauthenticate without losing a draft.
-2. **Home**: resume active workout, quick start, recent history,
-   and a basic weekly summary.
-3. **Active workout**: large integer inputs, add/remove/reorder exercises and
+2. **Home**: recent history, active-session information, and a basic weekly
+   summary. It has no start-workout action.
+3. **Session chooser**: opens from the center navigation action only when no
+   active session exists; explicitly starts freestyle or opens plan selection.
+4. **Training plans**: list, create, view, edit, delete, and explicitly start an
+   independent session from a selected plan.
+5. **Active workout**: large integer inputs, add/remove/reorder exercises and
    sets locally, mark done, show provisional totals, save, and finish.
    Distinguish locally saved, syncing, synced, offline, conflict, and finish
    pending. Preserve focus through stable keyed IDs.
-4. **History/detail**: finished workouts and previous-session comparison;
+6. **History/detail**: finished workouts and previous-session comparison;
    editing finished workouts comes later.
-5. **Catalog/picker**: search, muscle filters, default/custom labels, and
+7. **Catalog/picker**: search, muscle filters, default/custom labels, and
    creation/editing of own custom entries.
-6. **Settings**: dark/light theme switch, display name, default bodyweight,
-   UTC offset picker (hour steps, e.g. −3 h … +3 h), and logout. Units are
-   always metric, with no unit selector.
-7. **Admin**: role-gated user search, account status, disable/enable, session
+8. **Settings**: dark/light theme switch, display name, the only bodyweight
+   input, training-plan access, UTC offset picker (hour steps, e.g. −3 h … +3 h),
+   and logout. Units are always metric, with no unit selector.
+9. **Admin**: role-gated user search, account status, disable/enable, session
    revocation, and audit history. Require reason/confirmation for mutations;
    expose no workout content, impersonation, or password controls.
-8. Later: templates and dedicated statistics charts.
+10. Later: dedicated statistics charts.
 
 Mobile rules: single-column layouts, bottom navigation, touch targets of at
 least 44 CSS pixels, visible labels/errors, keyboard accessibility, and sticky
@@ -690,6 +741,9 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   Fixed metric labels throughout; no configurable unit system.
 - Online creation, local workout editing, IndexedDB persistence, revision checks,
   bounded save receipts, atomic save-and-finish, history, and deletion.
+- Explicit freestyle/plan session starts, reusable training plans, and one active
+  session per account across tabs and devices. Merely opening screens starts
+  nothing; the center action resumes the active session and Home has no starter.
 - Record bodyweight/load inputs from day one. Show basic completed-set totals,
   summary stats, and inline previous performance.
 - Minimal audited administration: securely bootstrap admins, search users,
@@ -702,19 +756,23 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 
 1. Edit a loaded workout offline, reload with the app available, reconnect,
    and recover every locally acknowledged edit.
-2. Lose a create/save/finish response and retry: no duplicate workout/rows,
-   regenerated IDs, double revision increment, or premature draft deletion.
+2. Open the chooser and browse/edit plans without creating a workout; explicitly
+   start freestyle or from a plan. Concurrent starts and lost start responses
+   produce exactly one active session and preserve the original request identity.
 3. Edit while a save is in flight: its response cannot overwrite newer input.
 4. Edit in two tabs: stale saves fail atomically and both drafts remain recoverable.
 5. Finish with unsynced sets: final graph and finish are accepted together.
 6. Submit another user's workout, nested IDs, or catalog entry: no partial write
    or unauthorized read. UUID guessing does not bypass ownership checks.
 7. Reorder/remove/add exercises and sets under unique indexes successfully.
-8. Recover a conflict through use-server, copy-to-new, or explicit replacement
-   without silently merging or prematurely deleting local work.
+8. Recover a conflict through use-server, permitted copy-to-new, or explicit
+   replacement without silently merging or prematurely deleting local work;
+   copy-to-new cannot create a second active session.
 9. Reject fractional, string, boolean, and out-of-range integer inputs; verify
    floor arithmetic, negative deltas, unknown loads, and the calculation examples.
-10. Change profile/catalog defaults: existing recorded workouts retain their totals.
+10. Bodyweight is entered only in Settings and copied as a read-only start-time
+    snapshot. Plan graph copies use independent IDs and remain unchanged after
+    source edits/deletion; profile/catalog changes do not rewrite recorded totals.
 11. Expire a session, switch accounts, and retry after deletion: preserve or
     explicitly discard drafts without cross-account uploads or silent recreation.
 12. Verify CSRF protection, cookie expiry, logout revocation, and exclusion of
@@ -739,15 +797,12 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
 - Optional installable PWA and app-shell caching; foreground reconnect remains
   the sync mechanism. Show quota/storage failures rather than promising no loss.
 
-### Phase 3 - Templates, bodyweight history, and charts
+### Phase 3 - Bodyweight history and charts
 
-- Template list/create/get/update/delete (`GET/POST /templates`,
-  `GET/PUT/DELETE /templates/{id}`); instantiate locally into a newly created
-  workout and save through the existing graph endpoint. Validate owner/catalog
-  access and protect referenced catalog entries. Target values remain integers.
 - Bodyweight-entry list/create/update/delete (`GET/POST /bodyweight-entries`,
   `PATCH/DELETE /bodyweight-entries/{id}`), with integer kg and measurement time.
-  Entries affect newly resolved snapshots; corrections to a workout are explicit.
+  Entries affect newly resolved snapshots; existing workout snapshots remain
+  immutable.
 - Dedicated volume, frequency, PR, exercise-progression, and bodyweight stats
   endpoints/charts. Reuse the eligibility and integer arithmetic contracts.
 
@@ -827,8 +882,12 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   atomic PUT. Prefill is a local draft operation, not an extra write API.
 - **Revision + last-save receipt**: prevent stale overwrites and recover a lost
   response without building an operation log or automatic merge engine.
-- **Recorded inputs preserve history**: bodyweight and load settings belong to
-  the recorded workout/instance; current defaults only affect new records.
+- **Explicit sessions and reusable plans**: opening screens has no training side
+  effects; one account has one active session, while plans remain reusable
+  preparation copied atomically into independent session graphs.
+- **Recorded inputs preserve history**: the Settings bodyweight snapshot and load
+  settings belong to the recorded workout/instance and are read-only; current
+  defaults only affect new records.
 - **Opaque database sessions**: one table and a cookie are enough for web login,
   expiry, and logout; introduce native transport when the native client exists.
 - **Draft persistence before background sync**: keep recovery reliable while the

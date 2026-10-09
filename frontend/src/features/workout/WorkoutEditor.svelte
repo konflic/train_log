@@ -20,7 +20,6 @@
     rawValue,
     setError,
     snapshotFor,
-    strictInteger,
     updateInteger,
   } from './model';
 
@@ -51,13 +50,6 @@
 
   function updateText(field: 'name' | 'notes', value: string): void {
     edit({ ...structuredClone(content), [field]: value === '' ? null : value });
-  }
-
-  function updateBodyweight(raw: string): void {
-    const next = structuredClone(content);
-    next.raw_fields['workout.bodyweight_kg'] = raw;
-    next.bodyweight_kg = raw === '' ? null : strictInteger(raw);
-    edit(next);
   }
 
   function updateSet(
@@ -311,21 +303,13 @@
         oninput={(event) => updateText('name', event.currentTarget.value)}
       />
     </div>
-    <div>
-      <label class="block text-sm font-medium" for="workout-bodyweight"
-        >Recorded bodyweight (kg)</label
-      >
-      <input
-        id="workout-bodyweight"
-        inputmode="numeric"
-        step="1"
-        disabled={locked}
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-        value={content.raw_fields['workout.bodyweight_kg'] ??
-          String(content.bodyweight_kg ?? '')}
-        oninput={(event) => updateBodyweight(event.currentTarget.value)}
-      />
-    </div>
+    <p class="text-sm text-muted">
+      Bodyweight snapshot:
+      {content.bodyweight_kg === null
+        ? 'not set'
+        : `${content.bodyweight_kg} kg`}. Change bodyweight in Settings for
+      future sessions.
+    </p>
     <div>
       <label class="block text-sm font-medium" for="workout-notes">Notes</label>
       <textarea

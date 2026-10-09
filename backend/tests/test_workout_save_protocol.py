@@ -271,7 +271,7 @@ def test_new_save_applies_graph_and_records_receipt(protocol_db: Path) -> None:
         save_id=SAVE_1,
         name="Push day",
         notes="felt strong",
-        bodyweight_kg=82,
+        bodyweight_kg=None,
         exercises=[exercise_req(EXERCISE_A, sets=[set_req(SET_A1), set_req(SET_A2)])],
     )
     graph = save(protocol_db, payload)
@@ -279,7 +279,7 @@ def test_new_save_applies_graph_and_records_receipt(protocol_db: Path) -> None:
     assert graph.workout.last_save_id == SAVE_1
     assert graph.workout.name == "Push day"
     assert graph.workout.notes == "felt strong"
-    assert graph.workout.bodyweight_kg == 82
+    assert graph.workout.bodyweight_kg is None
     assert graph.workout.ended_at is None
     assert graph.workout.started_at == TS
     assert [(exercise.id, exercise.order_index) for exercise in graph.exercises] == [

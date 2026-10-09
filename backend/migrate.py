@@ -68,6 +68,10 @@ def _migration_authorizer(
     """Keep migration scripts inside the transaction owned by the runner."""
     if action == sqlite3.SQLITE_TRANSACTION and argument_one != "BEGIN":
         return sqlite3.SQLITE_DENY
+    # SQLite runs an internal read-only quick_check while adding a column.
+    # Permit that validation without allowing migration files to change PRAGMAs.
+    if action == sqlite3.SQLITE_PRAGMA and argument_one == "quick_check":
+        return sqlite3.SQLITE_OK
     if action in (sqlite3.SQLITE_PRAGMA, sqlite3.SQLITE_SAVEPOINT):
         return sqlite3.SQLITE_DENY
     return sqlite3.SQLITE_OK
