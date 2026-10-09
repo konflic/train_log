@@ -793,6 +793,10 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   using independent graph IDs and unfinished copied sets.
 - Per-exercise last-performance read and local prefill; side-aware set/exercise
   deltas, simple progression views, and optional rest timer.
+- Per-exercise progress summaries: best current recorded performance, total
+  effective weight/volume, completed sets, completed reps, and any eligible
+  calorie estimate. Define each metric's time range and load-compatibility
+  rules before exposing a comparison.
 - Edit finished workouts with the same save/revision protocol; no new per-set API.
 - Optional installable PWA and app-shell caching; foreground reconnect remains
   the sync mechanism. Show quota/storage failures rather than promising no loss.
@@ -805,6 +809,15 @@ generic repositories, shared workspaces, plugin systems, and speculative wrapper
   immutable.
 - Dedicated volume, frequency, PR, exercise-progression, and bodyweight stats
   endpoints/charts. Reuse the eligibility and integer arithmetic contracts.
+- Training calendar showing completed-workout days, with a selected day opening
+  that day's finished sessions. Calendar day boundaries use the profile's fixed
+  UTC offset rather than the browser timezone.
+- Clearly labeled approximate calorie estimates for completed sets, exercises,
+  and workouts. Add a male/female profile field only as an explicit input to a
+  documented estimation model; sex alone is insufficient to produce a credible
+  estimate, so define any additional inputs and formula before implementation.
+  Preserve the calculation inputs or result snapshot so profile changes do not
+  rewrite historical estimates.
 
 ### Later, when justified
 

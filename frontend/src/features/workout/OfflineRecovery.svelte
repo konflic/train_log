@@ -54,10 +54,11 @@
   <p class="mt-2 text-muted">
     Network saving is paused until you sign in again.
   </p>
+  {#if error}<p role="alert" class="mt-2 text-danger">{error}</p>{/if}
   <WorkoutEditor
     {editor}
     onOpenPicker={() => (error = 'The catalog is unavailable while offline.')}
-    catalogMessage={error}
+    onClosePicker={() => undefined}
   />
 {:else}
   <h2 tabindex="-1">Choose a local draft</h2>

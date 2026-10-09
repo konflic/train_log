@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { replace, router } from 'svelte-spa-router';
+  import { SvelteURLSearchParams } from 'svelte/reactivity';
+  import { push, replace, router } from 'svelte-spa-router';
   import {
     ApiRequestError,
     createWorkout,
@@ -36,8 +37,13 @@
   let { params = {} }: { params?: { id?: string } } = $props();
   const workoutId = $derived(params.id ?? 'current');
   const preferredDraftId = $derived(
-    new URLSearchParams(router.querystring ?? '').get('draft'),
+    new SvelteURLSearchParams(router.querystring ?? '').get('draft'),
   );
+  const pickerTarget = $derived.by(() => {
+    const query = new SvelteURLSearchParams(router.querystring ?? '');
+    if (query.get('picker') !== 'exercise') return undefined;
+    return query.get('replace');
+  });
   const accountId = $derived(session.user?.id ?? null);
   let repository = $state<DraftRepository | null>(null);
   let editor = $state<LocalDraftEditor | null>(null);
@@ -48,7 +54,6 @@
   );
   let message = $state('');
   let catalog = $state<Exercise[]>([]);
-  let catalogMessage = $state<string | null>(null);
   let reauthOpen = $state(false);
   let reauthEmail = $state('');
   let reauthPassword = $state('');
@@ -163,12 +168,32 @@
 
   async function loadCatalog(): Promise<void> {
     if (catalog.length > 0) return;
-    catalogMessage = null;
     try {
       catalog = (await listExercises({ page: 1, pageSize: 100 })).items;
-    } catch (error) {
-      catalogMessage = describeFailure(error);
+    } catch {
+      // The picker loads its own paginated catalog; labels fall back safely here.
+      return;
     }
+  }
+
+  function workoutPath(includePicker = false, replacementId?: string): string {
+    const query = new SvelteURLSearchParams(router.querystring ?? '');
+    query.delete('picker');
+    query.delete('replace');
+    if (includePicker) {
+      query.set('picker', 'exercise');
+      if (replacementId) query.set('replace', replacementId);
+    }
+    const querystring = query.toString();
+    return `/workouts/${workoutId}${querystring === '' ? '' : `?${querystring}`}`;
+  }
+
+  function openPicker(replacementId?: string): void {
+    void push(workoutPath(true, replacementId));
+  }
+
+  function closePicker(): void {
+    void replace(workoutPath());
   }
 
   async function currentCatalogFor(
@@ -358,13 +383,20 @@
       </li>{/each}
   </ul>
 {:else if phase === 'editing' && editor !== null && sync !== null}
-  <h1 tabindex="-1">Active workout</h1>
+  <h1 tabindex="-1">
+    {pickerTarget === undefined
+      ? 'Active workout'
+      : pickerTarget === null
+        ? 'Choose an exercise'
+        : 'Choose a replacement'}
+  </h1>
   <WorkoutEditor
     {editor}
     {sync}
     {catalog}
-    {catalogMessage}
-    onOpenPicker={() => void loadCatalog()}
+    {pickerTarget}
+    onOpenPicker={openPicker}
+    onClosePicker={closePicker}
   />
   {#if sync.status === 'conflict'}
     <section

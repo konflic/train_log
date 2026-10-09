@@ -90,6 +90,14 @@ remain out of scope.
   snapshots, shell-level resume state, and stable navigation/recovery replace
   quick start and routine draft selection. Local gate evidence: 649 backend
   tests, 196 frontend unit tests, production build, and 40 Chromium tests.
+- **Workout editor UX follow-up:** implemented directly on `master` at the
+  user's request. Exercise selection now has a catalog-style, hash-navigable
+  picker with browser-back support; active sessions show compact in-progress
+  and completed exercise groups with one expanded editor at a time; and the
+  add-exercise action follows those groups. Rejected concurrent starts retain
+  their classified server error if recovery cleanup cannot be confirmed. Local
+  frontend verification: 202 unit tests, production build, and 40 Chromium
+  tests pass.
 - **Next:** Stage 13 history/detail and remaining Settings work.
 
 ## Documentation ownership

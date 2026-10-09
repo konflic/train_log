@@ -16,6 +16,36 @@ async function startFreestyle(
   await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
 }
 
+async function addExercise(
+  page: import('@playwright/test').Page,
+  name: string,
+): Promise<void> {
+  await page.getByRole('button', { name: 'Add exercise' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Choose an exercise' }),
+  ).toBeVisible();
+  await page.getByLabel('Search').fill(name);
+  await page
+    .getByLabel('Exercise picker')
+    .getByRole('button', { name: new RegExp(`^${name}`) })
+    .click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Active workout' }),
+  ).toBeVisible();
+}
+
+async function expandExercise(
+  page: import('@playwright/test').Page,
+  name: string,
+): Promise<void> {
+  const summary = page
+    .getByLabel(`${name} editor`)
+    .getByRole('button', { name: new RegExp(`^${name}`) });
+  if ((await summary.getAttribute('aria-expanded')) !== 'true') {
+    await summary.click();
+  }
+}
+
 async function workoutDetail(
   page: import('@playwright/test').Page,
   id: string,
@@ -181,6 +211,7 @@ test.describe('synchronized workout editor', () => {
     const plan = page.getByRole('listitem').filter({ hasText: 'Arms plan' });
     await plan.getByRole('button', { name: 'Start session' }).click();
     await expect(page).toHaveURL(/#\/workouts\/[0-9a-f-]+\?draft=/);
+    await expandExercise(page, 'Dumbbell Curl');
     const exercise = page.getByLabel('Dumbbell Curl editor');
     await expect(exercise.getByLabel('Reps')).toHaveValue('8');
     await expect(exercise.getByLabel('Weight (kg)')).toHaveValue('12');
@@ -209,7 +240,12 @@ test.describe('synchronized workout editor', () => {
     );
 
     await page.getByRole('button', { name: 'Add exercise' }).click();
-    await page.getByRole('button', { name: 'Bench Press' }).click();
+    await expect(page).toHaveURL(/picker=exercise/);
+    await page.goBack();
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Active workout' }),
+    ).toBeVisible();
+    await addExercise(page, 'Bench Press');
     const exercise = page.getByLabel('Bench Press editor');
     await expect(exercise.getByLabel('RPE')).toHaveCount(0);
     page.once('dialog', (dialog) => dialog.dismiss());
@@ -249,6 +285,7 @@ test.describe('synchronized workout editor', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Active workout' }),
     ).toBeVisible();
+    await expandExercise(page, 'Bench Press');
     await expect(
       page.getByRole('group', { name: 'Set 1' }).getByLabel('Weight (kg)'),
     ).toHaveValue('50');
@@ -267,8 +304,7 @@ test.describe('synchronized workout editor', () => {
   }) => {
     await gotoSignedIn(page);
     await startFreestyle(page);
-    await page.getByRole('button', { name: 'Add exercise' }).click();
-    await page.getByRole('button', { name: 'Bench Press' }).click();
+    await addExercise(page, 'Bench Press');
     const exercise = page.getByLabel('Bench Press editor');
     await exercise.getByLabel('Reps').fill('6');
     await exercise.getByLabel('Weight (kg)').fill('70');
@@ -318,8 +354,7 @@ test.describe('synchronized workout editor', () => {
     });
 
     await startFreestyle(page);
-    await page.getByRole('button', { name: 'Add exercise' }).click();
-    await page.getByRole('button', { name: 'Bench Press' }).click();
+    await addExercise(page, 'Bench Press');
     const weight = page
       .getByLabel('Bench Press editor')
       .getByLabel('Weight (kg)');

@@ -270,6 +270,24 @@ export interface ProvisionalTotal {
   completedSetCount: number;
 }
 
+export interface ExerciseProgress {
+  completedSets: number;
+  totalSets: number;
+  complete: boolean;
+}
+
+export function exerciseProgress(
+  exercise: SaveExerciseInput,
+): ExerciseProgress {
+  const completedSets = exercise.sets.filter((set) => set.done).length;
+  return {
+    completedSets,
+    totalSets: exercise.sets.length,
+    complete:
+      exercise.sets.length > 0 && completedSets === exercise.sets.length,
+  };
+}
+
 export function provisionalTotal(
   content: EditableWorkoutContent,
 ): ProvisionalTotal {

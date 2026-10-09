@@ -8,6 +8,7 @@
   } from '../../db';
   import type { LocalDraftEditor } from '../drafts/editor.svelte';
   import type { WorkoutSyncController } from './sync.svelte';
+  import ExercisePicker from './ExercisePicker.svelte';
   import {
     MAX_EXERCISES,
     MAX_SETS,
@@ -15,6 +16,7 @@
     catalogIssue,
     catalogIssueKey,
     emptySet,
+    exerciseProgress,
     fieldKey,
     provisionalTotal,
     rawValue,
@@ -27,22 +29,32 @@
     editor,
     sync,
     catalog = [],
-    catalogMessage = null,
     onOpenPicker,
+    onClosePicker,
+    pickerTarget = undefined,
   }: {
     editor: LocalDraftEditor;
     sync?: WorkoutSyncController;
     catalog?: Exercise[];
-    catalogMessage?: string | null;
-    onOpenPicker: () => void;
+    onOpenPicker: (exerciseId?: string) => void;
+    onClosePicker: () => void;
+    pickerTarget?: string | null;
   } = $props();
-  let pickerOpen = $state(false);
-  let pickerTarget = $state<string | null>(null);
   let completionErrors = $state<Record<string, string>>({});
+  let expandedExerciseId = $state<string | null>(null);
+  let selectedNames = $state<Record<string, string>>({});
 
   const content = $derived(editor.current!.content);
   const total = $derived(provisionalTotal(content));
   const locked = $derived(sync?.locked ?? false);
+  const inProgressExercises = $derived(
+    content.exercises.filter(
+      (exercise) => !exerciseProgress(exercise).complete,
+    ),
+  );
+  const completedExercises = $derived(
+    content.exercises.filter((exercise) => exerciseProgress(exercise).complete),
+  );
 
   function edit(next: EditableWorkoutContent): void {
     if (sync) void sync.commit(next);
@@ -95,7 +107,7 @@
   }
 
   function addExercise(entry: Exercise): void {
-    if (content.exercises.length >= MAX_EXERCISES) return;
+    if (locked || content.exercises.length >= MAX_EXERCISES) return;
     const next = structuredClone(content);
     const id = createDraftId();
     const snapshot = snapshotFor(entry);
@@ -106,12 +118,14 @@
       sets: [emptySet(snapshot)],
     });
     next.provisional_load_snapshots[id] = snapshot;
-    pickerOpen = false;
-    pickerTarget = null;
+    selectedNames = { ...selectedNames, [entry.id]: entry.name };
+    expandedExerciseId = id;
     edit(next);
+    onClosePicker();
   }
 
   function replaceExercise(exerciseId: string, entry: Exercise): void {
+    if (locked) return;
     const next = structuredClone(content);
     const index = next.exercises.findIndex((item) => item.id === exerciseId);
     if (index < 0) return;
@@ -137,9 +151,10 @@
     delete next.provisional_load_snapshots[exerciseId];
     delete next.raw_fields[catalogIssueKey(exerciseId)];
     next.provisional_load_snapshots[id] = snapshotFor(entry);
-    pickerOpen = false;
-    pickerTarget = null;
+    selectedNames = { ...selectedNames, [entry.id]: entry.name };
+    expandedExerciseId = id;
     edit(next);
+    onClosePicker();
   }
 
   function removeExercise(exerciseId: string): void {
@@ -224,15 +239,14 @@
   function exerciseName(exercise: SaveExerciseInput): string {
     return (
       catalog.find((entry) => entry.id === exercise.catalog_id)?.name ??
+      selectedNames[exercise.catalog_id] ??
       'Exercise'
     );
   }
 
   function choosePicker(exerciseId: string | null = null): void {
     if (locked) return;
-    pickerTarget = exerciseId;
-    pickerOpen = true;
-    onOpenPicker();
+    onOpenPicker(exerciseId ?? undefined);
   }
 
   function statusText(): string {
@@ -271,7 +285,22 @@
   }
 </script>
 
-<section aria-label="Workout editor" class="flex flex-col gap-4">
+{#if pickerTarget !== undefined}
+  <ExercisePicker
+    replacement={pickerTarget !== null}
+    disabled={locked}
+    onSelect={(entry) =>
+      pickerTarget === null
+        ? addExercise(entry)
+        : replaceExercise(pickerTarget, entry)}
+    onBack={onClosePicker}
+  />
+{/if}
+<section
+  aria-label="Workout editor"
+  class:hidden={pickerTarget !== undefined}
+  class="flex flex-col gap-4"
+>
   <div
     class="sticky top-0 z-10 rounded-lg border border-edge bg-surface p-3 shadow-sm"
   >
@@ -372,257 +401,243 @@
     </section>
   </div>
 
-  <button
-    type="button"
-    class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
-    aria-label="Add exercise"
-    title="Add exercise"
-    disabled={locked || content.exercises.length >= MAX_EXERCISES}
-    onclick={() => choosePicker()}><ActionIcon name="add" /></button
-  >
-  {#if pickerOpen}
-    <section
-      class="rounded-lg border border-edge bg-surface p-4"
-      aria-label="Exercise picker"
-    >
-      <h2 class="font-semibold">
-        {pickerTarget === null ? 'Choose an exercise' : 'Choose a replacement'}
-      </h2>
-      {#if catalogMessage}<p role="alert" class="mt-2 text-danger">
-          {catalogMessage}
-        </p>{/if}
-      {#if catalog.length === 0}<p class="mt-2 text-muted">
-          Load the catalog while online to add an exercise.
-        </p>{:else}
-        <ul class="mt-2 flex flex-col gap-2">
-          {#each catalog as entry (entry.id)}
-            <li>
-              <button
-                type="button"
-                class="min-h-11 w-full rounded-md border border-edge px-3 text-left"
-                disabled={locked}
-                onclick={() =>
-                  pickerTarget === null
-                    ? addExercise(entry)
-                    : replaceExercise(pickerTarget, entry)}>{entry.name}</button
-              >
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <button
-        type="button"
-        class="mt-3 min-h-11 rounded-md border border-edge px-3"
-        aria-label="Close exercise picker"
-        title="Close exercise picker"
-        onclick={() => {
-          pickerOpen = false;
-          pickerTarget = null;
-        }}><ActionIcon name="close" /></button
+  {#each [...inProgressExercises, ...completedExercises] as exercise, groupedIndex (exercise.id)}
+    {@const exerciseIndex = content.exercises.indexOf(exercise)}
+    {@const progress = exerciseProgress(exercise)}
+    {#if groupedIndex === 0 || groupedIndex === inProgressExercises.length}
+      <h2
+        id={progress.complete ? 'completed-exercises' : 'in-progress-exercises'}
+        class="font-semibold"
       >
-    </section>
-  {/if}
-
-  {#each content.exercises as exercise, exerciseIndex (exercise.id)}
+        {progress.complete ? 'Completed' : 'In progress'}
+        <span class="text-sm font-normal text-muted">
+          ({progress.complete
+            ? completedExercises.length
+            : inProgressExercises.length})
+        </span>
+      </h2>
+    {/if}
     {@const snapshot = snapshotOf(exercise.id)}
     <section
       class="rounded-lg border border-edge bg-surface p-4"
       aria-label={`${exerciseName(exercise)} editor`}
     >
       <div class="flex items-start justify-between gap-2">
-        <div>
-          <h2 class="font-semibold">{exerciseName(exercise)}</h2>
+        <button
+          type="button"
+          class="min-h-11 min-w-0 flex-1 text-left"
+          aria-expanded={expandedExerciseId === exercise.id}
+          onclick={() => {
+            expandedExerciseId =
+              expandedExerciseId === exercise.id ? null : exercise.id;
+          }}
+        >
+          <h3 class="font-semibold">{exerciseName(exercise)}</h3>
           <p class="text-sm text-muted">
+            {progress.completedSets} of {progress.totalSets} sets completed ·
             {snapshot?.load_type === 'bodyweight'
               ? 'Bodyweight'
               : 'Whole kilograms'}
           </p>
-        </div>
-        <div class="flex shrink-0 gap-2">
-          <button
-            type="button"
-            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
-            disabled={locked || exerciseIndex === 0}
-            aria-label={`Move ${exerciseName(exercise)} up`}
-            title={`Move ${exerciseName(exercise)} up`}
-            onclick={() => moveExercise(exerciseIndex, -1)}
-            ><ActionIcon name="up" /></button
+        </button>
+        {#if expandedExerciseId === exercise.id}<div
+            class="flex shrink-0 gap-2"
           >
-          <button
-            type="button"
-            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
-            disabled={locked || exerciseIndex === content.exercises.length - 1}
-            aria-label={`Move ${exerciseName(exercise)} down`}
-            title={`Move ${exerciseName(exercise)} down`}
-            onclick={() => moveExercise(exerciseIndex, 1)}
-            ><ActionIcon name="down" /></button
-          >
-          <button
-            type="button"
-            class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
-            aria-label={`Remove ${exerciseName(exercise)}`}
-            title={`Remove ${exerciseName(exercise)}`}
-            disabled={locked}
-            onclick={() => confirmRemoveExercise(exercise)}
-            ><ActionIcon name="remove" /></button
-          >
-        </div>
+            <button
+              type="button"
+              class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
+              disabled={locked || exerciseIndex === 0}
+              aria-label={`Move ${exerciseName(exercise)} up`}
+              title={`Move ${exerciseName(exercise)} up`}
+              onclick={() => moveExercise(exerciseIndex, -1)}
+              ><ActionIcon name="up" /></button
+            >
+            <button
+              type="button"
+              class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
+              disabled={locked ||
+                exerciseIndex === content.exercises.length - 1}
+              aria-label={`Move ${exerciseName(exercise)} down`}
+              title={`Move ${exerciseName(exercise)} down`}
+              onclick={() => moveExercise(exerciseIndex, 1)}
+              ><ActionIcon name="down" /></button
+            >
+            <button
+              type="button"
+              class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
+              aria-label={`Remove ${exerciseName(exercise)}`}
+              title={`Remove ${exerciseName(exercise)}`}
+              disabled={locked}
+              onclick={() => confirmRemoveExercise(exercise)}
+              ><ActionIcon name="remove" /></button
+            >
+          </div>{/if}
       </div>
-      {#if catalogIssue(content, exercise.id)}
-        <p role="alert" class="mt-2 text-sm text-danger">
-          {catalogIssue(content, exercise.id)}
-        </p>
+      {#if expandedExerciseId === exercise.id}
+        {#if catalogIssue(content, exercise.id)}
+          <p role="alert" class="mt-2 text-sm text-danger">
+            {catalogIssue(content, exercise.id)}
+          </p>
+          <button
+            type="button"
+            class="mt-2 min-h-11 rounded-md border border-edge px-3"
+            disabled={locked}
+            onclick={() => choosePicker(exercise.id)}>Replace exercise</button
+          >
+        {/if}
+        <div class="mt-4 flex flex-col gap-3">
+          {#each exercise.sets as set, setIndex (set.id)}
+            {@const error = setError(content, exercise, set)}
+            {@const validationError = error ?? completionErrors[set.id]}
+            <fieldset
+              class="rounded-md border border-edge p-3"
+              aria-describedby={validationError
+                ? `set-error-${set.id}`
+                : undefined}
+            >
+              <legend class="px-1 font-medium">Set {setIndex + 1}</legend>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="text-sm font-medium"
+                  >Reps<input
+                    inputmode="numeric"
+                    step="1"
+                    disabled={locked || set.done}
+                    class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                    value={rawValue(content, set, 'reps')}
+                    oninput={(event) =>
+                      updateIntegerField(
+                        set.id,
+                        'reps',
+                        event.currentTarget.value,
+                      )}
+                  /></label
+                >
+                {#if snapshot?.load_type !== 'bodyweight'}<label
+                    class="text-sm font-medium"
+                    >Weight (kg)<input
+                      inputmode="numeric"
+                      step="1"
+                      disabled={locked || set.done}
+                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      value={rawValue(content, set, 'weight_kg')}
+                      oninput={(event) =>
+                        updateIntegerField(
+                          set.id,
+                          'weight_kg',
+                          event.currentTarget.value,
+                        )}
+                    /></label
+                  >{/if}
+                {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
+                    class="text-sm font-medium"
+                    >Bodyweight % override<input
+                      inputmode="numeric"
+                      step="1"
+                      disabled={locked || set.done}
+                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      value={rawValue(content, set, 'bw_percent_override')}
+                      oninput={(event) =>
+                        updateIntegerField(
+                          set.id,
+                          'bw_percent_override',
+                          event.currentTarget.value,
+                        )}
+                    /></label
+                  >{/if}
+                {#if snapshot?.load_type === 'split_weight' && snapshot.side_count === 1}<label
+                    class="text-sm font-medium"
+                    >Side<select
+                      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+                      value={set.side}
+                      disabled={locked || set.done}
+                      onchange={(event) =>
+                        updateSet(exercise.id, set.id, {
+                          side: event.currentTarget
+                            .value as SaveSetInput['side'],
+                        })}
+                      ><option value="left">Left</option><option value="right"
+                        >Right</option
+                      ></select
+                    ></label
+                  >{/if}
+              </div>
+              {#if validationError}<p
+                  id={`set-error-${set.id}`}
+                  role="alert"
+                  class="mt-2 text-sm text-danger"
+                >
+                  {validationError}
+                </p>{/if}
+              <div class="mt-3 flex flex-wrap gap-2">
+                {#if set.done}<button
+                    type="button"
+                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+                    aria-label={`Edit set ${setIndex + 1}`}
+                    title={`Edit set ${setIndex + 1}`}
+                    disabled={locked}
+                    onclick={() =>
+                      updateSet(exercise.id, set.id, { done: false })}
+                    ><ActionIcon name="edit" /></button
+                  >{:else}<button
+                    type="button"
+                    aria-label={`Mark set ${setIndex + 1} completed`}
+                    title={`Mark set ${setIndex + 1} completed`}
+                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+                    disabled={locked}
+                    onclick={() => completeSet(exercise.id, set.id)}
+                    ><ActionIcon name="finish" /></button
+                  >{/if}
+                <button
+                  type="button"
+                  class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
+                  disabled={locked ||
+                    set.done ||
+                    setIndex === 0 ||
+                    exercise.sets[setIndex - 1].done}
+                  aria-label={`Move set ${setIndex + 1} up`}
+                  title={`Move set ${setIndex + 1} up`}
+                  onclick={() => moveSet(exercise.id, setIndex, -1)}
+                  ><ActionIcon name="up" /></button
+                ><button
+                  type="button"
+                  class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
+                  disabled={locked ||
+                    set.done ||
+                    setIndex === exercise.sets.length - 1 ||
+                    exercise.sets[setIndex + 1].done}
+                  aria-label={`Move set ${setIndex + 1} down`}
+                  title={`Move set ${setIndex + 1} down`}
+                  onclick={() => moveSet(exercise.id, setIndex, 1)}
+                  ><ActionIcon name="down" /></button
+                ><button
+                  type="button"
+                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
+                  aria-label={`Remove set ${setIndex + 1}`}
+                  title={`Remove set ${setIndex + 1}`}
+                  disabled={locked || set.done}
+                  onclick={() => removeSet(exercise.id, set.id)}
+                  ><ActionIcon name="remove" /></button
+                >
+              </div>
+            </fieldset>
+          {/each}
+        </div>
         <button
           type="button"
-          class="mt-2 min-h-11 rounded-md border border-edge px-3"
-          disabled={locked}
-          onclick={() => choosePicker(exercise.id)}>Replace exercise</button
+          class="mt-3 min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
+          aria-label={`Add set to ${exerciseName(exercise)}`}
+          title={`Add set to ${exerciseName(exercise)}`}
+          disabled={locked || exercise.sets.length >= MAX_SETS_PER_EXERCISE}
+          onclick={() => addSet(exercise)}><ActionIcon name="add" /></button
         >
       {/if}
-      <div class="mt-4 flex flex-col gap-3">
-        {#each exercise.sets as set, setIndex (set.id)}
-          {@const error = setError(content, exercise, set)}
-          {@const validationError = error ?? completionErrors[set.id]}
-          <fieldset
-            class="rounded-md border border-edge p-3"
-            aria-describedby={validationError
-              ? `set-error-${set.id}`
-              : undefined}
-          >
-            <legend class="px-1 font-medium">Set {setIndex + 1}</legend>
-            <div class="grid grid-cols-2 gap-3">
-              <label class="text-sm font-medium"
-                >Reps<input
-                  inputmode="numeric"
-                  step="1"
-                  disabled={locked || set.done}
-                  class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-                  value={rawValue(content, set, 'reps')}
-                  oninput={(event) =>
-                    updateIntegerField(
-                      set.id,
-                      'reps',
-                      event.currentTarget.value,
-                    )}
-                /></label
-              >
-              {#if snapshot?.load_type !== 'bodyweight'}<label
-                  class="text-sm font-medium"
-                  >Weight (kg)<input
-                    inputmode="numeric"
-                    step="1"
-                    disabled={locked || set.done}
-                    class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-                    value={rawValue(content, set, 'weight_kg')}
-                    oninput={(event) =>
-                      updateIntegerField(
-                        set.id,
-                        'weight_kg',
-                        event.currentTarget.value,
-                      )}
-                  /></label
-                >{/if}
-              {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
-                  class="text-sm font-medium"
-                  >Bodyweight % override<input
-                    inputmode="numeric"
-                    step="1"
-                    disabled={locked || set.done}
-                    class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-                    value={rawValue(content, set, 'bw_percent_override')}
-                    oninput={(event) =>
-                      updateIntegerField(
-                        set.id,
-                        'bw_percent_override',
-                        event.currentTarget.value,
-                      )}
-                  /></label
-                >{/if}
-              {#if snapshot?.load_type === 'split_weight' && snapshot.side_count === 1}<label
-                  class="text-sm font-medium"
-                  >Side<select
-                    class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-                    value={set.side}
-                    disabled={locked || set.done}
-                    onchange={(event) =>
-                      updateSet(exercise.id, set.id, {
-                        side: event.currentTarget.value as SaveSetInput['side'],
-                      })}
-                    ><option value="left">Left</option><option value="right"
-                      >Right</option
-                    ></select
-                  ></label
-                >{/if}
-            </div>
-            {#if validationError}<p
-                id={`set-error-${set.id}`}
-                role="alert"
-                class="mt-2 text-sm text-danger"
-              >
-                {validationError}
-              </p>{/if}
-            <div class="mt-3 flex flex-wrap gap-2">
-              {#if set.done}<button
-                  type="button"
-                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
-                  aria-label={`Edit set ${setIndex + 1}`}
-                  title={`Edit set ${setIndex + 1}`}
-                  disabled={locked}
-                  onclick={() =>
-                    updateSet(exercise.id, set.id, { done: false })}
-                  ><ActionIcon name="edit" /></button
-                >{:else}<button
-                  type="button"
-                  aria-label={`Mark set ${setIndex + 1} completed`}
-                  title={`Mark set ${setIndex + 1} completed`}
-                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
-                  disabled={locked}
-                  onclick={() => completeSet(exercise.id, set.id)}
-                  ><ActionIcon name="finish" /></button
-                >{/if}
-              <button
-                type="button"
-                class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={locked ||
-                  set.done ||
-                  setIndex === 0 ||
-                  exercise.sets[setIndex - 1].done}
-                aria-label={`Move set ${setIndex + 1} up`}
-                title={`Move set ${setIndex + 1} up`}
-                onclick={() => moveSet(exercise.id, setIndex, -1)}
-                ><ActionIcon name="up" /></button
-              ><button
-                type="button"
-                class="min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-                disabled={locked ||
-                  set.done ||
-                  setIndex === exercise.sets.length - 1 ||
-                  exercise.sets[setIndex + 1].done}
-                aria-label={`Move set ${setIndex + 1} down`}
-                title={`Move set ${setIndex + 1} down`}
-                onclick={() => moveSet(exercise.id, setIndex, 1)}
-                ><ActionIcon name="down" /></button
-              ><button
-                type="button"
-                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
-                aria-label={`Remove set ${setIndex + 1}`}
-                title={`Remove set ${setIndex + 1}`}
-                disabled={locked || set.done}
-                onclick={() => removeSet(exercise.id, set.id)}
-                ><ActionIcon name="remove" /></button
-              >
-            </div>
-          </fieldset>
-        {/each}
-      </div>
-      <button
-        type="button"
-        class="mt-3 min-h-11 rounded-md border border-edge px-3 disabled:opacity-40"
-        aria-label={`Add set to ${exerciseName(exercise)}`}
-        title={`Add set to ${exerciseName(exercise)}`}
-        disabled={locked || exercise.sets.length >= MAX_SETS_PER_EXERCISE}
-        onclick={() => addSet(exercise)}><ActionIcon name="add" /></button
-      >
     </section>
   {/each}
+  <button
+    type="button"
+    class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
+    disabled={locked || content.exercises.length >= MAX_EXERCISES}
+    onclick={() => choosePicker()}
+    ><ActionIcon name="add" /> Add exercise</button
+  >
 </section>

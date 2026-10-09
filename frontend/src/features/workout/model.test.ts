@@ -9,6 +9,7 @@ import {
   copyDraftToNewWorkout,
   fieldKey,
   contentError,
+  exerciseProgress,
   provisionalTotal,
   setError,
   strictInteger,
@@ -92,6 +93,21 @@ describe('workout editor model', () => {
     expect(
       setError(invalid, invalid.exercises[0], invalid.exercises[0].sets[0]),
     ).toBe('A completed set needs at least one rep.');
+  });
+
+  it('separates exercises with all completed sets from in-progress exercises', () => {
+    expect(exerciseProgress(content().exercises[0])).toEqual({
+      completedSets: 1,
+      totalSets: 1,
+      complete: true,
+    });
+    const inProgress = content().exercises[0];
+    inProgress.sets.push({ ...inProgress.sets[0], id: 'next', done: false });
+    expect(exerciseProgress(inProgress)).toMatchObject({
+      completedSets: 1,
+      totalSets: 2,
+      complete: false,
+    });
   });
 
   it('blocks invalid visible integers from server payloads', () => {

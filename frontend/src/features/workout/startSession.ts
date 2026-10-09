@@ -64,8 +64,13 @@ export async function startSession(
         'plan_unavailable',
       ].includes(error.problem.code)
     ) {
-      await operations.discardPending(accountId, draft.draft_id);
-      await repository.delete(accountId, draft.workout_id, draft.draft_id);
+      try {
+        await operations.discardPending(accountId, draft.draft_id);
+        await repository.delete(accountId, draft.workout_id, draft.draft_id);
+      } catch {
+        // Keep the server's classified rejection visible; recovery storage is
+        // still retained if its cleanup could not be confirmed.
+      }
     }
     throw error;
   }
