@@ -478,6 +478,7 @@ test.describe('synchronized workout editor', () => {
     await gotoApp(second);
     await second.goto(`/#/workouts/${workoutId}`);
     await second.getByRole('button', { name: 'Recover this draft' }).click();
+    await expect(second.getByLabel('Workout name')).toBeEnabled();
 
     await deleteWorkout(page, workoutId, 0);
     await second.getByLabel('Workout name').fill('Deleted server copy');

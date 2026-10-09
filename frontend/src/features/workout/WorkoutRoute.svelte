@@ -111,11 +111,14 @@
         void replace(`/workouts/${draft.workout_id}`);
       },
     });
-    phase = 'editing';
     // Catalog labels are presentation data only; recorded snapshots remain the
     // local source for validation and provisional calculations.
     void loadCatalog();
     await sync.initialize();
+    // Do not expose a writable editor while its initial authoritative recovery
+    // check is still in flight; otherwise a concurrent deletion can race the
+    // first load and lock input before the user can make a local edit.
+    phase = 'editing';
   }
 
   async function quickStart(): Promise<void> {

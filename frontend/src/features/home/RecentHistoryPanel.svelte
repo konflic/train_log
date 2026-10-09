@@ -83,15 +83,18 @@
       onclick={() => void load()}>Retry</button
     >
   {:else if items.length === 0}
-    <p class="mt-2 text-sm text-muted">
-      No finished workouts yet. History detail arrives in a later stage.
-    </p>
+    <p class="mt-2 text-sm text-muted">No finished workouts yet.</p>
   {:else}
     <ul class="mt-2 flex flex-col gap-2">
       {#each items as workout (workout.id)}
-        <li class="rounded-md border border-edge px-3 py-2">
-          <p class="font-medium">{workout.name ?? 'Unnamed workout'}</p>
-          <p class="text-sm text-muted">Started {startedAt(workout)}</p>
+        <li>
+          <a
+            href={`#/history/${workout.id}`}
+            class="block min-h-11 rounded-md border border-edge px-3 py-2"
+          >
+            <p class="font-medium">{workout.name ?? 'Unnamed workout'}</p>
+            <p class="text-sm text-muted">Started {startedAt(workout)}</p>
+          </a>
         </li>
       {/each}
     </ul>

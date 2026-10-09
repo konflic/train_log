@@ -13,6 +13,7 @@
   import HomeRoute from './features/home/HomeRoute.svelte';
   import { initializeTheme } from './lib/theme';
   import HistoryRoute from './routes/HistoryRoute.svelte';
+  import WorkoutDetailRoute from './routes/WorkoutDetailRoute.svelte';
   import NotFoundRoute from './routes/NotFoundRoute.svelte';
   import SettingsRoute from './routes/SettingsRoute.svelte';
   import WorkoutRoute from './features/workout/WorkoutRoute.svelte';
@@ -30,6 +31,7 @@
     '/': HomeRoute,
     '/catalog': CatalogRoute,
     '/history': HistoryRoute,
+    '/history/:id': WorkoutDetailRoute,
     '/settings': SettingsRoute,
     '/workouts/current': WorkoutRoute,
     '/workouts/:id': WorkoutRoute,

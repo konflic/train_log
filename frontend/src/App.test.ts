@@ -39,7 +39,10 @@ vi.mock('./db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./db')>();
   return {
     ...actual,
-    openDraftStorage: vi.fn(async () => ({ deleteAccount: deleteAccountMock })),
+    openDraftStorage: vi.fn(async () => ({
+      deleteAccount: deleteAccountMock,
+      listByAccount: async () => ({ values: [], next_key: null }),
+    })),
   };
 });
 

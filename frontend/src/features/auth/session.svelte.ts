@@ -100,12 +100,13 @@ export class SessionState {
   }
 
   /** Revoke the server session before changing local authenticated state. */
-  async signOut(): Promise<void> {
+  async signOut(clearLocalData = true): Promise<void> {
     const generation = ++this.generation;
     const accountId = this.user?.id ?? null;
     // Opening storage before revocation keeps a local-storage failure retryable
     // while the session is still valid. Records are removed only after 204.
-    const storage = accountId === null ? null : await openDraftStorage();
+    const storage =
+      clearLocalData && accountId !== null ? await openDraftStorage() : null;
     await revokeSession();
     if (generation !== this.generation) {
       return;
