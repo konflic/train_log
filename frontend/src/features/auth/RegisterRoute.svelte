@@ -88,130 +88,144 @@
   <title>Create account · BaseFit</title>
 </svelte:head>
 
-<h1 tabindex="-1" bind:this={headingRef}>Create account</h1>
+<section
+  id="register-screen"
+  class="w-full rounded-xl border border-edge bg-surface p-5 shadow-sm sm:p-6"
+>
+  <h1 id="register-heading" tabindex="-1" bind:this={headingRef}>
+    Create account
+  </h1>
 
-{#if registeredEmail !== null}
-  <p
-    role="status"
-    class="mt-3 rounded-md border border-edge bg-surface px-3 py-2 text-sm"
-  >
-    Account created for {registeredEmail}. Registration does not sign you in.
-  </p>
-  <button
-    type="button"
-    class="mt-4 min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
-    onclick={() => void continueToLogin()}
-  >
-    Continue to log in
-  </button>
-{:else}
-  {#if errors.form !== null}
+  {#if registeredEmail !== null}
     <p
-      role="alert"
-      tabindex="-1"
-      bind:this={alertRef}
-      class="mt-3 rounded-md border border-danger px-3 py-2 text-sm text-danger"
+      id="register-notice"
+      role="status"
+      class="mt-3 rounded-md border border-edge bg-surface px-3 py-2 text-sm"
     >
-      {errors.form}
+      Account created for {registeredEmail}. Registration does not sign you in.
+    </p>
+    <button
+      id="register-continue-login-button"
+      type="button"
+      class="mt-4 min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
+      onclick={() => void continueToLogin()}
+    >
+      Continue to log in
+    </button>
+  {:else}
+    {#if errors.form !== null}
+      <p
+        id="register-form-error"
+        role="alert"
+        tabindex="-1"
+        bind:this={alertRef}
+        class="mt-3 rounded-md border border-danger px-3 py-2 text-sm text-danger"
+      >
+        {errors.form}
+      </p>
+    {/if}
+
+    <form
+      id="register-form"
+      class="mt-4 flex w-full flex-col gap-4"
+      novalidate
+      onsubmit={(event) => {
+        event.preventDefault();
+        void handleSubmit();
+      }}
+    >
+      <div>
+        <label for="register-email" class="block text-sm font-medium"
+          >Email</label
+        >
+        <input
+          id="register-email"
+          name="email"
+          type="email"
+          autocomplete="username"
+          inputmode="email"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={email}
+          aria-invalid={errors.fields.email !== undefined}
+          aria-describedby={errors.fields.email !== undefined
+            ? 'register-email-error'
+            : undefined}
+        />
+        {#if errors.fields.email !== undefined}
+          <p id="register-email-error" class="mt-1 text-sm text-danger">
+            {errors.fields.email}
+          </p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="register-password" class="block text-sm font-medium"
+          >Password</label
+        >
+        <input
+          id="register-password"
+          name="password"
+          type="password"
+          autocomplete="new-password"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={password}
+          aria-invalid={errors.fields.password !== undefined}
+          aria-describedby={errors.fields.password !== undefined
+            ? 'register-password-error register-password-hint'
+            : 'register-password-hint'}
+        />
+        <p id="register-password-hint" class="mt-1 text-xs text-muted">
+          At least 8 characters.
+        </p>
+        {#if errors.fields.password !== undefined}
+          <p id="register-password-error" class="mt-1 text-sm text-danger">
+            {errors.fields.password}
+          </p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="register-display-name" class="block text-sm font-medium">
+          Display name (optional)
+        </label>
+        <input
+          id="register-display-name"
+          name="display_name"
+          type="text"
+          autocomplete="nickname"
+          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+          bind:value={displayName}
+          aria-invalid={errors.fields.display_name !== undefined}
+          aria-describedby={errors.fields.display_name !== undefined
+            ? 'register-display-name-error'
+            : undefined}
+        />
+        {#if errors.fields.display_name !== undefined}
+          <p id="register-display-name-error" class="mt-1 text-sm text-danger">
+            {errors.fields.display_name}
+          </p>
+        {/if}
+      </div>
+
+      <button
+        id="register-submit-button"
+        type="submit"
+        disabled={submitting}
+        class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-60"
+      >
+        {submitting ? 'Creating account…' : 'Create account'}
+      </button>
+    </form>
+
+    <p class="mt-4 text-sm text-muted">
+      Already registered?
+      <a
+        id="register-login-link"
+        href="#/login"
+        class="min-h-11 inline-flex items-center text-primary underline"
+      >
+        Log in
+      </a>
     </p>
   {/if}
-
-  <form
-    class="mt-4 flex flex-col gap-4"
-    novalidate
-    onsubmit={(event) => {
-      event.preventDefault();
-      void handleSubmit();
-    }}
-  >
-    <div>
-      <label for="register-email" class="block text-sm font-medium">Email</label
-      >
-      <input
-        id="register-email"
-        name="email"
-        type="email"
-        autocomplete="username"
-        inputmode="email"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        bind:value={email}
-        aria-invalid={errors.fields.email !== undefined}
-        aria-describedby={errors.fields.email !== undefined
-          ? 'register-email-error'
-          : undefined}
-      />
-      {#if errors.fields.email !== undefined}
-        <p id="register-email-error" class="mt-1 text-sm text-danger">
-          {errors.fields.email}
-        </p>
-      {/if}
-    </div>
-
-    <div>
-      <label for="register-password" class="block text-sm font-medium"
-        >Password</label
-      >
-      <input
-        id="register-password"
-        name="password"
-        type="password"
-        autocomplete="new-password"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        bind:value={password}
-        aria-invalid={errors.fields.password !== undefined}
-        aria-describedby={errors.fields.password !== undefined
-          ? 'register-password-error register-password-hint'
-          : 'register-password-hint'}
-      />
-      <p id="register-password-hint" class="mt-1 text-xs text-muted">
-        At least 8 characters.
-      </p>
-      {#if errors.fields.password !== undefined}
-        <p id="register-password-error" class="mt-1 text-sm text-danger">
-          {errors.fields.password}
-        </p>
-      {/if}
-    </div>
-
-    <div>
-      <label for="register-display-name" class="block text-sm font-medium">
-        Display name (optional)
-      </label>
-      <input
-        id="register-display-name"
-        name="display_name"
-        type="text"
-        autocomplete="nickname"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        bind:value={displayName}
-        aria-invalid={errors.fields.display_name !== undefined}
-        aria-describedby={errors.fields.display_name !== undefined
-          ? 'register-display-name-error'
-          : undefined}
-      />
-      {#if errors.fields.display_name !== undefined}
-        <p id="register-display-name-error" class="mt-1 text-sm text-danger">
-          {errors.fields.display_name}
-        </p>
-      {/if}
-    </div>
-
-    <button
-      type="submit"
-      disabled={submitting}
-      class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-60"
-    >
-      {submitting ? 'Creating account…' : 'Create account'}
-    </button>
-  </form>
-
-  <p class="mt-4 text-sm text-muted">
-    Already registered?
-    <a
-      href="#/login"
-      class="min-h-11 inline-flex items-center text-primary underline"
-    >
-      Log in
-    </a>
-  </p>
-{/if}
+</section>

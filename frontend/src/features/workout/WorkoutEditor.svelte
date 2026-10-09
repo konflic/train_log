@@ -480,75 +480,105 @@
             onclick={() => choosePicker(exercise.id)}>Replace exercise</button
           >
         {/if}
-        <div class="mt-4 flex flex-col gap-3">
+        <div class="mt-4 divide-y divide-edge border-y border-edge">
           {#each exercise.sets as set, setIndex (set.id)}
             {@const error = setError(content, exercise, set)}
             {@const validationError = error ?? completionErrors[set.id]}
             <fieldset
               id={`workout-set-${set.id}`}
-              class="rounded-md border border-edge p-3"
+              class="py-2"
               aria-describedby={validationError
                 ? `set-error-${set.id}`
                 : undefined}
             >
-              <legend class="px-1 font-medium">Set {setIndex + 1}</legend>
+              <legend class="sr-only">Set {setIndex + 1}</legend>
               <div
                 class="grid gap-2 {snapshot?.load_type === 'bodyweight'
-                  ? 'grid-cols-[minmax(0,1fr)_2.75rem]'
-                  : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem]'}"
+                  ? 'grid-cols-[2rem_minmax(0,1fr)_auto]'
+                  : 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_auto]'}"
               >
-                <label
-                  class="text-sm font-medium"
-                  for={`workout-set-${set.id}-reps`}
-                  >Reps<input
-                    id={`workout-set-${set.id}-reps`}
+                <span
+                  class="flex min-h-10 items-center justify-center text-sm font-medium"
+                  >{setIndex + 1}</span
+                >
+                <label class="sr-only" for={`workout-set-${set.id}-reps`}
+                  >Set {setIndex + 1} reps</label
+                >
+                <input
+                  id={`workout-set-${set.id}-reps`}
+                  placeholder="Reps"
+                  inputmode="numeric"
+                  step="1"
+                  disabled={locked || set.done}
+                  class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
+                  value={rawValue(content, set, 'reps')}
+                  oninput={(event) =>
+                    updateIntegerField(
+                      set.id,
+                      'reps',
+                      event.currentTarget.value,
+                    )}
+                />
+                {#if snapshot?.load_type !== 'bodyweight'}
+                  <label class="sr-only" for={`workout-set-${set.id}-weight`}
+                    >Set {setIndex + 1} weight in kilograms</label
+                  >
+                  <input
+                    id={`workout-set-${set.id}-weight`}
+                    placeholder="kg"
                     inputmode="numeric"
                     step="1"
                     disabled={locked || set.done}
-                    class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
-                    value={rawValue(content, set, 'reps')}
+                    class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
+                    value={rawValue(content, set, 'weight_kg')}
                     oninput={(event) =>
                       updateIntegerField(
                         set.id,
-                        'reps',
+                        'weight_kg',
                         event.currentTarget.value,
                       )}
-                  /></label
-                >
-                {#if snapshot?.load_type !== 'bodyweight'}<label
-                    class="text-sm font-medium"
-                    for={`workout-set-${set.id}-weight`}
-                    >Weight (kg)<input
-                      id={`workout-set-${set.id}-weight`}
-                      inputmode="numeric"
-                      step="1"
-                      disabled={locked || set.done}
-                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
-                      value={rawValue(content, set, 'weight_kg')}
-                      oninput={(event) =>
-                        updateIntegerField(
-                          set.id,
-                          'weight_kg',
-                          event.currentTarget.value,
-                        )}
-                    /></label
-                  >{/if}
-                {#if setIndex === exercise.sets.length - 1}
-                  <button
-                    id={`workout-set-remove-${set.id}`}
-                    type="button"
-                    class="mt-5 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
-                    aria-label={`Remove set ${setIndex + 1}`}
-                    title={`Remove set ${setIndex + 1}`}
-                    disabled={locked || set.done}
-                    onclick={() => removeSet(exercise.id, set.id)}
-                    ><ActionIcon name="remove" /></button
-                  >
-                {:else}
-                  <span aria-hidden="true"></span>
+                  />
                 {/if}
+                <div class="flex gap-1">
+                  {#if set.done}
+                    <button
+                      id={`workout-set-edit-${set.id}`}
+                      type="button"
+                      class="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-edge"
+                      aria-label={`Edit set ${setIndex + 1}`}
+                      title={`Edit set ${setIndex + 1}`}
+                      disabled={locked}
+                      onclick={() =>
+                        updateSet(exercise.id, set.id, { done: false })}
+                      ><ActionIcon name="edit" /></button
+                    >
+                  {:else}
+                    <button
+                      id={`workout-set-complete-${set.id}`}
+                      type="button"
+                      aria-label={`Mark set ${setIndex + 1} completed`}
+                      title={`Mark set ${setIndex + 1} completed`}
+                      class="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-edge"
+                      disabled={locked}
+                      onclick={() => completeSet(exercise.id, set.id)}
+                      ><ActionIcon name="finish" /></button
+                    >
+                  {/if}
+                  {#if setIndex === exercise.sets.length - 1}
+                    <button
+                      id={`workout-set-remove-${set.id}`}
+                      type="button"
+                      class="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-danger text-danger disabled:opacity-40"
+                      aria-label={`Remove set ${setIndex + 1}`}
+                      title={`Remove set ${setIndex + 1}`}
+                      disabled={locked || set.done}
+                      onclick={() => removeSet(exercise.id, set.id)}
+                      ><ActionIcon name="remove" /></button
+                    >
+                  {/if}
+                </div>
               </div>
-              <div class="mt-3 grid grid-cols-2 gap-3">
+              <div class="ml-10 mt-2 grid grid-cols-2 gap-2">
                 {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
                     class="text-sm font-medium"
                     for={`workout-set-${set.id}-bodyweight-override`}
@@ -557,7 +587,7 @@
                       inputmode="numeric"
                       step="1"
                       disabled={locked || set.done}
-                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
+                      class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                       value={rawValue(content, set, 'bw_percent_override')}
                       oninput={(event) =>
                         updateIntegerField(
@@ -572,7 +602,7 @@
                     for={`workout-set-${set.id}-side`}
                     >Side<select
                       id={`workout-set-${set.id}-side`}
-                      class="mt-1 min-h-10 w-full rounded-md border border-edge bg-surface px-2"
+                      class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
                       value={set.side}
                       disabled={locked || set.done}
                       onchange={(event) =>
@@ -589,32 +619,10 @@
               {#if validationError}<p
                   id={`set-error-${set.id}`}
                   role="alert"
-                  class="mt-2 text-sm text-danger"
+                  class="ml-10 mt-2 text-sm text-danger"
                 >
                   {validationError}
                 </p>{/if}
-              <div class="mt-3 flex flex-wrap gap-2">
-                {#if set.done}<button
-                    id={`workout-set-edit-${set.id}`}
-                    type="button"
-                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
-                    aria-label={`Edit set ${setIndex + 1}`}
-                    title={`Edit set ${setIndex + 1}`}
-                    disabled={locked}
-                    onclick={() =>
-                      updateSet(exercise.id, set.id, { done: false })}
-                    ><ActionIcon name="edit" /></button
-                  >{:else}<button
-                    id={`workout-set-complete-${set.id}`}
-                    type="button"
-                    aria-label={`Mark set ${setIndex + 1} completed`}
-                    title={`Mark set ${setIndex + 1} completed`}
-                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
-                    disabled={locked}
-                    onclick={() => completeSet(exercise.id, set.id)}
-                    ><ActionIcon name="finish" /></button
-                  >{/if}
-              </div>
             </fieldset>
           {/each}
         </div>

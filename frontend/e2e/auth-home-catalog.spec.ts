@@ -8,6 +8,26 @@ import {
 } from './helpers';
 
 test.describe('authentication flow', () => {
+  test('create-account form fits a mobile viewport without horizontal overflow', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await gotoApp(page);
+    await page.getByRole('link', { name: 'Create one' }).click();
+
+    const form = page.locator('#register-form');
+    await expect(form).toBeVisible();
+    const bounds = await form.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(375);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+
   test('anonymous catalog visit leads to login and returns after sign-in', async ({
     page,
   }) => {

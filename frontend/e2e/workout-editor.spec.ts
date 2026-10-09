@@ -49,15 +49,18 @@ test.describe('workout editor', () => {
     );
   });
 
-  test('keeps reps, weight, and the last-set remove action in the editor', async ({
+  test('swaps completed-set edit and last-set remove actions inline', async ({
     page,
   }) => {
     await gotoSignedIn(page);
     await startFreestyle(page);
     const exercise = await addExercise(page, 'Bench Press');
     const firstSet = exercise.getByRole('group', { name: 'Set 1' });
-    await firstSet.getByLabel('Reps').fill('8');
-    await firstSet.getByLabel('Weight (kg)').fill('50');
+    await firstSet.getByLabel('Set 1 reps').fill('8');
+    await firstSet.getByLabel('Set 1 weight in kilograms').fill('50');
+    await firstSet
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
     await expect(firstSet.locator('[id^="workout-set-remove-"]')).toBeVisible();
 
     await exercise
@@ -66,8 +69,8 @@ test.describe('workout editor', () => {
     const secondSet = exercise.getByRole('group', { name: 'Set 2' });
     await expect(secondSet).toBeVisible();
     await expect(
-      firstSet.getByRole('button', { name: /Remove set/ }),
-    ).toHaveCount(0);
+      firstSet.getByRole('button', { name: 'Edit set 1' }),
+    ).toBeVisible();
     await expect(
       secondSet.getByRole('button', { name: 'Remove set 2' }),
     ).toBeVisible();
