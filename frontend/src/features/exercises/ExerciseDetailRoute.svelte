@@ -329,7 +329,7 @@
           <dt class="text-sm text-muted">Best estimated 1RM</dt>
           <dd id="exercise-stat-1rm" class="text-xl font-semibold">
             {stats.best_estimated_1rm_kg === null
-              ? 'Unavailable for this exercise'
+              ? 'N/A'
               : `${stats.best_estimated_1rm_kg} kg`}
           </dd>
         </div>

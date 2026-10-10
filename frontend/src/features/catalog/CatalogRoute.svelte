@@ -153,10 +153,8 @@
     return (event.currentTarget as HTMLSelectElement).value;
   }
 
-  // Form visibility: creating or editing one custom entry at a time. Editing
-  // starts from the detail representation so the optional description is
-  // available; the summary list never carries it.
-  let creating = $state(false);
+  // Editing starts from the detail representation so the optional description
+  // is available; the summary list never carries it.
   let editing = $state<ExerciseDetail | null>(null);
   let editLoadingId = $state<string | null>(null);
 
@@ -177,7 +175,6 @@
   }
 
   function handleFormClose(saved: boolean): void {
-    creating = false;
     editing = null;
     if (saved) {
       // Refetch the affected visible page; server ordering stays authoritative.
@@ -228,21 +225,15 @@
     </select>
   </div>
 
-  {#if !creating && editing === null}
-    <button
-      type="button"
+  {#if editing === null}
+    <a
+      href="#/catalog/new"
       class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
-      onclick={() => {
-        creating = true;
-      }}
+      >New custom exercise</a
     >
-      New custom exercise
-    </button>
   {/if}
 
-  {#if creating}
-    <ExerciseForm exercise={null} onclose={handleFormClose} />
-  {:else if editing !== null}
+  {#if editing !== null}
     <!-- Remount per target so editing always starts from current values. -->
     {#key editing.id}
       <ExerciseForm exercise={editing} onclose={handleFormClose} />

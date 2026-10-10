@@ -177,7 +177,7 @@
             {:else}
               {summary.total_volume_kg_reps}
               <span class="text-sm font-normal"
-                >kg·reps{summary.volume_complete ? '' : ' (partial)'}</span
+                >kg{summary.volume_complete ? '' : ' (partial)'}</span
               >
             {/if}
           </dd>

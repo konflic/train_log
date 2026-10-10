@@ -382,25 +382,6 @@
                     {/if}
                   </div>
                   <div class="ml-10 mt-2 grid grid-cols-2 gap-2">
-                    {#if entry?.load_type !== 'bodyweight' && entry?.bodyweight_percent !== null && entry?.bodyweight_percent !== undefined}
-                      <label
-                        class="text-sm font-medium"
-                        for={`plan-set-${exerciseIndex}-${setIndex}-bodyweight-override`}
-                        >Bodyweight % override<input
-                          id={`plan-set-${exerciseIndex}-${setIndex}-bodyweight-override`}
-                          type="number"
-                          min="1"
-                          max="100"
-                          inputmode="numeric"
-                          class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
-                          value={set.bw_percent_override ?? ''}
-                          oninput={(event) =>
-                            (set.bw_percent_override = parseTarget(
-                              event.currentTarget.value,
-                            ))}
-                        /></label
-                      >
-                    {/if}
                     {#if entry?.load_type === 'split_weight' && entry.side_count === 1}
                       <label
                         class="text-sm font-medium"

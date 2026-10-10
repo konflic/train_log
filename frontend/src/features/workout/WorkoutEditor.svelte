@@ -356,12 +356,10 @@
   class:hidden={pickerTarget !== undefined}
   class="flex flex-col gap-4"
 >
+  {#if sync?.message}<p class="text-sm text-muted">{sync.message}</p>{/if}
   <div
     class="sticky top-0 z-10 rounded-lg border border-edge bg-surface p-3 shadow-sm"
   >
-    {#if sync?.message}<p class="mt-1 text-sm text-muted">
-        {sync.message}
-      </p>{/if}
     <div class="flex flex-wrap gap-2">
       {#if sync?.status === 'storage_error' || sync?.status === 'offline' || sync?.status === 'finish_pending' || sync?.status === 'error' || (!sync && editor.status === 'failed')}
         <button
@@ -417,12 +415,10 @@
         >{sync?.discarding ? 'Discarding…' : 'Cancel'}</button
       >
     </div>
-    {#if blocker}
-      <p id="workout-finish-blocker" class="mt-2 text-sm text-muted">
-        {blocker}
-      </p>
-    {/if}
   </div>
+  {#if blocker}
+    <p id="workout-finish-blocker" class="text-sm text-muted">{blocker}</p>
+  {/if}
 
   <div class="grid gap-3 rounded-lg border border-edge bg-surface p-4">
     <p id="workout-started-at" class="text-sm text-muted">
@@ -599,24 +595,6 @@
                 </div>
               </div>
               <div class="ml-10 mt-2 grid grid-cols-2 gap-2">
-                {#if snapshot?.load_type !== 'bodyweight' && snapshot?.bodyweight_percent !== null}<label
-                    class="text-sm font-medium"
-                    for={`workout-set-${set.id}-bodyweight-override`}
-                    >Bodyweight % override<input
-                      id={`workout-set-${set.id}-bodyweight-override`}
-                      inputmode="numeric"
-                      step="1"
-                      disabled={locked || set.done}
-                      class="min-h-10 w-full rounded-md border border-edge bg-surface px-2"
-                      value={rawValue(content, set, 'bw_percent_override')}
-                      oninput={(event) =>
-                        updateIntegerField(
-                          set.id,
-                          'bw_percent_override',
-                          event.currentTarget.value,
-                        )}
-                    /></label
-                  >{/if}
                 {#if snapshot?.load_type === 'split_weight' && snapshot.side_count === 1}<label
                     class="text-sm font-medium"
                     for={`workout-set-${set.id}-side`}

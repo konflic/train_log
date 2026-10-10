@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ActionIcon from '../../components/ActionIcon.svelte';
   import { animationFrames } from './animations';
 
   let {
@@ -48,11 +49,13 @@
       <button
         id="exercise-animation-toggle"
         type="button"
-        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3 text-sm font-medium"
+        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
         aria-pressed={playing}
+        aria-label={label}
+        title={label}
         onclick={() => {
           playing = !playing;
-        }}>{label}</button
+        }}><ActionIcon name={playing ? 'pause' : 'play'} size={22} /></button
       >
     </figcaption>
   </figure>

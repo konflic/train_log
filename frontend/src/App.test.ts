@@ -202,6 +202,7 @@ describe('authenticated application shell', () => {
       'Settings',
     ]);
     expect(nav.querySelectorAll('svg')).toHaveLength(5);
+    expect(nav.querySelector('svg')?.getAttribute('width')).toBe('28');
     expect(
       screen
         .getByRole('link', { name: 'Start workout session' })

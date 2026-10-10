@@ -34,6 +34,7 @@ vi.mock('../../api', async (importOriginal) => {
 import { ApiRequestError, type Exercise, type ExercisePage } from '../../api';
 import { session } from '../auth/session.svelte';
 import CatalogRoute from './CatalogRoute.svelte';
+import NewExerciseRoute from './NewExerciseRoute.svelte';
 
 function entry(overrides: Partial<Exercise> = {}): Exercise {
   return {
@@ -121,10 +122,12 @@ function renderAt(hash = '#/catalog') {
   return render(CatalogRoute);
 }
 
+function renderNew() {
+  navigate('#/catalog/new');
+  return render(NewExerciseRoute);
+}
+
 async function openCreateForm() {
-  await fireEvent.click(
-    screen.getByRole('button', { name: 'New custom exercise' }),
-  );
   return screen.getByRole('region', { name: 'New custom exercise' });
 }
 
@@ -309,7 +312,7 @@ describe('CatalogRoute filters, search, and paging', () => {
 
 describe('ExerciseForm through the catalog screen', () => {
   it('gives immediate required/range/cross-field feedback without a request', async () => {
-    renderAt();
+    renderNew();
     const formRegion = await openCreateForm();
 
     await fireEvent.click(
@@ -349,7 +352,7 @@ describe('ExerciseForm through the catalog screen', () => {
   });
 
   it('creates a custom entry and refreshes the visible page', async () => {
-    renderAt();
+    renderNew();
     const formRegion = await openCreateForm();
 
     await fireEvent.input(within(formRegion).getByLabelText('Name'), {
@@ -370,7 +373,6 @@ describe('ExerciseForm through the catalog screen', () => {
         .disabled,
     ).toBe(true);
 
-    const listCalls = listExercisesMock.mock.calls.length;
     await fireEvent.click(
       within(formRegion).getByRole('button', { name: 'Create exercise' }),
     );
@@ -385,13 +387,13 @@ describe('ExerciseForm through the catalog screen', () => {
         description: null,
       }),
     );
-    // The form closes and the affected page refetches from the server.
+    // The dedicated form closes and returns to the catalog route.
     await waitFor(() =>
       expect(
         screen.queryByRole('region', { name: 'New custom exercise' }),
       ).toBeNull(),
     );
-    expect(listExercisesMock.mock.calls.length).toBeGreaterThan(listCalls);
+    expect(window.location.hash).toBe('#/catalog');
   });
 
   it('sends a PATCH with only changed fields, including an explicit percent clear', async () => {
@@ -413,22 +415,12 @@ describe('ExerciseForm through the catalog screen', () => {
       (within(formRegion).getByLabelText('Name') as HTMLInputElement).value,
     ).toBe('Weighted Dip');
     expect(
-      (
-        within(formRegion).getByLabelText(
-          /Bodyweight percentage/,
-        ) as HTMLInputElement
-      ).value,
-    ).toBe('30');
+      within(formRegion).queryByLabelText(/Bodyweight percentage/),
+    ).toBeNull();
 
     await fireEvent.input(within(formRegion).getByLabelText('Name'), {
       target: { value: 'Renamed Dip' },
     });
-    await fireEvent.input(
-      within(formRegion).getByLabelText(/Bodyweight percentage/),
-      {
-        target: { value: '' },
-      },
-    );
     await fireEvent.click(
       within(formRegion).getByRole('button', { name: 'Save changes' }),
     );
@@ -466,7 +458,7 @@ describe('ExerciseForm through the catalog screen', () => {
   });
 
   it('cancels without a request', async () => {
-    renderAt();
+    renderNew();
     const formRegion = await openCreateForm();
     await fireEvent.click(
       within(formRegion).getByRole('button', { name: 'Cancel' }),
@@ -483,7 +475,7 @@ describe('ExerciseForm through the catalog screen', () => {
     createExerciseMock.mockRejectedValue(
       requestError(409, 'A custom exercise with this name already exists'),
     );
-    renderAt();
+    renderNew();
     let formRegion = await openCreateForm();
     await fireEvent.input(within(formRegion).getByLabelText('Name'), {
       target: { value: 'Bench Press' },

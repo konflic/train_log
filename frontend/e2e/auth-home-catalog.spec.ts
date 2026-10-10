@@ -124,7 +124,7 @@ test.describe('read-only home', () => {
     await expect(summary).toContainText('Workouts');
     await expect(summary).toContainText('Completed sets');
     await expect(summary).toContainText('Training days');
-    await expect(summary).toContainText('kg·reps');
+    await expect(summary).toContainText('kg');
     await expect(summary).toContainText('Current streak:');
     await expect(summary).toContainText('(full history)');
     // Inclusive local Monday-Sunday range at the account's fixed offset (0).

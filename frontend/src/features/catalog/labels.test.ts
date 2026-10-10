@@ -28,9 +28,9 @@ describe('compact exercise labels', () => {
 describe('volume labels', () => {
   it('keeps unknown, partial, and complete volumes distinct', () => {
     expect(volumeLabel(null, false)).toBe('Unknown');
-    expect(volumeLabel(600, false)).toBe('At least 600 kg·reps');
-    expect(volumeLabel(600, true)).toBe('600 kg·reps');
-    expect(volumeLabel(0, true)).toBe('0 kg·reps');
+    expect(volumeLabel(600, false)).toBe('At least 600 kg');
+    expect(volumeLabel(600, true)).toBe('600 kg');
+    expect(volumeLabel(0, true)).toBe('0 kg');
   });
 
   it('formats session dates at the fixed UTC offset', () => {
@@ -42,8 +42,8 @@ describe('volume labels', () => {
       unknown_load_set_count: 0,
       volume_complete: true,
     };
-    expect(sessionDate(session, 180)).toBe('2026-09-02');
-    expect(sessionDate(session, 0)).toBe('2026-09-01');
-    expect(sessionDate(session, -180)).toBe('2026-09-01');
+    expect(sessionDate(session, 180)).toBe('02.09.2026');
+    expect(sessionDate(session, 0)).toBe('01.09.2026');
+    expect(sessionDate(session, -180)).toBe('01.09.2026');
   });
 });

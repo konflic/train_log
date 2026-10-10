@@ -179,7 +179,7 @@ describe('default exercise detail', () => {
     );
     expect(
       screen.getByText('Lifetime volume').parentElement?.textContent,
-    ).toContain('At least 900 kg·reps');
+    ).toContain('At least 900 kg');
     expect(
       screen.getByText('Best estimated 1RM').parentElement?.textContent,
     ).toContain('112 kg');
@@ -191,8 +191,8 @@ describe('default exercise detail', () => {
     // Exact values are available as visible text (no hover required), and each
     // session links to its finished-workout detail.
     const chartEl = chart as HTMLElement;
-    expect(within(chartEl).getByText('600 kg·reps')).toBeDefined();
-    expect(within(chartEl).getByText('At least 300 kg·reps')).toBeDefined();
+    expect(within(chartEl).getByText('600 kg')).toBeDefined();
+    expect(within(chartEl).getByText('At least 300 kg')).toBeDefined();
     const workoutLink = within(chartEl)
       .getAllByRole('link')
       .find((link) => link.getAttribute('href') === '#/history/w-2');
@@ -207,7 +207,7 @@ describe('default exercise detail', () => {
     );
     expect(
       screen.getByText('Best estimated 1RM').parentElement?.textContent,
-    ).toContain('Unavailable for this exercise');
+    ).toContain('N/A');
     expect(
       screen.getByText('No finished sessions with this exercise yet'),
     ).toBeDefined();

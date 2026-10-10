@@ -159,7 +159,7 @@
   >
     <h2 id="workout-total" class="font-semibold">Completed-set total</h2>
     <p>
-      {total.knownVolume === null ? 'Unknown' : `${total.knownVolume} kg·reps`} from
+      {total.knownVolume === null ? 'Unknown' : `${total.knownVolume} kg`} from
       {total.completedSetCount} completed sets{total.complete
         ? '.'
         : `; ${total.unknownLoadSetCount} loads unknown`}
@@ -213,7 +213,7 @@
                     : `${load.effective_load_kg} kg`} · Volume {load.volume_kg_reps ===
                   null
                     ? 'unknown'
-                    : `${load.volume_kg_reps} kg·reps`}
+                    : `${load.volume_kg_reps} kg`}
                 </p>{/if}
               {#each exercise.previous_performance?.pairs.filter((pair) => pair.current_set_id === set.id) ?? [] as pair (pair.previous_set_id)}
                 <p class="mt-2 text-sm">

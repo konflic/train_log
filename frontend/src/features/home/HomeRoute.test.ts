@@ -230,7 +230,7 @@ describe('SummaryPanel display', () => {
     );
     render(HomeRoute);
     await waitFor(() => expect(screen.getByText('12345')).toBeDefined());
-    expect(screen.getByText('kg·reps')).toBeDefined();
+    expect(screen.getByText('kg')).toBeDefined();
     expect(screen.getByText('3')).toBeDefined();
     expect(screen.getByText('42')).toBeDefined();
     expect(screen.getByText('2')).toBeDefined();

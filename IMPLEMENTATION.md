@@ -106,6 +106,20 @@ remain out of scope.
   production build pass. Focused Chromium coverage is in
   `frontend/e2e/exercise-detail.spec.ts`; the pre-existing backend mypy error
   in `backend/app/api/auth.py:50` remains unchanged.
+- **Exercise detail UI polish:** the unavailable 1RM value now displays as
+  `N/A`, animation playback uses an icon-only accessible toggle, and shared
+  bottom-navigation icons are larger.
+- **Volume display polish:** user-facing volume values now use the concise `kg`
+  unit without the internal `kg·reps` explanation.
+- **Short date display:** exercise statistics dates now use `DD.MM.YYYY`, for
+  example `10.10.2026`.
+- **Bodyweight configuration:** per-set bodyweight overrides were removed from
+  workout and plan editing; the percentage is configured only on bodyweight
+  exercise cards.
+- **Custom exercise creation:** the new-exercise form now opens on its own
+  `/catalog/new` screen instead of inside the catalog list.
+- **Active workout sticky actions:** only the action-button row remains sticky;
+  synchronization messages and finish blockers scroll normally.
 - **Next:** Stage 13 history/detail and remaining Settings work.
 
 ## Documentation ownership

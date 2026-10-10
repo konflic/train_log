@@ -67,6 +67,9 @@
       // Only split-weight entries may cover two sides; the API enforces it.
       sideCount = 1;
     }
+    if (loadType !== 'bodyweight') {
+      percentText = '';
+    }
   }
 
   function draft(): ExerciseDraft {
@@ -80,6 +83,7 @@
   }
 
   function parsedPercent(): number | null {
+    if (loadType !== 'bodyweight') return null;
     const trimmed = percentText.trim();
     return trimmed === '' ? null : Number.parseInt(trimmed, 10);
   }
@@ -235,13 +239,11 @@
       </select>
     </div>
 
-    <div class="flex flex-col gap-4 sm:flex-row">
-      <div class="flex-1">
+    {#if loadType === 'bodyweight'}
+      <div>
         <label for="exercise-percent" class="block text-sm font-medium">
           Bodyweight percentage
-          <span class="font-normal text-muted">
-            ({loadType === 'bodyweight' ? 'required' : 'optional'}, whole 1–100)
-          </span>
+          <span class="font-normal text-muted">(required, whole 1–100)</span>
         </label>
         <input
           id="exercise-percent"
@@ -262,6 +264,8 @@
           </p>
         {/if}
       </div>
+    {/if}
+    <div class="flex flex-col gap-4 sm:flex-row">
       <div class="flex-1">
         <label for="exercise-side-count" class="block text-sm font-medium"
           >Sides</label

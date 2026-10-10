@@ -14,6 +14,8 @@
       | 'history'
       | 'home'
       | 'info'
+      | 'pause'
+      | 'play'
       | 'refresh'
       | 'remove'
       | 'save'
@@ -62,6 +64,10 @@
   {:else if name === 'info'}
     <circle cx="12" cy="12" r="9" />
     <path d="M12 11v5M12 7.6v.4" />
+  {:else if name === 'pause'}
+    <path d="M9 5v14M15 5v14" />
+  {:else if name === 'play'}
+    <path d="m8 5 11 7-11 7z" />
   {:else if name === 'refresh'}
     <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
   {:else if name === 'remove'}

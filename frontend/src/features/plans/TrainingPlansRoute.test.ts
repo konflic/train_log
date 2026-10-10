@@ -140,7 +140,7 @@ describe('TrainingPlansRoute', () => {
     ).toBe('#/workouts/workout-1');
   });
 
-  it('saves side and bodyweight-percent targets for a plan set', async () => {
+  it('saves side targets for a plan set', async () => {
     render(TrainingPlansRoute);
     await screen.findByRole('button', { name: 'Create plan' });
 
@@ -152,9 +152,6 @@ describe('TrainingPlansRoute', () => {
     await fireEvent.click(
       await screen.findByRole('button', { name: /Single-side curl/ }),
     );
-    await fireEvent.input(screen.getByLabelText('Bodyweight % override'), {
-      target: { value: '60' },
-    });
     await fireEvent.change(screen.getByLabelText('Side'), {
       target: { value: 'right' },
     });
@@ -172,7 +169,7 @@ describe('TrainingPlansRoute', () => {
               {
                 target_reps: null,
                 target_weight_kg: null,
-                bw_percent_override: 60,
+                bw_percent_override: null,
                 side: 'right',
               },
             ],

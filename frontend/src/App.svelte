@@ -8,6 +8,7 @@
     session,
   } from './features/auth/session.svelte';
   import CatalogRoute from './features/catalog/CatalogRoute.svelte';
+  import NewExerciseRoute from './features/catalog/NewExerciseRoute.svelte';
   import ExerciseDetailRoute from './features/exercises/ExerciseDetailRoute.svelte';
   import HomeRoute from './features/home/HomeRoute.svelte';
   import TrainingPlansRoute from './features/plans/TrainingPlansRoute.svelte';
@@ -27,6 +28,7 @@
   const routes = {
     '/': HomeRoute,
     '/catalog': CatalogRoute,
+    '/catalog/new': NewExerciseRoute,
     '/exercises/:id': ExerciseDetailRoute,
     '/history': HistoryRoute,
     '/history/:id': WorkoutDetailRoute,
@@ -207,7 +209,7 @@
                 ? 'animate-pulse'
                 : ''}"
             >
-              <ActionIcon name={item.icon} size={22} />
+              <ActionIcon name={item.icon} size={28} />
             </a>
           </li>
         {/each}
