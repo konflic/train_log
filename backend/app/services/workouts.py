@@ -69,7 +69,12 @@ from typing import Any, Literal, cast
 from app.db import connect, write_transaction
 from app.numbers import MAX_SAFE_INTEGER, NumericRangeError, calculate_set_load, integer_delta
 from app.schemas.common import LoadType
-from app.schemas.workouts import SaveSetRequest, SaveWorkoutRequest, Side
+from app.schemas.workouts import (
+    MAX_WORKOUT_NAME_LENGTH,
+    SaveSetRequest,
+    SaveWorkoutRequest,
+    Side,
+)
 from app.timestamps import now_timestamp, parse_timestamp, to_timestamp
 
 WORKOUT_COLUMNS = (
@@ -888,13 +893,21 @@ def save_request_hash(*, owner_id: str, workout_id: str, payload: SaveWorkoutReq
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def workout_name(started_at: str, utc_offset_minutes: int) -> str:
-    """Return the fixed display name for a session in the owner's local date."""
+def workout_name(started_at: str, utc_offset_minutes: int, plan_name: str | None = None) -> str:
+    """Return the fixed display name for a session in the owner's local date.
+
+    A session started from a plan is named after that plan; a freestyle session
+    gets the generic label. The label is truncated so the generated name always
+    fits the bulk-save name limit and a client can echo it back unchanged.
+    """
     try:
         local_date = (parse_timestamp(started_at) + timedelta(minutes=utc_offset_minutes)).date()
     except OverflowError:
         local_date = date.max if utc_offset_minutes > 0 else date.min
-    return f"Workout on {local_date:%Y-%m-%d}"
+    suffix = f" on {local_date:%Y-%m-%d}"
+    label = "Freestyle workout" if plan_name is None else plan_name
+    label = label[: MAX_WORKOUT_NAME_LENGTH - len(suffix)].rstrip() or "Workout"
+    return f"{label}{suffix}"
 
 
 def save_workout(
@@ -1163,7 +1176,11 @@ def create_workout(
         ).fetchone()
         bodyweight_kg = profile["bodyweight_default_kg"] if profile is not None else None
         utc_offset_minutes = int(profile["utc_offset_minutes"]) if profile is not None else 0
-        name = workout_name(started_at, utc_offset_minutes)
+        name = workout_name(
+            started_at,
+            utc_offset_minutes,
+            plan_name=str(plan["name"]) if plan is not None else None,
+        )
         try:
             conn.execute(
                 "INSERT INTO workouts (id, user_id, name, started_at, ended_at, "

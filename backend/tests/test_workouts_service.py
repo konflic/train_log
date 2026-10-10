@@ -114,7 +114,7 @@ def test_create_stores_revision_zero_with_profile_bodyweight(two_users: Path) ->
     # The profile default is copied as a recorded input (PLAN.md §4)...
     assert record.bodyweight_kg == 80
     # The session flow auto-names new workouts with the owner's local date.
-    assert record.name == "Workout on 2026-01-01"
+    assert record.name == "Freestyle workout on 2026-01-01"
     assert record.notes is None
     assert record.ended_at is None
     assert record.last_save_id is None

@@ -34,7 +34,7 @@ import HomeRoute from './HomeRoute.svelte';
 const OFFSET = 180; // UTC+3, fixed profile offset
 
 function emptyPage(): WorkoutPage {
-  return { items: [], total: 0, page: 1, page_size: 5 };
+  return { items: [], total: 0, page: 1, page_size: 3 };
 }
 
 function zeroSummary(overrides: Partial<StatsSummary> = {}): StatsSummary {
@@ -88,7 +88,7 @@ describe('HomeRoute reads', () => {
     await waitFor(() => expect(fetchStatsSummaryMock).toHaveBeenCalled());
 
     const calls = listWorkoutsMock.mock.calls.map((call) => call[0]);
-    expect(calls).toContainEqual({ status: 'finished', page: 1, pageSize: 5 });
+    expect(calls).toContainEqual({ status: 'finished', page: 1, pageSize: 3 });
 
     // Every read is abortable.
     for (const call of listWorkoutsMock.mock.calls) {
@@ -121,7 +121,7 @@ describe('HomeRoute reads', () => {
       ],
       total: 1,
       page: 1,
-      page_size: 5,
+      page_size: 3,
     });
     render(HomeRoute);
     expect((await screen.findAllByRole('status')).length).toBeGreaterThan(0);

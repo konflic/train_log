@@ -5,7 +5,7 @@
   import { formatRelativeTime } from '../../lib/relativeTime';
   import { isUnauthorizedError, session } from '../auth/session.svelte';
 
-  const PAGE_SIZE = 5;
+  const PAGE_SIZE = 3;
 
   let phase = $state<'loading' | 'error' | 'ready'>('loading');
   let items = $state<WorkoutSummary[]>([]);

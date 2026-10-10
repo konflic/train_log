@@ -524,7 +524,7 @@ def test_foreign_workout_save_is_404(make_app, migrated_db: Path) -> None:
         assert set(problem(response)) == PROBLEM_FIELDS
         current = get_detail(alice, workout_id)
         assert current["revision"] == 0
-        assert current["name"] == "Workout on 2026-01-01"
+        assert current["name"] == "Freestyle workout on 2026-01-01"
 
 
 def test_graph_and_catalog_conflicts_are_generic(make_app, migrated_db: Path) -> None:

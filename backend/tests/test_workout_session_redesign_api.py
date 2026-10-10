@@ -177,7 +177,7 @@ def test_start_from_plan_copies_an_independent_unfinished_graph(
     started = api_client.post(WORKOUTS, json=request)
     assert started.status_code == 201
     session = started.json()
-    assert session["name"] == "Workout on 2026-02-01"
+    assert session["name"] == "Pull day on 2026-02-01"
     assert session["source_plan_id"] == plan["id"]
     assert session["exercises"][0]["id"] != plan["exercises"][0]["id"]
     copied_set = session["exercises"][0]["sets"][0]
@@ -194,11 +194,28 @@ def test_start_from_plan_copies_an_independent_unfinished_graph(
         == 204
     )
     preserved = api_client.get(f"{WORKOUTS}/{session['id']}").json()
-    assert preserved["name"] == "Workout on 2026-02-01"
+    assert preserved["name"] == "Pull day on 2026-02-01"
     assert preserved["exercises"] == session["exercises"]
     retry = api_client.post(WORKOUTS, json=request)
     assert retry.status_code == 200
     assert retry.json()["id"] == session["id"]
+
+
+def test_plan_session_name_stays_within_the_save_limit(api_client: TestClient) -> None:
+    register_and_login(api_client)
+    plan = api_client.post(PLANS, json=plan_payload() | {"name": "P" * 100}).json()
+    started = api_client.post(
+        WORKOUTS,
+        json=start_payload(
+            session_type="from_plan",
+            source_plan_id=plan["id"],
+            source_plan_revision=plan["revision"],
+        ),
+    )
+    assert started.status_code == 201
+    # The generated name keeps the date suffix and fits the 100-character
+    # bulk-save limit, so a client can always echo it back unchanged.
+    assert started.json()["name"] == f"{'P' * 86} on 2026-02-01"
 
 
 def test_stale_or_foreign_plan_start_is_atomic(make_app) -> None:
