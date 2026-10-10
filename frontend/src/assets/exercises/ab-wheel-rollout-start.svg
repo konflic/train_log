@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Ab Wheel Rollout — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><circle cx="128" cy="138" r="10" /><g stroke-width="4"><path d="M 116,128 L 140,128" /></g></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 110,96 L 100,116" /><path d="M 124,128 L 118,110 L 110,96" /><path d="M 100,116 L 94,132 L 82,144" /></g>
+  <circle cx="116" cy="84" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

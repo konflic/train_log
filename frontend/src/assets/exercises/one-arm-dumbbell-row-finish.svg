@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>One-arm Dumbbell Row — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 84,100 L 190,100" /><path d="M 96,104 L 96,148" /><path d="M 178,104 L 178,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="5"><path d="M 110,96 L 126,96" /></g><circle cx="108" cy="96" r="4.5" fill="#d97706" stroke="none"/><circle cx="128" cy="96" r="4.5" fill="#d97706" stroke="none"/></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 148,94 L 116,98" /><path d="M 144,96 L 142,100 L 146,100" /><path d="M 120,100 L 114,108 L 118,100" /><path d="M 116,98 L 100,112 L 92,148" /></g>
+  <circle cx="160" cy="88" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

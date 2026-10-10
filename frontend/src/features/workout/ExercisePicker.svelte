@@ -4,7 +4,7 @@
   import { listExercises } from '../../api';
   import { describeFailure, isAbortError } from '../../lib/failures';
   import {
-    loadTypeLabels,
+    compactExerciseSummary,
     muscleGroupLabels,
     muscleGroupValues,
   } from '../catalog/labels';
@@ -79,19 +79,6 @@
     }, SEARCH_DEBOUNCE_MS);
   }
 
-  function describeLoad(entry: Exercise): string {
-    const parts = [loadTypeLabels[entry.load_type]];
-    if (entry.bodyweight_percent !== null) {
-      parts.push(`${entry.bodyweight_percent}% bodyweight`);
-    }
-    if (entry.load_type === 'split_weight') {
-      parts.push(
-        entry.side_count === 1 ? 'one side per set' : 'both sides per set',
-      );
-    }
-    return parts.join(' · ');
-  }
-
   void load();
 
   onDestroy(() => {
@@ -163,13 +150,13 @@
         <li>
           <button
             type="button"
-            class="min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-3 text-left"
+            class="exercise-card min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-3 text-left"
             {disabled}
             onclick={() => onSelect(entry)}
           >
             <span class="block font-medium">{entry.name}</span>
-            <span class="mt-1 block text-sm text-muted">
-              {muscleGroupLabels[entry.muscle_group]} · {describeLoad(entry)}
+            <span class="exercise-card__summary mt-1 block text-sm text-muted">
+              {compactExerciseSummary(entry)}
             </span>
           </button>
         </li>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Lying Leg Raise — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 84,140 L 116,140" /><path d="M 92,144 L 104,146" /><path d="M 116,140 L 148,130 L 172,116" /></g>
+  <circle cx="70" cy="134" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

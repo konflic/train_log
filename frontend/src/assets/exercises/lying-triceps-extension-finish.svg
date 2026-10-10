@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Lying Triceps Extension — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 58,104 L 182,104" /><path d="M 70,108 L 70,148" /><path d="M 170,108 L 170,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M 36,76 L 104,76" /><path d="M 36,63 L 36,89" /><path d="M 104,63 L 104,89" /><path d="M 45,67 L 45,85" /><path d="M 95,67 L 95,85" /></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 86,94 L 128,96" /><path d="M 70,80 L 84,62 L 86,94" /><path d="M 128,96 L 152,92 L 164,148" /></g>
+  <circle cx="68" cy="88" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

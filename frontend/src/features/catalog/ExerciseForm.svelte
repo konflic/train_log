@@ -3,7 +3,7 @@
   import {
     createExercise,
     updateExercise,
-    type Exercise,
+    type ExerciseDetail,
     type ExerciseUpdateInput,
     type LoadType,
     type MuscleGroup,
@@ -22,13 +22,14 @@
     onclose,
   }: {
     /** The custom entry being edited, or `null` to create a new one. */
-    exercise: Exercise | null;
+    exercise: ExerciseDetail | null;
     /** Called after close; `saved` tells whether the list should refresh. */
     onclose: (saved: boolean) => void;
   } = $props();
 
   const noErrors: FormFailure = { form: null, fields: {} };
   const MAX_NAME_LENGTH = 100;
+  const MAX_DESCRIPTION_LENGTH = 1000;
 
   // The form is remounted per target (keyed by the caller), so capturing the
   // initial prop values into editable local state is exactly the intent:
@@ -49,6 +50,8 @@
   );
   /* svelte-ignore state_referenced_locally */
   let sideCount = $state<number>(exercise?.side_count ?? 1);
+  /* svelte-ignore state_referenced_locally */
+  let description = $state(exercise?.description ?? '');
 
   let submitting = $state(false);
   let errors = $state<FormFailure>(noErrors);
@@ -104,6 +107,11 @@
     if (sideCount !== exercise.side_count) {
       patch.side_count = sideCount;
     }
+    // Blank input is an explicit clear; the server normalizes it to null.
+    const nextDescription = description.trim();
+    if (nextDescription !== (exercise.description ?? '')) {
+      patch.description = nextDescription === '' ? null : nextDescription;
+    }
     return patch;
   }
 
@@ -125,6 +133,7 @@
           load_type: loadType,
           bodyweight_percent: parsedPercent(),
           side_count: sideCount,
+          description: description.trim() === '' ? null : description.trim(),
         });
       } else {
         const patch = buildPatch();
@@ -271,6 +280,20 @@
           <p class="mt-1 text-sm text-danger">{errors.fields.side_count}</p>
         {/if}
       </div>
+    </div>
+
+    <div>
+      <label for="exercise-description" class="block text-sm font-medium">
+        Description
+        <span class="font-normal text-muted">(optional)</span>
+      </label>
+      <textarea
+        id="exercise-description"
+        name="description"
+        rows="3"
+        maxlength={MAX_DESCRIPTION_LENGTH}
+        class="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2"
+        bind:value={description}></textarea>
     </div>
 
     <div class="flex gap-2">

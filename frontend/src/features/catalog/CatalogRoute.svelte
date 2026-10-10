@@ -2,14 +2,20 @@
   import { onDestroy, untrack } from 'svelte';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
   import { push, router } from 'svelte-spa-router';
-  import { listExercises, type Exercise, type MuscleGroup } from '../../api';
+  import {
+    getExercise,
+    listExercises,
+    type Exercise,
+    type ExerciseDetail,
+    type MuscleGroup,
+  } from '../../api';
   import ActionIcon from '../../components/ActionIcon.svelte';
   import { describeFailure, isAbortError } from '../../lib/failures';
   import { isUnauthorizedError, session } from '../auth/session.svelte';
   import ExerciseForm from './ExerciseForm.svelte';
   import {
+    compactExerciseSummary,
     isMuscleGroup,
-    loadTypeLabels,
     muscleGroupLabels,
     muscleGroupValues,
   } from './labels';
@@ -147,9 +153,28 @@
     return (event.currentTarget as HTMLSelectElement).value;
   }
 
-  // Form visibility: creating or editing one custom entry at a time.
+  // Form visibility: creating or editing one custom entry at a time. Editing
+  // starts from the detail representation so the optional description is
+  // available; the summary list never carries it.
   let creating = $state(false);
-  let editing = $state<Exercise | null>(null);
+  let editing = $state<ExerciseDetail | null>(null);
+  let editLoadingId = $state<string | null>(null);
+
+  async function openEditor(entry: Exercise): Promise<void> {
+    editLoadingId = entry.id;
+    try {
+      editing = await getExercise(entry.id);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        session.noteUnauthorized();
+        return;
+      }
+      message = describeFailure(error);
+      phase = 'error';
+    } finally {
+      editLoadingId = null;
+    }
+  }
 
   function handleFormClose(saved: boolean): void {
     creating = false;
@@ -161,19 +186,6 @@
   }
 
   const pageCount = $derived(Math.max(1, Math.ceil(total / PAGE_SIZE)));
-
-  function describeLoad(entry: Exercise): string {
-    const parts = [loadTypeLabels[entry.load_type]];
-    if (entry.bodyweight_percent !== null) {
-      parts.push(`${entry.bodyweight_percent}% bodyweight`);
-    }
-    if (entry.load_type === 'split_weight') {
-      parts.push(
-        entry.side_count === 1 ? 'one side per set' : 'both sides per set',
-      );
-    }
-    return parts.join(' · ');
-  }
 </script>
 
 <svelte:head>
@@ -253,8 +265,12 @@
   {:else}
     <ul class="flex flex-col gap-2">
       {#each items as entry (entry.id)}
-        <li class="rounded-md border border-edge bg-surface px-3 py-2">
-          <div class="flex items-start justify-between gap-2">
+        <li
+          class="exercise-card rounded-md border border-edge bg-surface px-3 py-2"
+        >
+          <div
+            class="exercise-card__header flex items-start justify-between gap-2"
+          >
             <div class="min-w-0">
               <p class="font-medium">
                 {entry.name}
@@ -264,23 +280,32 @@
                   {entry.is_default ? 'Default' : 'Custom'}
                 </span>
               </p>
-              <p class="text-sm text-muted">
-                {muscleGroupLabels[entry.muscle_group]} · {describeLoad(entry)}
+              <p class="exercise-card__summary text-sm text-muted">
+                {compactExerciseSummary(entry)}
               </p>
             </div>
-            {#if !entry.is_default}
-              <button
-                type="button"
-                class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-edge px-3"
-                aria-label={`Edit ${entry.name}`}
-                title={`Edit ${entry.name}`}
-                onclick={() => {
-                  editing = entry;
-                }}
+            <div class="flex shrink-0 items-center gap-2">
+              <a
+                class="exercise-card__info-link inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+                href="#/exercises/{entry.id}"
+                aria-label={`About ${entry.name}`}
+                title={`About ${entry.name}`}
               >
-                <ActionIcon name="edit" />
-              </button>
-            {/if}
+                <ActionIcon name="info" />
+              </a>
+              {#if !entry.is_default}
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3 disabled:opacity-40"
+                  aria-label={`Edit ${entry.name}`}
+                  title={`Edit ${entry.name}`}
+                  disabled={editLoadingId !== null}
+                  onclick={() => void openEditor(entry)}
+                >
+                  <ActionIcon name="edit" />
+                </button>
+              {/if}
+            </div>
           </div>
         </li>
       {/each}

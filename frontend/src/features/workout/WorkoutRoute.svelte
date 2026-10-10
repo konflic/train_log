@@ -56,7 +56,7 @@
     try {
       repository = new DraftRepository(await openDraftStorage());
       if (workoutId === 'current') await openCurrent();
-      else await resume(workoutId);
+      else if (!(await reuseLiveEditor(workoutId))) await resume(workoutId);
     } catch (error) {
       if (!alive) return;
       message = describeFailure(error);
@@ -74,6 +74,24 @@
     await replace(current ? `/workouts/${current.id}` : '/workouts/start');
   }
 
+  /**
+   * Reattach the live in-memory editor for this account and workout, e.g.
+   * after a read-only detour to the exercise-information screen. The server
+   * and the stored drafts are not touched: locally stored input and the
+   * synchronization state are preserved exactly and the detour introduces no
+   * workout write. A cold visit (reload, another tab) has no live editor and
+   * keeps the authoritative server resume below.
+   */
+  async function reuseLiveEditor(id: string): Promise<boolean> {
+    if (!repository || !accountId) return false;
+    const key = editorKey(accountId, id);
+    const live = localEditors.get(key);
+    const draft = live?.current;
+    if (!live || !draft || draft.workout_id !== id) return false;
+    await attachEditor(key, draft, live, true);
+    return true;
+  }
+
   async function useEditor(draft: WorkoutDraft): Promise<void> {
     if (!repository || !accountId) return;
     const key = editorKey(accountId, draft.workout_id);
@@ -81,9 +99,19 @@
     if (previous?.current) {
       editorAssociations.release(key, previous.current.draft_id);
     }
-    editorAssociations.associate(key, draft.draft_id);
     const active = new LocalDraftEditor(repository, draft);
     localEditors.set(key, active);
+    await attachEditor(key, draft, active, false);
+  }
+
+  async function attachEditor(
+    key: string,
+    draft: WorkoutDraft,
+    active: LocalDraftEditor,
+    reused: boolean,
+  ): Promise<void> {
+    if (!repository || !accountId) return;
+    editorAssociations.associate(key, draft.draft_id);
     editor = active;
     const operations = new PendingDraftRepository(
       repository,
@@ -114,7 +142,8 @@
     // Catalog labels are presentation data only; recorded snapshots remain the
     // local source for validation and provisional calculations.
     void loadCatalog();
-    await sync.initialize();
+    if (reused) await sync.adoptReusedEditor();
+    else await sync.initialize();
     // Do not expose a writable editor until its server state is checked.
     phase = 'editing';
     activeSession.setActive(draft.workout_id);

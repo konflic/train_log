@@ -25,7 +25,7 @@ from app.services.catalog import (
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
-SEEDED_DEFAULT_COUNT = 26
+SEEDED_DEFAULT_COUNT = 42
 
 
 @pytest.fixture()
@@ -212,8 +212,11 @@ def test_muscle_group_filter(two_users: Path) -> None:
         "lat-pulldown",
         "pull-up",
         "back-extension",
+        "good-morning",
+        "one-arm-dumbbell-row",
+        "chin-up",
     }
-    assert page.total == 5
+    assert page.total == 8
     page = catalog.list_entries(
         two_users, viewer_id="user-1", limit=100, offset=0, muscle_group="abs"
     )
@@ -234,8 +237,8 @@ def test_muscle_group_filter(two_users: Path) -> None:
         muscle_group="back",
         search="row",
     )
-    assert visible_names(page) == ["Barbell Row"]
-    assert page.total == 1
+    assert visible_names(page) == ["Barbell Row", "One-arm Dumbbell Row"]
+    assert page.total == 2
 
 
 # --- ordering and pagination ------------------------------------------------------
@@ -276,7 +279,7 @@ def test_total_reflects_filters(two_users: Path) -> None:
     page = catalog.list_entries(
         two_users, viewer_id="user-1", limit=3, offset=0, muscle_group="legs"
     )
-    assert page.total == 6
+    assert page.total == 11
     assert len(page.items) == 3
 
 

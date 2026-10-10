@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Chin-up — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 56,18 L 184,18" /><path d="M 56,18 L 56,148" /><path d="M 184,18 L 184,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 118,58 L 116,104" /><path d="M 116,18 L 117,38 L 118,58" /><path d="M 116,104 L 120,126 L 118,146" /></g>
+  <circle cx="126" cy="44" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

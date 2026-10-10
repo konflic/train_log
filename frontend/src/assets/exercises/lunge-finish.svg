@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Lunge — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="5"><path d="M 102,100 L 118,100" /></g><circle cx="100" cy="100" r="4.5" fill="#d97706" stroke="none"/><circle cx="120" cy="100" r="4.5" fill="#d97706" stroke="none"/></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 114,44 L 112,94" /><path d="M 114,50 L 112,74 L 110,96" /><path d="M 112,94 L 142,100 L 144,146" /><path d="M 112,94 L 94,128 L 74,144" /></g>
+  <circle cx="116" cy="30" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

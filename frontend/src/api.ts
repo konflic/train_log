@@ -71,6 +71,53 @@ export interface Exercise {
   is_default: boolean;
 }
 
+/** One cited source of a default exercise's guidance bundle. */
+export interface ExerciseGuidanceSource {
+  title: string;
+  url: string;
+}
+
+/**
+ * The reviewed guidance bundle of a default exercise. Custom entries always
+ * have `guidance: null`; guidance is never fabricated for them.
+ */
+export interface ExerciseGuidance {
+  technique_steps: string[];
+  form_tips: string[];
+  animation_key: string;
+  sources: ExerciseGuidanceSource[];
+}
+
+/** GET /exercises/{id}: summary plus description and default-only guidance. */
+export interface ExerciseDetail extends Exercise {
+  description: string | null;
+  guidance: ExerciseGuidance | null;
+}
+
+/** One eligible finished workout's aggregate in the per-exercise series. */
+export interface ExerciseStatsSession {
+  workout_id: string;
+  started_at: string;
+  completed_set_count: number;
+  volume_kg_reps: number | null;
+  unknown_load_set_count: number;
+  volume_complete: boolean;
+}
+
+/**
+ * GET /exercises/{id}/stats: lifetime totals plus at most the latest 12
+ * eligible sessions, oldest-to-newest.
+ */
+export interface ExerciseStats {
+  training_count: number;
+  completed_set_count: number;
+  total_volume_kg_reps: number | null;
+  unknown_load_set_count: number;
+  volume_complete: boolean;
+  best_estimated_1rm_kg: number | null;
+  sessions: ExerciseStatsSession[];
+}
+
 export interface ExercisePage {
   items: Exercise[];
   total: number;
@@ -91,15 +138,20 @@ export interface ExerciseCreateInput {
   load_type: LoadType;
   bodyweight_percent?: number | null;
   side_count?: number;
+  description?: string | null;
 }
 
-/** Partial PATCH input; an explicit `null` clears `bodyweight_percent`. */
+/**
+ * Partial PATCH input; an explicit `null` clears `bodyweight_percent` and
+ * `description`.
+ */
 export interface ExerciseUpdateInput {
   name?: string;
   muscle_group?: MuscleGroup;
   load_type?: LoadType;
   bodyweight_percent?: number | null;
   side_count?: number;
+  description?: string | null;
 }
 
 export interface WorkoutSummary {
@@ -609,14 +661,26 @@ export function listExercises(
   return sendJson<ExercisePage>('GET', '/exercises', { query: params, signal });
 }
 
-/** GET /exercises/{id}: one catalog entry visible to the caller. */
+/** GET /exercises/{id}: the detail of one catalog entry visible to the caller. */
 export function getExercise(
   exerciseId: string,
   signal?: AbortSignal,
-): Promise<Exercise> {
-  return sendJson<Exercise>(
+): Promise<ExerciseDetail> {
+  return sendJson<ExerciseDetail>(
     'GET',
     `/exercises/${encodeURIComponent(exerciseId)}`,
+    { signal },
+  );
+}
+
+/** GET /exercises/{id}/stats: the caller's per-exercise progress summary. */
+export function fetchExerciseStats(
+  exerciseId: string,
+  signal?: AbortSignal,
+): Promise<ExerciseStats> {
+  return sendJson<ExerciseStats>(
+    'GET',
+    `/exercises/${encodeURIComponent(exerciseId)}/stats`,
     { signal },
   );
 }
@@ -625,8 +689,11 @@ export function getExercise(
 export function createExercise(
   input: ExerciseCreateInput,
   signal?: AbortSignal,
-): Promise<Exercise> {
-  return sendJson<Exercise>('POST', '/exercises', { body: input, signal });
+): Promise<ExerciseDetail> {
+  return sendJson<ExerciseDetail>('POST', '/exercises', {
+    body: input,
+    signal,
+  });
 }
 
 /** PATCH /exercises/{id}: partial update of the caller's custom entry. */
@@ -634,8 +701,8 @@ export function updateExercise(
   exerciseId: string,
   patch: ExerciseUpdateInput,
   signal?: AbortSignal,
-): Promise<Exercise> {
-  return sendJson<Exercise>(
+): Promise<ExerciseDetail> {
+  return sendJson<ExerciseDetail>(
     'PATCH',
     `/exercises/${encodeURIComponent(exerciseId)}`,
     {

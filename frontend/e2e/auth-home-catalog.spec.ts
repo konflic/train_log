@@ -162,37 +162,45 @@ test.describe('catalog management', () => {
       page.getByRole('heading', { level: 1, name: 'Catalog' }),
     ).toBeVisible();
 
-    // Seeded defaults browse with stable paging (26 defaults, page size 10).
-    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
-    await expect(page.getByText('Bench Press')).toBeVisible();
+    // Seeded defaults browse with stable paging (42 defaults, page size 10).
+    await expect(page.getByText('42 exercises · page 1 of 5')).toBeVisible();
+    await expect(
+      page.getByText('Bench Press Default', { exact: true }),
+    ).toBeVisible();
     await expect(page.getByText('Back Squat')).toBeVisible();
     const defaults = page.getByText('Default', { exact: true });
     await expect(defaults).toHaveCount(10);
     // Default entries have no edit action.
     await expect(page.getByRole('button', { name: /^Edit/ })).toHaveCount(0);
 
-    // Enum values render through human-readable labels.
-    await expect(page.getByText(/Single weight/).first()).toBeVisible();
+    // Compact cards show only body part and coarse load type.
+    await expect(page.getByText(/· Weighted/).first()).toBeVisible();
 
     // Stable ordering: page 2 continues the casefolded name order.
     await page.getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByText('26 exercises · page 2 of 3')).toBeVisible();
+    await expect(page.getByText('42 exercises · page 2 of 5')).toBeVisible();
     await expect(page.getByText('Dumbbell Curl')).toBeVisible();
-    await expect(page.getByText('Overhead Press')).toBeVisible();
+    await expect(
+      page.getByText('Deadlift Default', { exact: true }),
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Previous' }).click();
-    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
+    await expect(page.getByText('42 exercises · page 1 of 5')).toBeVisible();
 
     // Search narrows to matching names (URL state, debounced).
     await page.getByLabel('Search').fill('dumb');
     await expect(page.getByText('Dumbbell Curl')).toBeVisible();
-    await expect(page.getByText('Bench Press')).toHaveCount(0);
+    await expect(
+      page.locator('ul li').filter({ hasText: /^Bench Press Default/ }),
+    ).toHaveCount(0);
     await expect(page).toHaveURL(/search=dumb/);
     await page.getByLabel('Search').fill('');
-    await expect(page.getByText('Bench Press')).toBeVisible();
+    await expect(
+      page.getByText('Bench Press Default', { exact: true }),
+    ).toBeVisible();
 
     // Muscle-group filter keeps exact API literals behind readable labels.
     await page.getByLabel('Muscle group').selectOption('back');
-    await expect(page.getByText('5 exercises · page 1 of 1')).toBeVisible();
+    await expect(page.getByText('8 exercises · page 1 of 1')).toBeVisible();
     await expect(page.getByText('Barbell Row')).toBeVisible();
     await expect(page.getByText('Deadlift')).toBeVisible();
     await expect(page.getByText('Lat Pulldown')).toBeVisible();
@@ -200,7 +208,7 @@ test.describe('catalog management', () => {
     await expect(page.getByText('Back Extension')).toBeVisible();
     await expect(page).toHaveURL(/muscle_group=back/);
     await page.getByLabel('Muscle group').selectOption('');
-    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
+    await expect(page.getByText('42 exercises · page 1 of 5')).toBeVisible();
 
     // Create a custom split-weight entry.
     const customName = `E2E Custom Curl ${Date.now()}`;
@@ -213,12 +221,11 @@ test.describe('catalog management', () => {
     await form.getByRole('button', { name: 'Create exercise' }).click();
 
     await expect(form).toHaveCount(0);
+    await page.getByLabel('Search').fill(customName);
     const customRow = page.locator('li', { hasText: customName });
     await expect(customRow).toBeVisible();
     await expect(customRow.getByText('Custom', { exact: true })).toBeVisible();
-    await expect(
-      customRow.getByText(/Split weight \(per side\) · both sides per set/),
-    ).toBeVisible();
+    await expect(customRow.getByText(/Arms · Weighted/)).toBeVisible();
 
     // Client-side validation blocks an invalid create before any request.
     await page.getByRole('button', { name: 'New custom exercise' }).click();

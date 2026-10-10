@@ -8,10 +8,12 @@
     session,
   } from './features/auth/session.svelte';
   import CatalogRoute from './features/catalog/CatalogRoute.svelte';
+  import ExerciseDetailRoute from './features/exercises/ExerciseDetailRoute.svelte';
   import HomeRoute from './features/home/HomeRoute.svelte';
   import TrainingPlansRoute from './features/plans/TrainingPlansRoute.svelte';
   import { initializeTheme } from './lib/theme';
   import { initializeLocale } from './lib/i18n';
+  import { noteLocation } from './lib/backNavigation.svelte';
   import HistoryRoute from './routes/HistoryRoute.svelte';
   import WorkoutDetailRoute from './routes/WorkoutDetailRoute.svelte';
   import NotFoundRoute from './routes/NotFoundRoute.svelte';
@@ -25,6 +27,7 @@
   const routes = {
     '/': HomeRoute,
     '/catalog': CatalogRoute,
+    '/exercises/:id': ExerciseDetailRoute,
     '/history': HistoryRoute,
     '/history/:id': WorkoutDetailRoute,
     '/settings': SettingsRoute,
@@ -86,6 +89,10 @@
 
   $effect(() => {
     const path = router.location;
+    // Record in-app route changes so detail routes can offer a Back link to
+    // the previous screen, falling back to a deterministic destination on a
+    // direct visit. Querystring-only changes are ignored by noteLocation.
+    noteLocation(path);
     // Anonymous feature routes lead to login while preserving the requested
     // route (including its query) for this page load. Authenticated visits to
     // auth routes are redirected by the auth routes themselves, which avoids

@@ -34,7 +34,7 @@ JSON_TYPE = {"Content-Type": "application/json"}
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
-SEEDED_DEFAULT_COUNT = 26
+SEEDED_DEFAULT_COUNT = 42
 RESPONSE_FIELDS = {
     "id",
     "name",
@@ -44,6 +44,9 @@ RESPONSE_FIELDS = {
     "side_count",
     "is_default",
 }
+# POST/PATCH and GET /{id} return the detail shape: the summary fields plus
+# the optional description and the default-only guidance bundle.
+DETAIL_FIELDS = RESPONSE_FIELDS | {"description", "guidance"}
 
 
 def register_and_login(client: TestClient, email: str = "user@example.com") -> str:
@@ -187,12 +190,15 @@ def test_search_is_case_insensitive(api_client: TestClient) -> None:
         response = api_client.get(EXERCISES_URL, params={"search": query})
         assert response.status_code == 200
         body = response.json()
-        assert body["total"] == 4
+        assert body["total"] == 7
         assert {item["id"] for item in body["items"]} == {
             "bench-press",
             "overhead-press",
             "leg-press",
             "dumbbell-bench-press",
+            "incline-bench-press",
+            "dumbbell-overhead-press",
+            "incline-dumbbell-bench-press",
         }
 
 
@@ -261,13 +267,16 @@ def test_search_length_is_bounded(api_client: TestClient) -> None:
 def test_muscle_group_filter(api_client: TestClient) -> None:
     register_and_login(api_client)
     back = api_client.get(EXERCISES_URL, params={"muscle_group": "back"}).json()
-    assert back["total"] == 5
+    assert back["total"] == 8
     assert {item["id"] for item in back["items"]} == {
         "barbell-row",
         "deadlift",
         "lat-pulldown",
         "pull-up",
         "back-extension",
+        "good-morning",
+        "one-arm-dumbbell-row",
+        "chin-up",
     }
     abs_group = api_client.get(EXERCISES_URL, params={"muscle_group": "abs"}).json()
     assert {item["id"] for item in abs_group["items"]} == {
@@ -284,6 +293,8 @@ def test_muscle_group_filter(api_client: TestClient) -> None:
     assert [item["id"] for item in combined["items"]] == [
         "bench-press",
         "dumbbell-bench-press",
+        "incline-bench-press",
+        "incline-dumbbell-bench-press",
     ]
 
 
@@ -371,7 +382,7 @@ def test_create_returns_explicit_public_shape(api_client: TestClient) -> None:
     response = create_exercise(api_client, name="  Custom Curl  ")
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == RESPONSE_FIELDS
+    assert set(body) == DETAIL_FIELDS
     assert UUID_RE.fullmatch(body["id"])
     assert body["name"] == "Custom Curl"
     assert body["is_default"] is False

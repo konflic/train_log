@@ -1,7 +1,8 @@
 # Exercise information screen and progress summary
 
-Status: planned. Assign a stage number when this work is scheduled relative to
-Stage 13 and the Phase 2 progression work.
+Status: implemented as Stage 13b on the current working tree. Backend and
+frontend automated checks are complete; the pre-existing backend mypy error in
+`backend/app/api/auth.py:50` remains outside this scope.
 
 Estimate: 8-12 person-days. Research, review, and two original SVG frames for
 each default exercise are expected to dominate the implementation time.

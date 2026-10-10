@@ -6,9 +6,10 @@
     deleteWorkout,
     getExercise,
     getWorkout,
-    type Exercise,
+    type ExerciseDetail,
     type WorkoutDetail,
   } from '../api';
+  import ActionIcon from '../components/ActionIcon.svelte';
   import {
     session,
     isUnauthorizedError,
@@ -26,7 +27,7 @@
   let { params = {} }: { params?: { id?: string } } = $props();
   const workoutId = $derived(params.id ?? '');
   let detail = $state<WorkoutDetail | null>(null);
-  let catalog = $state(new Map<string, Exercise>());
+  let catalog = $state(new Map<string, ExerciseDetail>());
   let phase = $state<'loading' | 'ready' | 'error'>('loading');
   let message = $state<string | null>(null);
   let deleting = $state(false);
@@ -43,7 +44,7 @@
       const entries = await Promise.all(
         [
           ...new Set(value.exercises.map((exercise) => exercise.catalog_id)),
-        ].map(async (id): Promise<[string, Exercise | null]> => {
+        ].map(async (id): Promise<[string, ExerciseDetail | null]> => {
           try {
             return [id, await getExercise(id)];
           } catch (error) {
@@ -60,7 +61,7 @@
       detail = value;
       catalog = new Map(
         entries.filter(
-          (entry): entry is [string, Exercise] => entry[1] !== null,
+          (entry): entry is [string, ExerciseDetail] => entry[1] !== null,
         ),
       );
       message = null;
@@ -172,8 +173,22 @@
     </section>{/if}
   <div class="mt-4 flex flex-col gap-4">
     {#each detail.exercises as exercise (exercise.id)}
-      <section class="rounded-lg border border-edge bg-surface p-4">
-        <h2 class="font-semibold">{exerciseLabel(exercise, catalog)}</h2>
+      <section
+        class="exercise-card rounded-lg border border-edge bg-surface p-4"
+      >
+        <div
+          class="exercise-card__header flex items-start justify-between gap-2"
+        >
+          <h2 class="font-semibold">{exerciseLabel(exercise, catalog)}</h2>
+          <a
+            class="exercise-card__info-link inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-edge"
+            href="#/exercises/{exercise.catalog_id}"
+            aria-label="About {exerciseLabel(exercise, catalog)}"
+            title="About {exerciseLabel(exercise, catalog)}"
+          >
+            <ActionIcon name="info" />
+          </a>
+        </div>
         {#if exercise.notes}<p class="mt-1 text-sm text-muted">
             {exercise.notes}
           </p>{/if}

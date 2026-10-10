@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Bodyweight Squat — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 120,42 L 114,92" /><path d="M 120,48 L 122,70 L 120,92" /><path d="M 114,92 L 118,120 L 116,148" /><path d="M 114,92 L 108,120 L 106,148" /></g>
+  <circle cx="122" cy="28" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

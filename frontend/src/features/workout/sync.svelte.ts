@@ -122,6 +122,40 @@ export class WorkoutSyncController {
     await this.resume();
   }
 
+  /**
+   * Restore an idle status for a reused in-memory editor without any network
+   * resume. Used when returning to the active workout from a read-only detour
+   * (the exercise-information screen): the editor already holds the user's
+   * locally stored input and its prior synchronization state, so re-fetching
+   * or re-saving would risk discarding unsynced edits or introducing a write
+   * the detour must not cause. A durable pending save is still adopted so a
+   * lost response keeps its finish-pending treatment; the next committing
+   * action resumes normal synchronization.
+   */
+  async adoptReusedEditor(): Promise<void> {
+    const pending = await this.operations.getSave(
+      this.accountId,
+      this.editor.current!.draft_id,
+    );
+    if (pending !== null && pending.payload.ended_at !== null) {
+      this.finishPending = true;
+      this.locked = true;
+      this.status = 'finish_pending';
+      return;
+    }
+    if (!this.online) {
+      this.status = 'offline';
+      this.message = 'Your work is stored locally, reconnect to synchronize';
+      return;
+    }
+    if (this.editor.status === 'failed') {
+      this.status = 'storage_error';
+      this.message = 'The latest visible edit is not safely stored yet';
+      return;
+    }
+    this.status = this.hasUnsynchronizedChanges() ? 'locally_saved' : 'synced';
+  }
+
   async commit(content: EditableWorkoutContent): Promise<void> {
     const previousStatus = await this.saveLocal(content);
     if (previousStatus === null) return;

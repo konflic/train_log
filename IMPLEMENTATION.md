@@ -98,6 +98,14 @@ remain out of scope.
   their classified server error if recovery cleanup cannot be confirmed. Local
   frontend verification: 202 unit tests, production build, and 40 Chromium
   tests pass.
+- **Stage 13b exercise information:** implemented on the current working tree.
+  The read-only exercise detail route, guidance, local SVG animation frames,
+  per-exercise statistics, catalog expansion, compact labels, custom
+  descriptions, and active-workout navigation preservation are complete.
+  Backend tests (693), frontend unit tests (232), frontend check, lint, and
+  production build pass. Focused Chromium coverage is in
+  `frontend/e2e/exercise-detail.spec.ts`; the pre-existing backend mypy error
+  in `backend/app/api/auth.py:50` remains unchanged.
 - **Next:** Stage 13 history/detail and remaining Settings work.
 
 ## Documentation ownership

@@ -8,12 +8,17 @@ import {
 } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { listExercisesMock, createExerciseMock, updateExerciseMock } =
-  vi.hoisted(() => ({
-    listExercisesMock: vi.fn(),
-    createExerciseMock: vi.fn(),
-    updateExerciseMock: vi.fn(),
-  }));
+const {
+  listExercisesMock,
+  createExerciseMock,
+  updateExerciseMock,
+  getExerciseMock,
+} = vi.hoisted(() => ({
+  listExercisesMock: vi.fn(),
+  createExerciseMock: vi.fn(),
+  updateExerciseMock: vi.fn(),
+  getExerciseMock: vi.fn(),
+}));
 
 vi.mock('../../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api')>();
@@ -22,6 +27,7 @@ vi.mock('../../api', async (importOriginal) => {
     listExercises: listExercisesMock,
     createExercise: createExerciseMock,
     updateExercise: updateExerciseMock,
+    getExercise: getExerciseMock,
   };
 });
 
@@ -126,6 +132,11 @@ beforeEach(() => {
   listExercisesMock.mockReset();
   createExerciseMock.mockReset();
   updateExerciseMock.mockReset();
+  getExerciseMock.mockReset();
+  getExerciseMock.mockImplementation(async (id: string) => {
+    const found = defaultItems.find((item) => item.id === id);
+    return { ...(found ?? customCurl), description: null, guidance: null };
+  });
   listExercisesMock.mockResolvedValue(pageWith(defaultItems));
   createExerciseMock.mockResolvedValue(customCurl);
   updateExerciseMock.mockResolvedValue(customCurl);
@@ -162,17 +173,9 @@ describe('CatalogRoute listing', () => {
     renderAt();
     await waitFor(() => expect(screen.getByText('Bench Press')).toBeDefined());
     // Enum literals render through the local human-readable labels.
-    expect(
-      screen.getByText(
-        /Full body · Split weight \(per side\) · both sides per set/,
-      ),
-    ).toBeDefined();
-    expect(
-      screen.getByText(/Arms · Split weight \(per side\) · both sides per set/),
-    ).toBeDefined();
-    expect(
-      screen.getByText(/Back · Bodyweight · 100% bodyweight/),
-    ).toBeDefined();
+    expect(screen.getByText(/Full body · Weighted/)).toBeDefined();
+    expect(screen.getByText(/Arms · Weighted/)).toBeDefined();
+    expect(screen.getByText(/Back · Bodyweight/)).toBeDefined();
     expect(screen.getAllByText('Default').length).toBe(3);
     expect(screen.getAllByText('Custom').length).toBe(2);
   });
@@ -379,6 +382,7 @@ describe('ExerciseForm through the catalog screen', () => {
         load_type: 'bodyweight',
         bodyweight_percent: 65,
         side_count: 1,
+        description: null,
       }),
     );
     // The form closes and the affected page refetches from the server.
@@ -401,7 +405,7 @@ describe('ExerciseForm through the catalog screen', () => {
     await fireEvent.click(
       screen.getByRole('button', { name: 'Edit Weighted Dip' }),
     );
-    const formRegion = screen.getByRole('region', {
+    const formRegion = await screen.findByRole('region', {
       name: 'Edit Weighted Dip',
     });
     // Editing starts from the entry's current complete values.
@@ -447,7 +451,9 @@ describe('ExerciseForm through the catalog screen', () => {
     await fireEvent.click(
       screen.getByRole('button', { name: 'Edit Custom Curl' }),
     );
-    const formRegion = screen.getByRole('region', { name: 'Edit Custom Curl' });
+    const formRegion = await screen.findByRole('region', {
+      name: 'Edit Custom Curl',
+    });
     await fireEvent.click(
       within(formRegion).getByRole('button', { name: 'Save changes' }),
     );
@@ -512,7 +518,9 @@ describe('ExerciseForm through the catalog screen', () => {
     await fireEvent.click(
       screen.getByRole('button', { name: 'Edit Custom Curl' }),
     );
-    formRegion = screen.getByRole('region', { name: 'Edit Custom Curl' });
+    formRegion = await screen.findByRole('region', {
+      name: 'Edit Custom Curl',
+    });
     await fireEvent.input(within(formRegion).getByLabelText('Name'), {
       target: { value: 'Bench Press' },
     });

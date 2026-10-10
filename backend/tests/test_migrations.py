@@ -54,6 +54,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
         "0004_workout_sessions_and_training_plans",
         "0005_user_metabolism_profile",
         "0006_simplify_exercise_catalog",
+        "0007_exercise_descriptions_and_defaults",
     ]
 
     with connect(database_path) as conn:
@@ -84,7 +85,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3, 4, 5, 6]
+        assert versions == [1, 2, 3, 4, 5, 6, 7]
 
         seed = conn.execute(
             "SELECT COUNT(*) AS n FROM exercise_catalog WHERE is_default = 1 AND created_by IS NULL"
@@ -271,7 +272,7 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         insert_exercise(txn, catalog_id="cat-custom-1")
         insert_set(txn, reps=8, weight_kg=12, done=1)
 
-    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4, 5, 6]
+    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4, 5, 6, 7]
 
     with connect(database_path) as conn:
         user = conn.execute(
@@ -330,4 +331,148 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3, 4, 5, 6]
+        assert versions == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_upgrade_from_0006_preserves_data_and_adds_descriptions(tmp_path: Path) -> None:
+    """Migration 0006 -> 0007 keeps every row and adds the description column.
+
+    Representative data covers a user with a profile offset, a custom catalog
+    entry, a training plan with an exercise and target set, and a finished
+    workout with a completed set referencing the custom entry.
+    """
+    database_path = tmp_path / "basefit.db"
+    previous_dir = tmp_path / "previous"
+    previous_dir.mkdir()
+    for name in (
+        "0001_initial_schema.sql",
+        "0002_seed_catalog.sql",
+        "0003_save_previous_performance_receipt.sql",
+        "0004_workout_sessions_and_training_plans.sql",
+        "0005_user_metabolism_profile.sql",
+        "0006_simplify_exercise_catalog.sql",
+    ):
+        shutil.copy(migrate.MIGRATIONS_DIR / name, previous_dir / name)
+    assert [m.version for m in migrate.migrate(database_path, previous_dir)] == [1, 2, 3, 4, 5, 6]
+
+    with connect(database_path) as conn, write_transaction(conn) as txn:
+        insert_user(txn, bodyweight_default_kg=82, utc_offset_minutes=-180)
+        txn.execute(
+            "INSERT INTO exercise_catalog (id, name, muscle_group, load_type, "
+            "bodyweight_percent, side_count, is_default, created_by) "
+            "VALUES ('cat-custom-1', 'My Row', 'back', 'single_weight', "
+            "NULL, 1, 0, 'user-1')"
+        )
+        txn.execute(
+            "INSERT INTO training_plans (id, user_id, name, notes, revision, "
+            "created_at, updated_at) VALUES ('plan-1', 'user-1', 'Push day', "
+            "NULL, 2, '2026-02-01T08:00:00Z', '2026-02-02T08:00:00Z')"
+        )
+        txn.execute(
+            "INSERT INTO training_plan_exercises (id, plan_id, catalog_id, "
+            "order_index, notes) VALUES ('plan-exercise-1', 'plan-1', "
+            "'cat-custom-1', 0, NULL)"
+        )
+        txn.execute(
+            "INSERT INTO training_plan_sets (id, plan_exercise_id, set_index, "
+            "target_reps, target_weight_kg, side, bw_percent_override) "
+            "VALUES ('plan-set-1', 'plan-exercise-1', 0, 8, 40, 'bilateral', NULL)"
+        )
+        insert_workout(
+            txn,
+            "workout-1",
+            started_at="2026-02-03T09:00:00Z",
+            ended_at="2026-02-03T10:00:00Z",
+            bodyweight_kg=82,
+            create_request_hash="create-1",
+        )
+        insert_exercise(
+            txn,
+            "exercise-1",
+            catalog_id="cat-custom-1",
+            load_type="single_weight",
+            side_count=1,
+        )
+        insert_set(txn, reps=8, weight_kg=40, done=1)
+
+    assert [m.version for m in migrate.migrate(database_path)] == [7]
+
+    with connect(database_path) as conn:
+        # Existing rows survive untouched; customs migrate with description NULL.
+        custom = conn.execute(
+            "SELECT name, muscle_group, load_type, description "
+            "FROM exercise_catalog WHERE id = 'cat-custom-1'"
+        ).fetchone()
+        assert custom is not None
+        assert (custom["name"], custom["muscle_group"], custom["load_type"]) == (
+            "My Row",
+            "back",
+            "single_weight",
+        )
+        assert custom["description"] is None
+
+        plan_set = conn.execute(
+            "SELECT p.revision, pe.catalog_id, ps.target_reps, ps.target_weight_kg "
+            "FROM training_plan_sets ps "
+            "JOIN training_plan_exercises pe ON pe.id = ps.plan_exercise_id "
+            "JOIN training_plans p ON p.id = pe.plan_id "
+            "WHERE ps.id = 'plan-set-1'"
+        ).fetchone()
+        assert plan_set is not None
+        assert (
+            int(plan_set["revision"]),
+            plan_set["catalog_id"],
+            int(plan_set["target_reps"]),
+            int(plan_set["target_weight_kg"]),
+        ) == (2, "cat-custom-1", 8, 40)
+
+        recorded = conn.execute(
+            "SELECT w.bodyweight_kg, s.reps, s.weight_kg, s.done "
+            "FROM sets s "
+            "JOIN exercises e ON e.id = s.exercise_id "
+            "JOIN workouts w ON w.id = e.workout_id "
+            "WHERE s.id = 'set-1'"
+        ).fetchone()
+        assert recorded is not None
+        assert (
+            int(recorded["bodyweight_kg"]),
+            int(recorded["reps"]),
+            int(recorded["weight_kg"]),
+            int(recorded["done"]),
+        ) == (82, 8, 40, 1)
+
+        # Every seeded default now carries a non-blank description, and the
+        # expansion tranche is present with its reviewed load semantics.
+        missing = conn.execute(
+            "SELECT COUNT(*) FROM exercise_catalog "
+            "WHERE is_default = 1 AND (description IS NULL OR description = '')"
+        ).fetchone()
+        assert missing is not None
+        assert int(missing[0]) == 0
+        defaults = conn.execute(
+            "SELECT COUNT(*) FROM exercise_catalog WHERE is_default = 1"
+        ).fetchone()
+        assert defaults is not None
+        assert int(defaults[0]) == 42
+        expansion = {
+            row["id"]: (row["load_type"], row["side_count"], row["bodyweight_percent"])
+            for row in conn.execute(
+                "SELECT id, load_type, side_count, bodyweight_percent "
+                "FROM exercise_catalog WHERE is_default = 1"
+            )
+        }
+        assert expansion["chin-up"] == ("bodyweight", 1, 100)
+        assert expansion["bodyweight-squat"] == ("bodyweight", 1, 70)
+        assert expansion["close-grip-push-up"] == ("bodyweight", 1, 65)
+        assert expansion["dumbbell-overhead-press"] == ("split_weight", 2, None)
+        assert expansion["one-arm-dumbbell-row"] == ("split_weight", 1, None)
+        assert expansion["kettlebell-swing"] == ("single_weight", 1, None)
+
+        indexes = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        assert indexes >= EXPECTED_INDEXES
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

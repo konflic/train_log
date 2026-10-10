@@ -2,7 +2,12 @@
 
 Lists combine the global defaults with the caller's private custom entries;
 search is a Unicode case-insensitive substring match on the name and the
-order is stable (casefolded name, `id` tie-break) across bounded pages.
+order is stable (casefolded name, `id` tie-break) across bounded pages. The
+list carries compact summaries only; `GET /exercises/{id}` and the custom
+POST/PATCH responses carry the detail shape (summary plus the optional
+description and, for seeded defaults, the validated guidance bundle from the
+version-controlled registry). `GET /exercises/{id}/stats` reports the
+caller's own per-exercise totals and latest-12-session volume series.
 Mutations manage custom entries only: defaults are immutable through the API
 (403), and another user's entry is indistinguishable from an unknown id (404).
 An entry referenced by workout history cannot be deleted (409). Editing a
@@ -22,17 +27,21 @@ from pydantic import ValidationError
 
 from app.auth import CurrentUser
 from app.config import Settings
-from app.errors import ConflictError, ForbiddenError, NotFoundError
+from app.errors import ApiError, ConflictError, ForbiddenError, NotFoundError
+from app.guidance import DEFAULT_GUIDANCE, ExerciseGuidance
+from app.numbers import NumericRangeError
 from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.exercises import (
     MAX_SEARCH_LENGTH,
     CreateExerciseRequest,
+    ExerciseDetailResponse,
     ExerciseListResponse,
     ExerciseResponse,
     MuscleGroup,
     UpdateExerciseRequest,
 )
-from app.services import catalog
+from app.schemas.stats import ExerciseStatsResponse, ExerciseStatsSessionResponse
+from app.services import catalog, exercise_stats
 from app.services.catalog import CatalogEntry, DuplicateNameError, EntryInUseError
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
@@ -59,6 +68,43 @@ def _exercise_response(entry: CatalogEntry) -> ExerciseResponse:
             "bodyweight_percent": entry.bodyweight_percent,
             "side_count": entry.side_count,
             "is_default": entry.is_default,
+        }
+    )
+
+
+def _guidance_payload(entry: CatalogEntry) -> dict[str, object] | None:
+    """The registry bundle for a seeded default; customs never have guidance.
+
+    Defaults without a registry entry (impossible while the consistency test
+    is green) degrade to `guidance=null` rather than fabricating content.
+    """
+    if not entry.is_default:
+        return None
+    guidance: ExerciseGuidance | None = DEFAULT_GUIDANCE.get(entry.id)
+    if guidance is None:
+        return None
+    return {
+        "technique_steps": list(guidance.technique_steps),
+        "form_tips": list(guidance.form_tips),
+        "animation_key": guidance.animation_key,
+        "sources": [{"title": source.title, "url": source.url} for source in guidance.sources],
+    }
+
+
+def _detail_response(entry: CatalogEntry) -> ExerciseDetailResponse:
+    # model_validate re-checks the registry content against the response
+    # schema's bounds on every serialization.
+    return ExerciseDetailResponse.model_validate(
+        {
+            "id": entry.id,
+            "name": entry.name,
+            "muscle_group": entry.muscle_group,
+            "load_type": entry.load_type,
+            "bodyweight_percent": entry.bodyweight_percent,
+            "side_count": entry.side_count,
+            "is_default": entry.is_default,
+            "description": entry.description,
+            "guidance": _guidance_payload(entry),
         }
     )
 
@@ -100,10 +146,10 @@ def list_exercises(
     )
 
 
-@router.post("", response_model=ExerciseResponse, status_code=201)
+@router.post("", response_model=ExerciseDetailResponse, status_code=201)
 def create_exercise(
     payload: CreateExerciseRequest, request: Request, user: CurrentUser
-) -> ExerciseResponse:
+) -> ExerciseDetailResponse:
     """Create an owner-private custom entry with a server-generated UUID id."""
     try:
         entry = catalog.create_custom_entry(
@@ -114,22 +160,68 @@ def create_exercise(
             load_type=payload.load_type,
             bodyweight_percent=payload.bodyweight_percent,
             side_count=payload.side_count,
+            description=payload.description,
         )
     except DuplicateNameError:
         raise _name_taken() from None
-    return _exercise_response(entry)
+    return _detail_response(entry)
 
 
-@router.get("/{entry_id}", response_model=ExerciseResponse)
-def get_exercise(entry_id: str, request: Request, user: CurrentUser) -> ExerciseResponse:
+@router.get("/{entry_id}", response_model=ExerciseDetailResponse)
+def get_exercise(entry_id: str, request: Request, user: CurrentUser) -> ExerciseDetailResponse:
     entry = _require_visible_entry(request, entry_id, user.id)
-    return _exercise_response(entry)
+    return _detail_response(entry)
 
 
-@router.patch("/{entry_id}", response_model=ExerciseResponse)
+@router.get("/{entry_id}/stats", response_model=ExerciseStatsResponse)
+def get_exercise_stats(entry_id: str, request: Request, user: CurrentUser) -> ExerciseStatsResponse:
+    """The caller's lifetime totals and latest-12 volume series for one entry.
+
+    A foreign custom id is indistinguishable from an unknown id (404), and
+    every statistic derives from recorded workout snapshots only.
+    """
+    _require_visible_entry(request, entry_id, user.id)
+    try:
+        stats = exercise_stats.get_exercise_stats(
+            _settings(request).database_path,
+            user_id=user.id,
+            catalog_id=entry_id,
+        )
+    except NumericRangeError:
+        # An aggregate beyond the shared JSON-safe range is a server-side
+        # anomaly (per-set values are write-validated); fail explicitly rather
+        # than emit an imprecise number or a fabricated missing-data state.
+        raise ApiError(
+            "Aggregated statistics exceed the supported integer range",
+            code="stats_range_exceeded",
+        ) from None
+    return ExerciseStatsResponse(
+        training_count=stats.training_count,
+        completed_set_count=stats.completed_set_count,
+        total_volume_kg_reps=stats.total_volume_kg_reps,
+        unknown_load_set_count=stats.unknown_load_set_count,
+        volume_complete=stats.volume_complete,
+        best_estimated_1rm_kg=stats.best_estimated_1rm_kg,
+        sessions=[
+            ExerciseStatsSessionResponse.model_validate(
+                {
+                    "workout_id": session.workout_id,
+                    "started_at": session.started_at,
+                    "completed_set_count": session.completed_set_count,
+                    "volume_kg_reps": session.volume_kg_reps,
+                    "unknown_load_set_count": session.unknown_load_set_count,
+                    "volume_complete": session.volume_complete,
+                }
+            )
+            for session in stats.sessions
+        ],
+    )
+
+
+@router.patch("/{entry_id}", response_model=ExerciseDetailResponse)
 def update_exercise(
     entry_id: str, payload: UpdateExerciseRequest, request: Request, user: CurrentUser
-) -> ExerciseResponse:
+) -> ExerciseDetailResponse:
     """Edit the caller's custom entry; defaults are immutable (403)."""
     entry = _require_visible_entry(request, entry_id, user.id)
     if entry.is_default:
@@ -148,7 +240,7 @@ def update_exercise(
     if updated is None:
         # The entry vanished between the visibility check and the update.
         raise NotFoundError("Exercise not found")
-    return _exercise_response(updated)
+    return _detail_response(updated)
 
 
 @router.delete("/{entry_id}", status_code=204)

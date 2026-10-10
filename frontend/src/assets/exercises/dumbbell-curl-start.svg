@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Dumbbell Curl — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="5"><path d="M 90,96 L 106,96" /></g><circle cx="88" cy="96" r="4.5" fill="#d97706" stroke="none"/><circle cx="108" cy="96" r="4.5" fill="#d97706" stroke="none"/><g stroke-width="5"><path d="M 134,96 L 150,96" /></g><circle cx="132" cy="96" r="4.5" fill="#d97706" stroke="none"/><circle cx="152" cy="96" r="4.5" fill="#d97706" stroke="none"/></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 120,42 L 120,92" /><path d="M 98,96 L 98,74 L 106,52" /><path d="M 142,96 L 142,74 L 134,52" /><path d="M 120,92 L 110,120 L 108,148" /><path d="M 120,92 L 130,120 L 132,148" /></g>
+  <circle cx="120" cy="28" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

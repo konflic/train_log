@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Good Morning — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M 62,88 L 150,88" /><path d="M 62,75 L 62,101" /><path d="M 150,75 L 150,101" /><path d="M 71,79 L 71,97" /><path d="M 141,79 L 141,97" /></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 150,76 L 110,92" /><path d="M 148,80 L 140,96 L 130,100" /><path d="M 110,92 L 116,120 L 114,148" /><path d="M 110,92 L 106,120 L 104,148" /></g>
+  <circle cx="162" cy="68" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

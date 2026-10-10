@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Back Extension — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 92,112 L 136,124" /><path d="M 100,120 L 96,148" /><path d="M 132,128 L 136,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 136,104 L 112,112" /><path d="M 132,108 L 124,110 L 120,108" /><path d="M 112,112 L 90,126 L 80,144" /></g>
+  <circle cx="146" cy="96" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

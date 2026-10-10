@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Bench Press — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 58,104 L 182,104" /><path d="M 70,108 L 70,148" /><path d="M 170,108 L 170,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M 54,86 L 142,86" /><path d="M 54,73 L 54,99" /><path d="M 142,73 L 142,99" /><path d="M 63,77 L 63,95" /><path d="M 133,77 L 133,95" /></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 88,94 L 128,96" /><path d="M 92,86 L 78,98 L 88,94" /><path d="M 128,96 L 152,92 L 164,148" /></g>
+  <circle cx="70" cy="88" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

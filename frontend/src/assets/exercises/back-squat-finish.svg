@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Back Squat — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M 78,80 L 166,80" /><path d="M 78,67 L 78,93" /><path d="M 166,67 L 166,93" /><path d="M 87,71 L 87,89" /><path d="M 157,71 L 157,89" /></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 124,76 L 104,104" /><path d="M 124,80 L 134,86 L 140,82" /><path d="M 104,104 L 128,110 L 116,148" /><path d="M 104,104 L 112,114 L 104,148" /></g>
+  <circle cx="128" cy="62" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Leg Press — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 56,140 L 92,88" /><path d="M 52,144 L 52,148" /><path d="M 60,148 L 96,96" /></g><path d="M 128,52 L 192,108" /></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="7"><path d="M 170,70 L 182,96" /></g></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 90,86 L 104,112" /><path d="M 92,88 L 96,100 L 102,108" /><path d="M 104,112 L 148,100 L 176,84" /></g>
+  <circle cx="88" cy="72" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

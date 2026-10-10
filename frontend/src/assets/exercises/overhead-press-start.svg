@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Overhead Press — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M 74,54 L 166,54" /><path d="M 74,41 L 74,67" /><path d="M 166,41 L 166,67" /><path d="M 83,45 L 83,63" /><path d="M 157,45 L 157,63" /></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 120,42 L 120,92" /><path d="M 98,54 L 104,74 L 108,52" /><path d="M 142,54 L 136,74 L 132,52" /><path d="M 120,92 L 110,120 L 108,148" /><path d="M 120,92 L 130,120 L 132,148" /></g>
+  <circle cx="120" cy="28" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

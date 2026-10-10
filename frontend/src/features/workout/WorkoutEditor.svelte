@@ -442,7 +442,7 @@
     {@const snapshot = snapshotOf(exercise.id)}
     <section
       id={`workout-exercise-${exercise.id}`}
-      class="rounded-lg border border-edge bg-surface p-4 transition-opacity"
+      class="exercise-card rounded-lg border border-edge bg-surface p-4 transition-opacity"
       class:border-primary={dropTargetExerciseId === exercise.id}
       class:ring-2={dropTargetExerciseId === exercise.id}
       class:opacity-50={draggingExerciseId === exercise.id}
@@ -457,7 +457,7 @@
       ondragover={(event) => allowExerciseDrop(event, exercise.id)}
       ondrop={(event) => dropExercise(event, exercise.id)}
     >
-      <div class="flex items-start justify-between gap-2">
+      <div class="exercise-card__header flex items-start justify-between gap-2">
         <button
           id={`workout-exercise-toggle-${exercise.id}`}
           type="button"
@@ -469,15 +469,22 @@
           }}
         >
           <h3 class="font-semibold">{exerciseName(exercise)}</h3>
-          <p class="text-sm text-muted">
+          <p class="exercise-card__summary text-sm text-muted">
             {progress.completedSets} / {progress.totalSets}{progress.complete
               ? ' · Completed'
               : ''}
           </p>
         </button>
-        {#if expandedExerciseId === exercise.id}<div
-            class="flex shrink-0 gap-2"
+        <div class="flex shrink-0 items-center gap-2">
+          <a
+            id={`workout-exercise-info-${exercise.id}`}
+            class="exercise-card__info-link inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge"
+            href="#/exercises/{exercise.catalog_id}"
+            aria-label={`About ${exerciseName(exercise)}`}
+            title={`About ${exerciseName(exercise)}`}
+            draggable="false"><ActionIcon name="info" /></a
           >
+          {#if expandedExerciseId === exercise.id}
             <button
               id={`workout-exercise-remove-${exercise.id}`}
               type="button"
@@ -488,7 +495,8 @@
               onclick={() => confirmRemoveExercise(exercise)}
               ><ActionIcon name="remove" /></button
             >
-          </div>{/if}
+          {/if}
+        </div>
       </div>
       {#if expandedExerciseId === exercise.id}
         {@const lastSet = exercise.sets.at(-1)}

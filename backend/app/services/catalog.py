@@ -38,12 +38,15 @@ CATALOG_COLUMNS = (
     "side_count",
     "is_default",
     "created_by",
+    "description",
 )
 
 # Content columns writable through PATCH; id/is_default/created_by are
-# server-controlled and rejected here as well as by the schemas.
+# server-controlled and rejected here as well as by the schemas. `description`
+# is writable on custom entries only (the owner WHERE clause already excludes
+# defaults) and may be explicitly cleared to NULL.
 WRITABLE_COLUMNS = frozenset(
-    {"name", "muscle_group", "load_type", "bodyweight_percent", "side_count"}
+    {"name", "muscle_group", "load_type", "bodyweight_percent", "side_count", "description"}
 )
 
 _LIKE_ESCAPE = "\\"
@@ -71,6 +74,7 @@ class CatalogEntry:
     side_count: int
     is_default: bool
     created_by: str | None
+    description: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +95,7 @@ def row_to_entry(row: sqlite3.Row) -> CatalogEntry:
         side_count=int(row["side_count"]),
         is_default=bool(row["is_default"]),
         created_by=row["created_by"],
+        description=row["description"],
     )
 
 
@@ -170,6 +175,7 @@ def create_custom_entry(
     load_type: str,
     bodyweight_percent: int | None,
     side_count: int,
+    description: str | None = None,
 ) -> CatalogEntry:
     """Insert an owner-private custom entry with a server-generated UUID id.
 
@@ -182,9 +188,10 @@ def create_custom_entry(
         with connect(database_path) as conn, write_transaction(conn):
             conn.execute(
                 "INSERT INTO exercise_catalog (id, name, muscle_group, "
-                "load_type, bodyweight_percent, side_count, is_default, created_by) "
+                "load_type, bodyweight_percent, side_count, is_default, created_by, "
+                "description) "
                 "VALUES (:id, :name, :muscle_group, :load_type, "
-                ":bodyweight_percent, :side_count, 0, :created_by)",
+                ":bodyweight_percent, :side_count, 0, :created_by, :description)",
                 {
                     "id": entry_id,
                     "name": name,
@@ -193,6 +200,7 @@ def create_custom_entry(
                     "bodyweight_percent": bodyweight_percent,
                     "side_count": side_count,
                     "created_by": owner_id,
+                    "description": description,
                 },
             )
     except sqlite3.IntegrityError as exc:
@@ -208,6 +216,7 @@ def create_custom_entry(
         side_count=side_count,
         is_default=False,
         created_by=owner_id,
+        description=description,
     )
 
 
@@ -250,6 +259,7 @@ def update_custom_entry(
                 "load_type": current.load_type,
                 "bodyweight_percent": current.bodyweight_percent,
                 "side_count": current.side_count,
+                "description": current.description,
             }
             merged.update(updates)
             validated = CreateExerciseRequest.model_validate(merged)

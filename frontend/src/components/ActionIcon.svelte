@@ -13,6 +13,7 @@
       | 'finish'
       | 'history'
       | 'home'
+      | 'info'
       | 'refresh'
       | 'remove'
       | 'save'
@@ -58,6 +59,9 @@
     <path d="M12 7v5l3 2" />
   {:else if name === 'home'}
     <path d="m4 11 8-7 8 7v9H4zM9 20v-6h6v6" />
+  {:else if name === 'info'}
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 7.6v.4" />
   {:else if name === 'refresh'}
     <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
   {:else if name === 'remove'}

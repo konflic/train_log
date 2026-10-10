@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Dumbbell Romanian Deadlift — start position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="5"><path d="M 118,132 L 134,132" /></g><circle cx="116" cy="132" r="4.5" fill="#d97706" stroke="none"/><circle cx="136" cy="132" r="4.5" fill="#d97706" stroke="none"/></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 122,70 L 104,100" /><path d="M 124,74 L 128,100 L 126,126" /><path d="M 104,100 L 124,112 L 114,148" /><path d="M 104,100 L 110,116 L 102,148" /></g>
+  <circle cx="126" cy="56" r="10.5" fill="#7c8797" stroke="none" />
+</svg>

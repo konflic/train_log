@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" fill="none">
+  <title>Dip — finish position</title>
+  <path d="M 16,152 L 224,152" stroke="#7c8797" stroke-width="3" stroke-linecap="round" opacity="0.45" fill="none"/>
+  <g stroke="#7c8797" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="6"><path d="M 62,96 L 178,96" /><path d="M 62,96 L 62,148" /><path d="M 178,96 L 178,148" /></g></g>
+  <g stroke="#d97706" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g stroke="#7c8797" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 118,80 L 116,104" /><path d="M 112,96 L 100,108 L 116,82" /><path d="M 116,104 L 128,122 L 118,142" /></g>
+  <circle cx="120" cy="66" r="10.5" fill="#7c8797" stroke="none" />
+</svg>
