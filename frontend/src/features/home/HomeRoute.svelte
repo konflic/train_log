@@ -1,7 +1,7 @@
 <script lang="ts">
   import { session } from '../auth/session.svelte';
   import RecentHistoryPanel from './RecentHistoryPanel.svelte';
-  import WeeklySummaryPanel from './WeeklySummaryPanel.svelte';
+  import SummaryPanel from './SummaryPanel.svelte';
 
   const user = $derived(session.user);
   const utcOffsetMinutes = $derived(user?.utc_offset_minutes ?? 0);
@@ -36,5 +36,5 @@
     >
   </section>
   <RecentHistoryPanel />
-  <WeeklySummaryPanel {utcOffsetMinutes} />
+  <SummaryPanel {utcOffsetMinutes} />
 </div>

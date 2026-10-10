@@ -306,6 +306,23 @@ export function completionProgress(
   };
 }
 
+/**
+ * Why this content may not be finished yet, or `null` when it may. Finishing is
+ * an explicit user decision, so an empty workout and any set the user neither
+ * completed nor removed both block it while remaining valid to save.
+ */
+export function finishBlocker(content: EditableWorkoutContent): string | null {
+  if (content.exercises.length === 0)
+    return 'Add at least one exercise to finish this workout.';
+  if (content.exercises.some((exercise) => exercise.sets.length === 0))
+    return 'Every exercise needs at least one set. Add a set or remove the exercise.';
+  const completion = completionProgress(content);
+  const remaining = completion.totalSets - completion.completedSets;
+  if (remaining > 0)
+    return `Finish or remove the ${remaining} incomplete ${remaining === 1 ? 'set' : 'sets'} before finishing this workout.`;
+  return null;
+}
+
 export function setError(
   content: EditableWorkoutContent,
   exercise: SaveExerciseInput,

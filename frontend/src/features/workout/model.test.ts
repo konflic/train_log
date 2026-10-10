@@ -11,6 +11,7 @@ import {
   fieldKey,
   contentError,
   exerciseProgress,
+  finishBlocker,
   setError,
   strictInteger,
   updateInteger,
@@ -114,6 +115,40 @@ describe('workout editor model', () => {
       totalSets: 2,
       complete: false,
     });
+  });
+
+  it('blocks finishing without exercises or with an incomplete set', () => {
+    expect(finishBlocker(content())).toBeNull();
+
+    const empty = content();
+    empty.exercises = [];
+    expect(finishBlocker(empty)).toBe(
+      'Add at least one exercise to finish this workout.',
+    );
+
+    const withoutSets = content();
+    withoutSets.exercises[0].sets = [];
+    expect(finishBlocker(withoutSets)).toBe(
+      'Every exercise needs at least one set. Add a set or remove the exercise.',
+    );
+
+    const incomplete = content();
+    incomplete.exercises[0].sets.push({
+      ...incomplete.exercises[0].sets[0],
+      id: 'next',
+      done: false,
+    });
+    expect(finishBlocker(incomplete)).toBe(
+      'Finish or remove the 1 incomplete set before finishing this workout.',
+    );
+    incomplete.exercises[0].sets.push({
+      ...incomplete.exercises[0].sets[0],
+      id: 'later',
+      done: false,
+    });
+    expect(finishBlocker(incomplete)).toBe(
+      'Finish or remove the 2 incomplete sets before finishing this workout.',
+    );
   });
 
   it('blocks invalid visible integers from server payloads', () => {

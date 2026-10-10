@@ -110,7 +110,7 @@ test.describe('authentication flow', () => {
 });
 
 test.describe('read-only home', () => {
-  test('a new account sees empty panels and zeroed weekly stats', async ({
+  test('a new account sees empty panels and zeroed summary stats', async ({
     page,
   }) => {
     await gotoSignedIn(page);
@@ -120,15 +120,26 @@ test.describe('read-only home', () => {
 
     await expect(page.getByText(/No finished workouts yet/)).toBeVisible();
 
-    const week = page.getByRole('region', { name: 'This week' });
-    await expect(week).toContainText('Workouts');
-    await expect(week).toContainText('Completed sets');
-    await expect(week).toContainText('Training days');
-    await expect(week).toContainText('kg·reps');
-    await expect(week).toContainText('Current streak:');
-    await expect(week).toContainText('(full history)');
+    const summary = page.getByRole('region', { name: 'Summary' });
+    await expect(summary).toContainText('Workouts');
+    await expect(summary).toContainText('Completed sets');
+    await expect(summary).toContainText('Training days');
+    await expect(summary).toContainText('kg·reps');
+    await expect(summary).toContainText('Current streak:');
+    await expect(summary).toContainText('(full history)');
     // Inclusive local Monday-Sunday range at the account's fixed offset (0).
-    await expect(week).toContainText(
+    await expect(summary).toContainText(
+      /\d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2} \(UTC\+0\)/,
+    );
+
+    await summary.getByRole('tab', { name: 'Month' }).click();
+    await expect(summary).toContainText(
+      /\d{4}-\d{2}-01 – \d{4}-\d{2}-\d{2} \(UTC\+0\)/,
+    );
+    await summary.getByRole('tab', { name: 'Total' }).click();
+    await expect(summary).toContainText('Full history');
+    await summary.getByRole('tab', { name: 'Week' }).click();
+    await expect(summary).toContainText(
       /\d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2} \(UTC\+0\)/,
     );
 

@@ -20,6 +20,7 @@
     emptySet,
     exerciseProgress,
     fieldKey,
+    finishBlocker,
     rawValue,
     setError,
     snapshotFor,
@@ -51,6 +52,18 @@
   const content = $derived(editor.current!.content);
   const completion = $derived(completionProgress(content));
   const locked = $derived(sync?.locked ?? false);
+  const blocker = $derived(finishBlocker(content));
+
+  function confirmCancel(): void {
+    if (!sync || sync.discarding) return;
+    if (
+      !window.confirm(
+        'Discard this workout? Every logged set is deleted and this cannot be undone.',
+      )
+    )
+      return;
+    void sync.discard();
+  }
 
   function saveLocally(next: EditableWorkoutContent): void {
     if (sync) void sync.saveLocally(next);
@@ -381,13 +394,25 @@
       </span>
       <button
         id="workout-finish-button"
-        class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
+        class="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
         type="button"
         disabled={!sync?.canFinish}
-        onclick={() => void sync?.finish()}
-        ><ActionIcon name="finish" /> Finish workout</button
+        onclick={() => void sync?.finish()}>Finish workout</button
+      >
+      <button
+        id="workout-cancel-button"
+        class="inline-flex min-h-11 items-center justify-center rounded-md border border-danger px-4 font-medium text-danger disabled:opacity-40"
+        type="button"
+        disabled={sync === undefined || locked || sync.discarding}
+        onclick={confirmCancel}
+        >{sync?.discarding ? 'Discarding…' : 'Cancel'}</button
       >
     </div>
+    {#if blocker}
+      <p id="workout-finish-blocker" class="mt-2 text-sm text-muted">
+        {blocker}
+      </p>
+    {/if}
   </div>
 
   <div class="grid gap-3 rounded-lg border border-edge bg-surface p-4">

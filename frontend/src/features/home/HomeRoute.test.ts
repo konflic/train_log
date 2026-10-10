@@ -27,7 +27,7 @@ import {
   type StatsSummary,
   type WorkoutPage,
 } from '../../api';
-import { weekBounds } from '../../lib/offsetTime';
+import { monthBounds, weekBounds } from '../../lib/offsetTime';
 import { session } from '../auth/session.svelte';
 import HomeRoute from './HomeRoute.svelte';
 
@@ -103,13 +103,18 @@ describe('HomeRoute reads', () => {
   });
 
   it('renders loading, then populated panels with relative times', async () => {
+    // Relative labels are elapsed-time based, so the fixture must stay anchored
+    // to the current instant rather than a fixed date.
+    const startedAt = new Date(Date.now() - 3 * 60 * 60 * 1000)
+      .toISOString()
+      .replace('.000Z', 'Z');
     listWorkoutsMock.mockResolvedValue({
       items: [
         {
           id: 'w-done',
           name: 'Leg day',
-          started_at: '2026-10-08T22:30:00Z',
-          ended_at: '2026-10-08T23:30:00Z',
+          started_at: startedAt,
+          ended_at: startedAt,
           bodyweight_kg: null,
           revision: 0,
         },
@@ -172,7 +177,46 @@ describe('HomeRoute reads', () => {
   });
 });
 
-describe('WeeklySummaryPanel display', () => {
+describe('SummaryPanel display', () => {
+  it('reads each tab range: profile-offset week, month, then unbounded total', async () => {
+    render(HomeRoute);
+    const week = weekBounds(Date.now(), OFFSET);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('tab', { name: 'Week', selected: true }),
+      ).toBeDefined(),
+    );
+    expect(fetchStatsSummaryMock).toHaveBeenLastCalledWith(
+      { date_from: week.monday, date_to: week.sunday },
+      expect.any(AbortSignal),
+    );
+
+    const month = monthBounds(Date.now(), OFFSET);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Month' }));
+    await waitFor(() =>
+      expect(fetchStatsSummaryMock).toHaveBeenLastCalledWith(
+        { date_from: month.first, date_to: month.last },
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(
+      screen.getByText(`${month.first} – ${month.last} (UTC+3)`),
+    ).toBeDefined();
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'Total' }));
+    await waitFor(() =>
+      expect(fetchStatsSummaryMock).toHaveBeenLastCalledWith(
+        {},
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByText('Full history')).toBeDefined();
+    // Selecting the visible tab again issues no further read.
+    const calls = fetchStatsSummaryMock.mock.calls.length;
+    await fireEvent.click(screen.getByRole('tab', { name: 'Total' }));
+    expect(fetchStatsSummaryMock.mock.calls.length).toBe(calls);
+  });
+
   it('shows integer counts with fixed metric labels', async () => {
     fetchStatsSummaryMock.mockResolvedValue(
       zeroSummary({

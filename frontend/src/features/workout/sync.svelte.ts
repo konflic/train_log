@@ -2,6 +2,7 @@ import {
   ApiNetworkError,
   ApiRequestError,
   createWorkout,
+  deleteWorkout,
   fetchCurrentUser,
   getWorkout,
   saveWorkout,
@@ -16,7 +17,7 @@ import {
 import type { LocalDraftEditor } from '../drafts/editor.svelte';
 import { DraftSyncCoordinator } from '../drafts/sync';
 import { SvelteDate, SvelteSet } from 'svelte/reactivity';
-import { contentError } from './model';
+import { contentError, finishBlocker } from './model';
 
 export type EditorSyncStatus =
   | 'saving_local'
@@ -37,6 +38,7 @@ interface WorkoutSyncOptions {
   operations: PendingDraftRepository;
   authenticatedAccountId: () => string | null;
   onFinished: () => void;
+  onDiscarded: () => void;
   currentUser?: () => Promise<PublicUser>;
   now?: () => string;
 }
@@ -51,6 +53,7 @@ export class WorkoutSyncController {
   message = $state<string | null>(null);
   locked = $state(false);
   finishPending = $state(false);
+  discarding = $state(false);
   recoveryStatus = $state<RecoveryStatus>('idle');
   serverCopy = $state<WorkoutDetail | null>(null);
   recoveryReason = $state<string | null>(null);
@@ -60,6 +63,7 @@ export class WorkoutSyncController {
   private readonly operations: PendingDraftRepository;
   private readonly coordinator: DraftSyncCoordinator;
   private readonly onFinished: () => void;
+  private readonly onDiscarded: () => void;
   private readonly currentUser: () => Promise<PublicUser>;
   private readonly now: () => string;
   private readonly writes = new SvelteSet<Promise<void>>();
@@ -73,6 +77,7 @@ export class WorkoutSyncController {
     this.editor = options.editor;
     this.operations = options.operations;
     this.onFinished = options.onFinished;
+    this.onDiscarded = options.onDiscarded;
     this.currentUser = options.currentUser ?? fetchCurrentUser;
     this.now = options.now ?? (() => new SvelteDate().toISOString());
     this.coordinator = new DraftSyncCoordinator(
@@ -89,7 +94,8 @@ export class WorkoutSyncController {
       !this.locked &&
       this.processing === null &&
       this.editor.status === 'saved' &&
-      (this.status === 'synced' || this.status === 'locally_saved')
+      (this.status === 'synced' || this.status === 'locally_saved') &&
+      finishBlocker(this.editor.current!.content) === null
     );
   }
 
@@ -366,6 +372,56 @@ export class WorkoutSyncController {
     }
   }
 
+  /**
+   * Cancel the session: delete the server workout at its authoritative
+   * revision, then drop the local draft and every pending request. Deletion
+   * keeps no receipt to replay, so it needs connectivity; any failure retains
+   * the draft and reports through the usual status and message.
+   */
+  async discard(): Promise<void> {
+    if (this.destroyed || this.discarding) return;
+    this.clearAutosave();
+    if (this.processing !== null) await this.processing;
+    this.discarding = true;
+    this.locked = true;
+    await this.flushWrites();
+    const draft = this.editor.current!;
+    if (!this.online) {
+      this.discarding = false;
+      this.locked = false;
+      this.status = 'offline';
+      this.message =
+        'Reconnect to discard this workout. Until then it stays stored locally.';
+      return;
+    }
+    try {
+      await this.deleteServerCopy();
+      await this.operations.discardPending(this.accountId, draft.draft_id);
+      await this.operations.drafts.delete(
+        this.accountId,
+        draft.workout_id,
+        draft.draft_id,
+      );
+    } catch (error) {
+      this.discarding = false;
+      this.locked = false;
+      this.pause(error);
+      return;
+    }
+    this.onDiscarded();
+  }
+
+  private async deleteServerCopy(): Promise<void> {
+    try {
+      const detail = await this.coordinator.fetchServerCopy();
+      await deleteWorkout(detail.id, detail.revision);
+    } catch (error) {
+      // An absent row is the intended end state: the workout was never created
+      // online, or an earlier deletion succeeded without being observed.
+      if (!isAbsentWorkout(error)) throw error;
+    }
+  }
+
   setOnline(online: boolean): void {
     this.online = online;
     if (!online) {
@@ -543,6 +599,11 @@ export class WorkoutSyncController {
     }
     this.status = 'error';
   }
+}
+
+/** A 404 means the owned workout row is already gone. */
+function isAbsentWorkout(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.problem.status === 404;
 }
 
 function canonicalTimestamp(value: string): string {

@@ -89,17 +89,26 @@
       repository,
       await openDurableDraftStorage(),
     );
+    // Both terminal outcomes retire this draft's editor and active-session mark
+    // before leaving the route.
+    const release = (): void => {
+      editorAssociations.release(key, draft.draft_id);
+      localEditors.delete(key);
+      activeSession.clear(draft.workout_id);
+    };
     sync = new WorkoutSyncController({
       accountId,
       editor: active,
       operations,
       authenticatedAccountId: () => session.user?.id ?? null,
       onFinished: () => {
-        editorAssociations.release(key, draft.draft_id);
-        localEditors.delete(key);
-        activeSession.clear(draft.workout_id);
+        release();
         phase = 'finished';
         void replace(`/workouts/${draft.workout_id}`);
+      },
+      onDiscarded: () => {
+        release();
+        void replace('/');
       },
     });
     // Catalog labels are presentation data only; recorded snapshots remain the

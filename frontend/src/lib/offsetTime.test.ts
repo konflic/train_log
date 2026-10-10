@@ -7,6 +7,7 @@ import {
   formatUtcOffset,
   isoDate,
   localDateAt,
+  monthBounds,
   weekBounds,
 } from './offsetTime';
 
@@ -109,6 +110,54 @@ describe('weekBounds', () => {
     expect(weekBounds(Date.UTC(1970, 0, 1, 0, 30), -60)).toEqual({
       monday: '1969-12-29',
       sunday: '1970-01-04',
+    });
+  });
+});
+
+describe('monthBounds', () => {
+  it('returns the first and last local day of a mid-month instant', () => {
+    expect(monthBounds(Date.UTC(2026, 9, 8, 12, 0), 0)).toEqual({
+      first: '2026-10-01',
+      last: '2026-10-31',
+    });
+  });
+
+  it('derives short months and leap Februaries from the next month start', () => {
+    expect(monthBounds(Date.UTC(2026, 1, 10, 12, 0), 0)).toEqual({
+      first: '2026-02-01',
+      last: '2026-02-28',
+    });
+    expect(monthBounds(Date.UTC(2028, 1, 10, 12, 0), 0)).toEqual({
+      first: '2028-02-01',
+      last: '2028-02-29',
+    });
+    expect(monthBounds(Date.UTC(2026, 3, 10, 12, 0), 0)).toEqual({
+      first: '2026-04-01',
+      last: '2026-04-30',
+    });
+  });
+
+  it('wraps the year in December and January', () => {
+    expect(monthBounds(Date.UTC(2026, 11, 31, 23, 0), 0)).toEqual({
+      first: '2026-12-01',
+      last: '2026-12-31',
+    });
+    expect(monthBounds(Date.UTC(2027, 0, 1, 0, 30), 0)).toEqual({
+      first: '2027-01-01',
+      last: '2027-01-31',
+    });
+  });
+
+  it('shifts the month when the offset moves the local date across midnight', () => {
+    // 2026-09-30T23:30Z is still September in UTC; at UTC+1 it is October.
+    const instant = Date.UTC(2026, 8, 30, 23, 30);
+    expect(monthBounds(instant, 60)).toEqual({
+      first: '2026-10-01',
+      last: '2026-10-31',
+    });
+    expect(monthBounds(instant, 0)).toEqual({
+      first: '2026-09-01',
+      last: '2026-09-30',
     });
   });
 });

@@ -105,6 +105,35 @@ export function weekBounds(
   };
 }
 
+export interface MonthBounds {
+  /** Inclusive first day of the local month, `YYYY-MM-DD`. */
+  first: string;
+  /** Inclusive last day of the local month, `YYYY-MM-DD`. */
+  last: string;
+}
+
+/**
+ * The caller's current local calendar month for an instant. The API treats both
+ * bounds as inclusive local dates; the last day comes from the following
+ * month's first day, so leap years need no table.
+ */
+export function monthBounds(
+  epochMs: number,
+  utcOffsetMinutes: number,
+): MonthBounds {
+  const today = localDateAt(epochMs, utcOffsetMinutes);
+  const following =
+    today.month === 12
+      ? { year: today.year + 1, month: 1 }
+      : { year: today.year, month: today.month + 1 };
+  return {
+    first: isoDate({ year: today.year, month: today.month, day: 1 }),
+    last: isoDate(
+      civilFromDays(daysFromCivil(following.year, following.month, 1) - 1),
+    ),
+  };
+}
+
 const TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/;
 
 /**

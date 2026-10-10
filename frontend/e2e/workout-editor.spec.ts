@@ -121,6 +121,65 @@ test.describe('workout editor', () => {
     );
   });
 
+  test('blocks finishing until every added set is completed', async ({
+    page,
+  }) => {
+    await gotoSignedIn(page);
+    await startFreestyle(page);
+    const finish = page.locator('#workout-finish-button');
+    const blocker = page.locator('#workout-finish-blocker');
+
+    // The label is text only; no icon is rendered inside the button.
+    await expect(finish.locator('svg')).toHaveCount(0);
+    await expect(finish).toBeDisabled();
+    await expect(blocker).toContainText('Add at least one exercise');
+
+    const exercise = await addExercise(page, 'Bench Press');
+    await expect(finish).toBeDisabled();
+    await expect(blocker).toContainText(
+      'Finish or remove the 1 incomplete set',
+    );
+
+    const firstSet = exercise.getByRole('group', { name: 'Set 1' });
+    await firstSet.getByLabel('Set 1 reps').fill('8');
+    await firstSet.getByLabel('Set 1 weight in kilograms').fill('50');
+    await expect(finish).toBeDisabled();
+    await firstSet
+      .getByRole('button', { name: 'Mark set 1 completed' })
+      .click();
+    await expect(blocker).toHaveCount(0);
+    await expect(finish).toBeEnabled();
+  });
+
+  test('cancelling discards the session only after confirmation', async ({
+    page,
+  }) => {
+    await gotoSignedIn(page);
+    await startFreestyle(page);
+    await addExercise(page, 'Bench Press');
+    const editing = page.url();
+
+    page.once('dialog', (dialog) => void dialog.dismiss());
+    await page.locator('#workout-cancel-button').click();
+    await expect(page).toHaveURL(editing);
+    await expect(page.getByLabel('Bench Press editor')).toBeVisible();
+
+    page.once('dialog', (dialog) => void dialog.accept());
+    await page.locator('#workout-cancel-button').click();
+    await expect(page).toHaveURL(/#\/$/);
+
+    // A new session starts immediately, which the one-active-session rule
+    // allows only because the discarded workout was deleted on the server.
+    await page.getByRole('link', { name: 'Start workout session' }).click();
+    await page.getByRole('button', { name: 'Freestyle session' }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Active workout' }),
+    ).toBeVisible();
+    await expect(page.locator('#workout-editor')).not.toContainText(
+      'Bench Press',
+    );
+  });
+
   test('reorders compact exercise cards by dragging the card itself', async ({
     page,
   }) => {
