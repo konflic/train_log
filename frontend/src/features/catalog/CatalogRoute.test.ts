@@ -172,15 +172,33 @@ describe('CatalogRoute listing', () => {
     );
   });
 
-  it('renders enum labels and default/custom markers', async () => {
+  it('renders enum labels without default/custom markers', async () => {
     renderAt();
     await waitFor(() => expect(screen.getByText('Bench Press')).toBeDefined());
     // Enum literals render through the local human-readable labels.
     expect(screen.getByText(/Full body · Weighted/)).toBeDefined();
     expect(screen.getByText(/Arms · Weighted/)).toBeDefined();
     expect(screen.getByText(/Back · Bodyweight/)).toBeDefined();
-    expect(screen.getAllByText('Default').length).toBe(3);
-    expect(screen.getAllByText('Custom').length).toBe(2);
+    expect(screen.queryByText('Default')).toBeNull();
+    expect(screen.queryByText('Custom')).toBeNull();
+  });
+
+  it('keeps the backend custom-first ordering', async () => {
+    listExercisesMock.mockResolvedValueOnce(
+      pageWith([customCurl, weightedDip, benchPress, pullUp, fullRow]),
+    );
+    renderAt();
+    await waitFor(() => expect(screen.getByText('Custom Curl')).toBeDefined());
+    const cards = screen.getAllByRole('listitem');
+    expect(
+      cards.map((card) => card.querySelector('p')?.textContent?.trim()),
+    ).toEqual([
+      'Custom Curl',
+      'Weighted Dip',
+      'Bench Press',
+      'Pull-up',
+      'Full Body Row',
+    ]);
   });
 
   it('offers edit only for custom entries', async () => {

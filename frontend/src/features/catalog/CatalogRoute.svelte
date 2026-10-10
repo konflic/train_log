@@ -228,7 +228,7 @@
   {#if editing === null}
     <a
       href="#/catalog/new"
-      class="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-content"
+      class="inline-flex min-h-11 items-center rounded-md bg-primary px-4 font-medium text-primary-content"
       >New custom exercise</a
     >
   {/if}
@@ -265,11 +265,6 @@
             <div class="min-w-0">
               <p class="font-medium">
                 {entry.name}
-                <span
-                  class="ml-2 rounded-full border border-edge px-2 py-0.5 text-xs font-normal text-muted"
-                >
-                  {entry.is_default ? 'Default' : 'Custom'}
-                </span>
               </p>
               <p class="exercise-card__summary text-sm text-muted">
                 {compactExerciseSummary(entry)}

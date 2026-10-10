@@ -40,8 +40,8 @@ class ExerciseGuidance:
     sources: tuple[GuidanceSource, ...]
 
 
-# Reviewed research corpus (implementation/exercise-information-screen.md).
-# Titles are descriptive labels for the cited references.
+# Reviewed research corpus. Titles are descriptive labels for the cited
+# references.
 ACSM_STAND = GuidanceSource(
     title="ACSM resistance-training position stand",
     url="https://pubmed.ncbi.nlm.nih.gov/19204579/",

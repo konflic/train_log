@@ -244,7 +244,7 @@ def test_muscle_group_filter(two_users: Path) -> None:
 # --- ordering and pagination ------------------------------------------------------
 
 
-def test_order_is_casefolded_name_with_id_tiebreak(two_users: Path) -> None:
+def test_order_is_custom_first_then_casefolded_name_with_id_tiebreak(two_users: Path) -> None:
     custom = create_entry(
         two_users,
         name="pull-up",
@@ -254,11 +254,12 @@ def test_order_is_casefolded_name_with_id_tiebreak(two_users: Path) -> None:
         side_count=1,
     )
     page = catalog.list_entries(two_users, viewer_id="user-1", limit=100, offset=0)
-    names_and_ids = [(entry.name, entry.id) for entry in page.items]
-    assert names_and_ids == sorted(names_and_ids, key=lambda pair: (pair[0].casefold(), pair[1]))
-    # The default "Pull-up" and the custom "pull-up" are adjacent, id breaks tie.
+    entries = [(entry.is_default, entry.name, entry.id) for entry in page.items]
+    assert entries == sorted(entries, key=lambda item: (item[0], item[1].casefold(), item[2]))
+    names_and_ids = [(name, entry_id) for _, name, entry_id in entries]
+    # The custom "pull-up" precedes all defaults, including "Pull-up".
     tie = [pair for pair in names_and_ids if pair[0].casefold() == "pull-up"]
-    assert tie == sorted([("Pull-up", "pull-up"), ("pull-up", custom.id)], key=lambda pair: pair[1])
+    assert tie == [("pull-up", custom.id), ("Pull-up", "pull-up")]
 
 
 def test_pagination_is_stable_and_disjoint(two_users: Path) -> None:

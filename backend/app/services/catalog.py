@@ -51,7 +51,7 @@ WRITABLE_COLUMNS = frozenset(
 
 _LIKE_ESCAPE = "\\"
 _VISIBILITY_WHERE = "(is_default = 1 OR created_by = :viewer_id)"
-_ORDER_BY = "ORDER BY casefold(name), id"
+_ORDER_BY = "ORDER BY is_default, casefold(name), id"
 
 
 class DuplicateNameError(Exception):

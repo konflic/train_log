@@ -1,6 +1,6 @@
 # Stage 13 - History, Settings, and logout
 
-Status: planned. Start after Gate G12 is merged.
+Status: next remaining stage.
 
 Estimate: 2.5 person-days.
 

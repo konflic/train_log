@@ -1,7 +1,7 @@
 {
   "name": "basefit-frontend",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.12",
   "type": "module",
   "engines": {
     "node": "24.19.0"
