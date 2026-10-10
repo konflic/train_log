@@ -26,10 +26,7 @@ MAX_NAME_LENGTH = 100
 # A search longer than the maximum stored name can never match.
 MAX_SEARCH_LENGTH = MAX_NAME_LENGTH
 
-MuscleGroup = Literal["chest", "back", "legs", "shoulders", "arms", "core", "full_body", "other"]
-Equipment = Literal[
-    "barbell", "dumbbell", "kettlebell", "machine", "cable", "bodyweight", "band", "other"
-]
+MuscleGroup = Literal["chest", "back", "legs", "shoulders", "arms", "abs", "full_body", "other"]
 
 CatalogName = Annotated[str, Field(strict=True, min_length=1, max_length=MAX_NAME_LENGTH)]
 
@@ -49,7 +46,6 @@ class CreateExerciseRequest(BaseModel):
 
     name: CatalogName
     muscle_group: MuscleGroup
-    equipment: Equipment
     load_type: LoadType
     bodyweight_percent: Percentage | None = None
     side_count: SideCount = 1
@@ -80,7 +76,6 @@ class UpdateExerciseRequest(BaseModel):
 
     name: CatalogName | None = None
     muscle_group: MuscleGroup | None = None
-    equipment: Equipment | None = None
     load_type: LoadType | None = None
     bodyweight_percent: Percentage | None = None
     side_count: SideCount | None = None
@@ -97,7 +92,7 @@ class UpdateExerciseRequest(BaseModel):
             raise ValueError("at least one exercise field must be provided")
         not_nullable = sorted(
             name
-            for name in ("name", "muscle_group", "equipment", "load_type", "side_count")
+            for name in ("name", "muscle_group", "load_type", "side_count")
             if name in provided and getattr(self, name) is None
         )
         if not_nullable:
@@ -113,7 +108,6 @@ class ExerciseResponse(BaseModel):
     id: str
     name: str
     muscle_group: MuscleGroup
-    equipment: Equipment
     load_type: LoadType
     bodyweight_percent: int | None
     side_count: int

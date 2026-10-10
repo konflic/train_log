@@ -58,11 +58,20 @@
     if (!sync || sync.discarding) return;
     if (
       !window.confirm(
-        'Discard this workout? Every logged set is deleted and this cannot be undone.',
+        'Discard this workout? Every logged set is deleted and this cannot be undone',
       )
     )
       return;
     void sync.discard();
+  }
+
+  function confirmFinish(): void {
+    if (!sync?.canFinish) return;
+    if (
+      !window.confirm('Finish this workout? It is saved and becomes read-only')
+    )
+      return;
+    void sync.finish();
   }
 
   function saveLocally(next: EditableWorkoutContent): void {
@@ -300,27 +309,27 @@
     if (!sync) {
       if (editor.status === 'saving') return 'Saving locally…';
       if (editor.status === 'failed')
-        return 'Storage error. The latest visible edit is not safely stored.';
-      return `Locally saved change ${editor.savedChange}. Offline recovery mode.`;
+        return 'Storage error, the latest visible edit is not safely stored';
+      return `Locally saved change ${editor.savedChange}, offline recovery mode`;
     }
     if (sync.status === 'saving_local') return 'Saving locally…';
-    if (sync.status === 'locally_saved') return 'Not synced yet.';
+    if (sync.status === 'locally_saved') return 'Not synced yet';
     if (sync.status === 'syncing') return 'Syncing durable changes…';
-    if (sync.status === 'synced') return 'Synced.';
-    if (sync.status === 'offline') return 'Offline. Changes remain local.';
+    if (sync.status === 'synced') return 'Synced';
+    if (sync.status === 'offline') return 'Offline, changes remain local';
     if (sync.status === 'authentication_required')
       return sync.finishPending
-        ? 'Authentication required. Finish remains pending.'
-        : 'Authentication required. Upload is paused.';
+        ? 'Authentication required, finish remains pending'
+        : 'Authentication required, upload is paused';
     if (sync.status === 'conflict')
-      return 'Conflict. Automatic saving is paused with this draft retained.';
+      return 'Conflict, automatic saving is paused with this draft retained';
     if (sync.status === 'finish_pending')
-      return 'Finish pending. The final graph is stored and will retry exactly.';
+      return 'Finish pending, the final graph is stored and will retry exactly';
     if (sync.status === 'storage_error')
-      return 'Storage error. The latest visible edit is not safely stored.';
+      return 'Storage error, the latest visible edit is not safely stored';
     if (sync.status === 'correction_required')
-      return 'Correction required before this workout can sync.';
-    return 'Synchronization paused.';
+      return 'Correction required before this workout can sync';
+    return 'Synchronization paused';
   }
 
   function retryLabel(): string {
@@ -397,7 +406,7 @@
         class="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-content disabled:opacity-40"
         type="button"
         disabled={!sync?.canFinish}
-        onclick={() => void sync?.finish()}>Finish workout</button
+        onclick={confirmFinish}>Finish workout</button
       >
       <button
         id="workout-cancel-button"
@@ -421,12 +430,6 @@
         editor.current!.started_at}
     </p>
     <p class="font-semibold">{content.name ?? 'Workout'}</p>
-    <p class="text-sm text-muted">
-      Bodyweight snapshot:
-      {content.bodyweight_kg === null
-        ? 'not set'
-        : `${content.bodyweight_kg} kg`}.
-    </p>
     <p aria-label="Workout completion">
       {completion.percent}% completed ({completion.completedSets} of
       {completion.totalSets}

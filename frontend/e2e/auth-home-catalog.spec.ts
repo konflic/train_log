@@ -162,8 +162,8 @@ test.describe('catalog management', () => {
       page.getByRole('heading', { level: 1, name: 'Catalog' }),
     ).toBeVisible();
 
-    // Seeded defaults browse with stable paging (12 defaults, page size 10).
-    await expect(page.getByText('12 exercises · page 1 of 2')).toBeVisible();
+    // Seeded defaults browse with stable paging (26 defaults, page size 10).
+    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
     await expect(page.getByText('Bench Press')).toBeVisible();
     await expect(page.getByText('Back Squat')).toBeVisible();
     const defaults = page.getByText('Default', { exact: true });
@@ -174,13 +174,13 @@ test.describe('catalog management', () => {
     // Enum values render through human-readable labels.
     await expect(page.getByText(/Single weight/).first()).toBeVisible();
 
-    // Stable ordering: page 2 holds the last two names.
+    // Stable ordering: page 2 continues the casefolded name order.
     await page.getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByText('12 exercises · page 2 of 2')).toBeVisible();
-    await expect(page.getByText('Pull-up')).toBeVisible();
-    await expect(page.getByText('Push-up')).toBeVisible();
+    await expect(page.getByText('26 exercises · page 2 of 3')).toBeVisible();
+    await expect(page.getByText('Dumbbell Curl')).toBeVisible();
+    await expect(page.getByText('Overhead Press')).toBeVisible();
     await page.getByRole('button', { name: 'Previous' }).click();
-    await expect(page.getByText('12 exercises · page 1 of 2')).toBeVisible();
+    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
 
     // Search narrows to matching names (URL state, debounced).
     await page.getByLabel('Search').fill('dumb');
@@ -192,14 +192,15 @@ test.describe('catalog management', () => {
 
     // Muscle-group filter keeps exact API literals behind readable labels.
     await page.getByLabel('Muscle group').selectOption('back');
-    await expect(page.getByText('4 exercises · page 1 of 1')).toBeVisible();
+    await expect(page.getByText('5 exercises · page 1 of 1')).toBeVisible();
     await expect(page.getByText('Barbell Row')).toBeVisible();
     await expect(page.getByText('Deadlift')).toBeVisible();
     await expect(page.getByText('Lat Pulldown')).toBeVisible();
     await expect(page.getByText('Pull-up')).toBeVisible();
+    await expect(page.getByText('Back Extension')).toBeVisible();
     await expect(page).toHaveURL(/muscle_group=back/);
     await page.getByLabel('Muscle group').selectOption('');
-    await expect(page.getByText('12 exercises · page 1 of 2')).toBeVisible();
+    await expect(page.getByText('26 exercises · page 1 of 3')).toBeVisible();
 
     // Create a custom split-weight entry.
     const customName = `E2E Custom Curl ${Date.now()}`;
@@ -207,7 +208,6 @@ test.describe('catalog management', () => {
     const form = page.getByRole('region', { name: 'New custom exercise' });
     await form.getByLabel('Name').fill(customName);
     await form.getByLabel('Muscle group').selectOption('arms');
-    await form.getByLabel('Equipment').selectOption('dumbbell');
     await form.getByLabel('Load type').selectOption('split_weight');
     await form.getByLabel('Sides').selectOption('2');
     await form.getByRole('button', { name: 'Create exercise' }).click();

@@ -1,6 +1,6 @@
 <script lang="ts">
   import packageInfo from '../../package.json';
-  import { updateCurrentUser } from '../api';
+  import { updateCurrentUser, type Sex } from '../api';
   import { session } from '../features/auth/session.svelte';
   import { describeFailure, mapFailureToForm } from '../lib/failures';
   import { resolveTheme, setPreferredTheme, type Theme } from '../lib/theme';
@@ -18,6 +18,12 @@
     session.user?.bodyweight_default_kg === null || session.user === null
       ? ''
       : String(session.user.bodyweight_default_kg),
+  );
+  let sex = $state<Sex | ''>(session.user?.sex ?? '');
+  let age = $state(
+    session.user?.age === null || session.user === null
+      ? ''
+      : String(session.user.age),
   );
   let offset = $state(session.user?.utc_offset_minutes ?? 0);
   let profileBusy = $state(false);
@@ -37,14 +43,19 @@
     const outcome = setPreferredTheme(next);
     themeMessage = outcome.persisted
       ? null
-      : 'The theme applies now but could not be saved on this device.';
+      : 'The theme applies now but could not be saved on this device';
   }
 
   async function saveProfile(): Promise<void> {
     if (profileBusy) return;
     const parsedBodyweight = wholePositiveOrNull(bodyweight);
     if (parsedBodyweight === undefined) {
-      profileError = 'Bodyweight must be a whole positive kilogram value.';
+      profileError = 'Bodyweight must be a whole positive kilogram value';
+      return;
+    }
+    const parsedAge = wholePositiveOrNull(age);
+    if (parsedAge === undefined || (parsedAge !== null && parsedAge > 120)) {
+      profileError = 'Age must be a whole number from 1 to 120';
       return;
     }
     profileBusy = true;
@@ -53,6 +64,8 @@
       const updated = await updateCurrentUser({
         display_name: displayName.trim() || null,
         bodyweight_default_kg: parsedBodyweight,
+        sex: sex === '' ? null : sex,
+        age: parsedAge,
         utc_offset_minutes: offset,
       });
       session.user = updated;
@@ -122,6 +135,14 @@
     }}
   >
     <label class="text-sm font-medium"
+      >Email<input
+        id="settings-email"
+        value={session.user?.email ?? ''}
+        disabled
+        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 opacity-60"
+      /></label
+    >
+    <label class="text-sm font-medium"
       >Display name<input
         bind:value={displayName}
         maxlength="100"
@@ -131,6 +152,25 @@
     <label class="text-sm font-medium"
       >Bodyweight (kg)<input
         bind:value={bodyweight}
+        inputmode="numeric"
+        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+      /></label
+    >
+    <label class="text-sm font-medium"
+      >Sex<select
+        id="settings-sex"
+        bind:value={sex}
+        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
+      >
+        <option value="">Not set</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+      </select></label
+    >
+    <label class="text-sm font-medium"
+      >Age<input
+        id="settings-age"
+        bind:value={age}
         inputmode="numeric"
         class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
       /></label

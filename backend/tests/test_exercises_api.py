@@ -34,12 +34,11 @@ JSON_TYPE = {"Content-Type": "application/json"}
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
-SEEDED_DEFAULT_COUNT = 12
+SEEDED_DEFAULT_COUNT = 26
 RESPONSE_FIELDS = {
     "id",
     "name",
     "muscle_group",
-    "equipment",
     "load_type",
     "bodyweight_percent",
     "side_count",
@@ -68,7 +67,6 @@ def entry_payload(**overrides: object) -> dict:
     payload: dict = {
         "name": "Custom Curl",
         "muscle_group": "arms",
-        "equipment": "dumbbell",
         "load_type": "split_weight",
         "side_count": 2,
     }
@@ -189,11 +187,12 @@ def test_search_is_case_insensitive(api_client: TestClient) -> None:
         response = api_client.get(EXERCISES_URL, params={"search": query})
         assert response.status_code == 200
         body = response.json()
-        assert body["total"] == 3
+        assert body["total"] == 4
         assert {item["id"] for item in body["items"]} == {
             "bench-press",
             "overhead-press",
             "leg-press",
+            "dumbbell-bench-press",
         }
 
 
@@ -204,7 +203,6 @@ def test_search_folds_unicode(make_app) -> None:
                 alice,
                 name="Жим Лёжа",
                 muscle_group="chest",
-                equipment="barbell",
                 load_type="single_weight",
                 side_count=1,
             ).status_code
@@ -260,27 +258,38 @@ def test_search_length_is_bounded(api_client: TestClient) -> None:
     assert problem(too_long)["code"] == "validation_error"
 
 
-def test_muscle_group_and_equipment_filters(api_client: TestClient) -> None:
+def test_muscle_group_filter(api_client: TestClient) -> None:
     register_and_login(api_client)
     back = api_client.get(EXERCISES_URL, params={"muscle_group": "back"}).json()
-    assert back["total"] == 4
+    assert back["total"] == 5
     assert {item["id"] for item in back["items"]} == {
         "barbell-row",
         "deadlift",
         "lat-pulldown",
         "pull-up",
+        "back-extension",
     }
-    bodyweight = api_client.get(EXERCISES_URL, params={"equipment": "bodyweight"}).json()
-    assert {item["id"] for item in bodyweight["items"]} == {"pull-up", "push-up", "dip"}
+    abs_group = api_client.get(EXERCISES_URL, params={"muscle_group": "abs"}).json()
+    assert {item["id"] for item in abs_group["items"]} == {
+        "crunch",
+        "sit-up",
+        "hanging-leg-raise",
+        "lying-leg-raise",
+        "russian-twist",
+        "ab-wheel-rollout",
+    }
     combined = api_client.get(
         EXERCISES_URL, params={"muscle_group": "chest", "search": "press"}
     ).json()
-    assert [item["id"] for item in combined["items"]] == ["bench-press"]
+    assert [item["id"] for item in combined["items"]] == [
+        "bench-press",
+        "dumbbell-bench-press",
+    ]
 
 
 @pytest.mark.parametrize(
     "params",
-    [{"muscle_group": "neck"}, {"equipment": "robot"}, {"muscle_group": 5}],
+    [{"muscle_group": "neck"}, {"muscle_group": "core"}, {"muscle_group": 5}],
 )
 def test_invalid_filter_values_are_rejected(api_client: TestClient, params: dict) -> None:
     register_and_login(api_client)
@@ -299,10 +308,14 @@ def test_pagination_is_bounded_stable_and_disjoint(api_client: TestClient) -> No
     assert first["page"] == 1
     assert first["page_size"] == 5
     assert len(first["items"]) == 5
-    second = api_client.get(EXERCISES_URL, params={"page": 2, "pageSize": 5}).json()
-    third = api_client.get(EXERCISES_URL, params={"page": 3, "pageSize": 5}).json()
-    assert len(third["items"]) == 2
-    paged = [item["id"] for page in (first, second, third) for item in page["items"]]
+    pages = [first]
+    page_number = 2
+    while sum(len(page["items"]) for page in pages) < SEEDED_DEFAULT_COUNT:
+        nxt = api_client.get(EXERCISES_URL, params={"page": page_number, "pageSize": 5}).json()
+        assert 0 < len(nxt["items"]) <= 5
+        pages.append(nxt)
+        page_number += 1
+    paged = [item["id"] for page in pages for item in page["items"]]
     full = api_client.get(EXERCISES_URL, params={"pageSize": 100}).json()
     assert paged == [item["id"] for item in full["items"]]
     assert len(set(paged)) == SEEDED_DEFAULT_COUNT
@@ -339,7 +352,6 @@ def test_order_folds_case_and_breaks_ties_by_id(api_client: TestClient) -> None:
         api_client,
         name="pull-up",
         muscle_group="back",
-        equipment="bodyweight",
         load_type="bodyweight",
         bodyweight_percent=100,
         side_count=1,
@@ -375,7 +387,6 @@ def test_create_omitted_optionals_use_safe_defaults(api_client: TestClient) -> N
     payload = {
         "name": "Weighted Pull-up",
         "muscle_group": "back",
-        "equipment": "bodyweight",
         "load_type": "single_weight",
         "bodyweight_percent": 100,
     }
@@ -406,7 +417,6 @@ def test_create_rejects_unknown_or_server_controlled_fields(
         entry_payload(name=None),
         entry_payload(muscle_group="neck"),
         entry_payload(muscle_group=None),
-        entry_payload(equipment="robot"),
         entry_payload(load_type="assisted"),
         entry_payload(side_count=0),
         entry_payload(side_count=3),
@@ -419,11 +429,10 @@ def test_create_rejects_unknown_or_server_controlled_fields(
         entry_payload(bodyweight_percent=65.5),
         entry_payload(bodyweight_percent="65"),
         entry_payload(bodyweight_percent=True),
-        entry_payload(load_type="bodyweight", equipment="bodyweight"),
-        entry_payload(load_type="bodyweight", equipment="bodyweight", bodyweight_percent=None),
+        entry_payload(load_type="bodyweight"),
+        entry_payload(load_type="bodyweight", bodyweight_percent=None),
         entry_payload(
             load_type="bodyweight",
-            equipment="bodyweight",
             bodyweight_percent=100,
             side_count=2,
         ),
@@ -463,14 +472,13 @@ def test_patch_updates_own_custom_entry(api_client: TestClient) -> None:
     entry = create_exercise(api_client).json()
     response = api_client.patch(
         f"{EXERCISES_URL}/{entry['id']}",
-        json={"name": "  Renamed Row  ", "muscle_group": "core"},
+        json={"name": "  Renamed Row  ", "muscle_group": "abs"},
     )
     assert response.status_code == 200
     body = response.json()
     assert body["name"] == "Renamed Row"
-    assert body["muscle_group"] == "core"
+    assert body["muscle_group"] == "abs"
     # Absent fields stay untouched.
-    assert body["equipment"] == "dumbbell"
     assert body["load_type"] == "split_weight"
     assert body["side_count"] == 2
     assert body["is_default"] is False
@@ -495,7 +503,7 @@ def test_patch_does_not_overwrite_interleaved_unrelated_update(
             database_path,
             entry_id,
             owner_id=owner_id,
-            updates={"equipment": "cable"},
+            updates={"muscle_group": "back"},
         )
         assert concurrent is not None
         return original_update(
@@ -512,7 +520,7 @@ def test_patch_does_not_overwrite_interleaved_unrelated_update(
     )
     assert response.status_code == 200
     assert response.json()["name"] == "Renamed Row"
-    assert response.json()["equipment"] == "cable"
+    assert response.json()["muscle_group"] == "back"
 
 
 def test_patch_null_clears_bodyweight_percent_only(api_client: TestClient) -> None:
@@ -534,7 +542,6 @@ def test_patch_null_clears_bodyweight_percent_only(api_client: TestClient) -> No
         {"name": "x" * 101},
         {"name": 5},
         {"muscle_group": None},
-        {"equipment": None},
         {"load_type": None},
         {"side_count": None},
         {"side_count": 0},

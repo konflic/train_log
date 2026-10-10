@@ -25,7 +25,7 @@ from app.services.catalog import (
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
-SEEDED_DEFAULT_COUNT = 12
+SEEDED_DEFAULT_COUNT = 26
 
 
 @pytest.fixture()
@@ -43,7 +43,6 @@ def create_entry(
     owner_id: str = "user-1",
     name: str = "Custom Curl",
     muscle_group: str = "arms",
-    equipment: str = "dumbbell",
     load_type: str = "split_weight",
     bodyweight_percent: int | None = None,
     side_count: int = 2,
@@ -53,7 +52,6 @@ def create_entry(
         owner_id=owner_id,
         name=name,
         muscle_group=muscle_group,
-        equipment=equipment,
         load_type=load_type,
         bodyweight_percent=bodyweight_percent,
         side_count=side_count,
@@ -104,7 +102,6 @@ def test_create_allows_same_name_across_scopes(two_users: Path) -> None:
         name="Pull-up",
         load_type="bodyweight",
         muscle_group="back",
-        equipment="bodyweight",
         bodyweight_percent=100,
         side_count=1,
     )
@@ -157,15 +154,13 @@ def test_search_is_unicode_case_insensitive(two_users: Path) -> None:
         two_users,
         name="Жим Лёжа",
         muscle_group="chest",
-        equipment="barbell",
         load_type="single_weight",
         side_count=1,
     )
     create_entry(
         two_users,
         name="Übung",
-        muscle_group="core",
-        equipment="other",
+        muscle_group="abs",
         load_type="single_weight",
         side_count=1,
     )
@@ -207,7 +202,7 @@ def test_like_pattern_escapes_escape_char_first() -> None:
     assert like_pattern(r"a\b%c_d") == r"%a\\b\%c\_d%"
 
 
-def test_muscle_group_and_equipment_filters(two_users: Path) -> None:
+def test_muscle_group_filter(two_users: Path) -> None:
     page = catalog.list_entries(
         two_users, viewer_id="user-1", limit=100, offset=0, muscle_group="back"
     )
@@ -216,20 +211,27 @@ def test_muscle_group_and_equipment_filters(two_users: Path) -> None:
         "deadlift",
         "lat-pulldown",
         "pull-up",
+        "back-extension",
     }
-    assert page.total == 4
+    assert page.total == 5
     page = catalog.list_entries(
-        two_users, viewer_id="user-1", limit=100, offset=0, equipment="bodyweight"
+        two_users, viewer_id="user-1", limit=100, offset=0, muscle_group="abs"
     )
-    assert {entry.id for entry in page.items} == {"pull-up", "push-up", "dip"}
-    # Filters combine with each other and with search.
+    assert {entry.id for entry in page.items} == {
+        "crunch",
+        "sit-up",
+        "hanging-leg-raise",
+        "lying-leg-raise",
+        "russian-twist",
+        "ab-wheel-rollout",
+    }
+    # The filter combines with search.
     page = catalog.list_entries(
         two_users,
         viewer_id="user-1",
         limit=100,
         offset=0,
         muscle_group="back",
-        equipment="barbell",
         search="row",
     )
     assert visible_names(page) == ["Barbell Row"]
@@ -244,7 +246,6 @@ def test_order_is_casefolded_name_with_id_tiebreak(two_users: Path) -> None:
         two_users,
         name="pull-up",
         muscle_group="back",
-        equipment="bodyweight",
         load_type="bodyweight",
         bodyweight_percent=100,
         side_count=1,
@@ -261,7 +262,7 @@ def test_pagination_is_stable_and_disjoint(two_users: Path) -> None:
     full = catalog.list_entries(two_users, viewer_id="user-1", limit=100, offset=0)
     assert full.total == SEEDED_DEFAULT_COUNT
     paged_ids: list[str] = []
-    for offset in (0, 5, 10):
+    for offset in range(0, SEEDED_DEFAULT_COUNT, 5):
         page = catalog.list_entries(two_users, viewer_id="user-1", limit=5, offset=offset)
         assert page.total == SEEDED_DEFAULT_COUNT
         paged_ids.extend(entry.id for entry in page.items)
@@ -275,8 +276,8 @@ def test_total_reflects_filters(two_users: Path) -> None:
     page = catalog.list_entries(
         two_users, viewer_id="user-1", limit=3, offset=0, muscle_group="legs"
     )
-    assert page.total == 2
-    assert len(page.items) == 2
+    assert page.total == 6
+    assert len(page.items) == 3
 
 
 def test_invalid_paging_is_rejected(two_users: Path) -> None:

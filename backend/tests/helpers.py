@@ -62,7 +62,6 @@ def insert_catalog_entry(
     *,
     name: str = "Custom Curl",
     muscle_group: str = "arms",
-    equipment: str = "dumbbell",
     load_type: str = "split_weight",
     bodyweight_percent: Number = None,
     side_count: Number = 2,
@@ -70,15 +69,14 @@ def insert_catalog_entry(
     created_by: str | None = "user-1",
 ) -> None:
     conn.execute(
-        "INSERT INTO exercise_catalog (id, name, muscle_group, equipment, "
+        "INSERT INTO exercise_catalog (id, name, muscle_group, "
         "load_type, bodyweight_percent, side_count, is_default, created_by) "
-        "VALUES (:id, :name, :muscle_group, :equipment, :load_type, "
+        "VALUES (:id, :name, :muscle_group, :load_type, "
         ":bodyweight_percent, :side_count, :is_default, :created_by)",
         {
             "id": entry_id,
             "name": name,
             "muscle_group": muscle_group,
-            "equipment": equipment,
             "load_type": load_type,
             "bodyweight_percent": bodyweight_percent,
             "side_count": side_count,

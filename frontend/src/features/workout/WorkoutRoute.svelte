@@ -197,7 +197,7 @@
       if (sync.status !== 'authentication_required') reauthOpen = false;
       else
         reauthMessage =
-          'This account does not own the workout. Sign in as the original account.';
+          'This account does not own the workout, sign in as the original account';
     } catch (error) {
       reauthMessage = describeFailure(error);
     } finally {
@@ -248,8 +248,8 @@
         Workout changed elsewhere
       </h2>
       <p class="mt-1 text-sm text-muted">
-        Reload to use the latest saved workout data. Unsynced changes in this
-        tab will be discarded.
+        Reload to use the latest saved workout data, unsynced changes in this
+        tab will be discarded
       </p>
       <button
         id="workout-reload-server-button"
@@ -263,7 +263,7 @@
     <section class="mt-4 rounded-lg border border-edge bg-surface p-4">
       <h2 class="font-semibold">Authentication required</h2>
       <p class="mt-1 text-sm text-muted">
-        Your latest workout changes will resume after you sign in.
+        Your latest workout changes will resume after you sign in
       </p>
       {#if !reauthOpen}
         <button
@@ -323,8 +323,8 @@
 {:else if phase === 'finished'}
   <h1 tabindex="-1">Finished workout</h1>
   <p class="mt-2 text-muted">
-    Finished workouts are read-only. Detailed history arrives in the next UI
-    stage.
+    Finished workouts are read-only, detailed history arrives in the next UI
+    stage
   </p>
 {:else}
   <h1 tabindex="-1">Workout unavailable</h1>

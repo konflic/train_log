@@ -21,9 +21,9 @@ export function describeFailure(error: unknown): string {
     return problem.detail !== '' ? problem.detail : problem.title;
   }
   if (error instanceof ApiNetworkError) {
-    return 'Cannot reach the server. Check your connection and try again.';
+    return 'Cannot reach the server, check your connection and try again';
   }
-  return 'Something went wrong. Please try again.';
+  return 'Something went wrong, please try again';
 }
 
 export interface FormFailure {
@@ -58,9 +58,9 @@ export function mapFailureToForm(error: unknown): FormFailure {
     if (problem.status === 429) {
       const suffix =
         problem.retryAfterSeconds !== null
-          ? ` Try again in ${problem.retryAfterSeconds} seconds.`
-          : ' Try again later.';
-      return { form: `Too many attempts.${suffix}`, fields: {} };
+          ? `try again in ${problem.retryAfterSeconds} seconds`
+          : 'try again later';
+      return { form: `Too many attempts, ${suffix}`, fields: {} };
     }
   }
   return { form: describeFailure(error), fields: {} };

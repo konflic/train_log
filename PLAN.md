@@ -389,8 +389,7 @@ admin_audit_log                         # added by the admin migration
 exercise_catalog
   id TEXT PK
   name TEXT NOT NULL
-  muscle_group TEXT NOT NULL           # chest|back|legs|shoulders|arms|core|full_body|other
-  equipment TEXT NOT NULL              # barbell|dumbbell|kettlebell|machine|cable|bodyweight|band|other
+  muscle_group TEXT NOT NULL           # chest|back|legs|shoulders|arms|abs|full_body|other
   load_type TEXT NOT NULL              # single_weight|split_weight|bodyweight
   bodyweight_percent INTEGER          # null or 1..100; required for bodyweight
   side_count INTEGER NOT NULL          # 1 or 2 for split_weight; otherwise 1

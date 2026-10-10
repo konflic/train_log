@@ -363,7 +363,6 @@ def test_muscle_group_frequency_follows_the_current_catalog_classification(
             "cat-custom-1",
             name="Custom Press",
             muscle_group="arms",
-            equipment="machine",
             load_type="single_weight",
             side_count=1,
         )
@@ -374,10 +373,10 @@ def test_muscle_group_frequency_follows_the_current_catalog_classification(
     with connect(db) as conn, write_transaction(conn):
         # The schema does not snapshot muscle group, so an owner edit to a
         # custom entry reclassifies historical frequency (resolved decision 7).
-        conn.execute("UPDATE exercise_catalog SET muscle_group = 'core' WHERE id = 'cat-custom-1'")
+        conn.execute("UPDATE exercise_catalog SET muscle_group = 'abs' WHERE id = 'cat-custom-1'")
     result = groups(summary(db))
     assert result["arms"] == 0
-    assert result["core"] == 1
+    assert result["abs"] == 1
 
 
 def test_muscle_group_counts_deduplicate_workouts_within_a_group(db: Path) -> None:

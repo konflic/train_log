@@ -79,7 +79,7 @@
     if (!detail || deleting) return;
     if (
       !window.confirm(
-        `Delete ${detail.name ?? 'this workout'}? This cannot be undone.`,
+        `Delete ${detail.name ?? 'this workout'}? This cannot be undone`,
       )
     )
       return;
@@ -161,7 +161,7 @@
       {total.knownVolume === null ? 'Unknown' : `${total.knownVolume} kg·reps`} from
       {total.completedSetCount} completed sets{total.complete
         ? '.'
-        : `; ${total.unknownLoadSetCount} loads unknown.`}
+        : `; ${total.unknownLoadSetCount} loads unknown`}
     </p>
   </section>
   {#if detail.notes}<section
@@ -205,7 +205,7 @@
                   Previous set: {pair.previous.reps ?? '—'} reps. {pair.load_compatible &&
                   pair.delta.external_load_kg !== null
                     ? `Load change ${pair.delta.external_load_kg >= 0 ? '+' : ''}${pair.delta.external_load_kg} kg${percentageDelta(pair.current.external_load_kg, pair.previous.external_load_kg) === null ? '' : ` (${percentageDelta(pair.current.external_load_kg, pair.previous.external_load_kg)}%)`}.`
-                    : 'Load comparison unavailable.'}
+                    : 'Load comparison unavailable'}
                 </p>
               {/each}
             </li>

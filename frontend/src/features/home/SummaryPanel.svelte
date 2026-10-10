@@ -187,7 +187,7 @@
         <p class="mt-2 text-sm text-muted">
           {summary.unknown_load_set_count}
           completed {summary.unknown_load_set_count === 1 ? 'set' : 'sets'} without
-          a recorded load, so the known volume is partial, not complete.
+          a recorded load, so the known volume is partial, not complete
         </p>
       {/if}
       <p class="mt-2 text-sm">

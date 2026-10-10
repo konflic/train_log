@@ -33,7 +33,6 @@ CATALOG_COLUMNS = (
     "id",
     "name",
     "muscle_group",
-    "equipment",
     "load_type",
     "bodyweight_percent",
     "side_count",
@@ -44,7 +43,7 @@ CATALOG_COLUMNS = (
 # Content columns writable through PATCH; id/is_default/created_by are
 # server-controlled and rejected here as well as by the schemas.
 WRITABLE_COLUMNS = frozenset(
-    {"name", "muscle_group", "equipment", "load_type", "bodyweight_percent", "side_count"}
+    {"name", "muscle_group", "load_type", "bodyweight_percent", "side_count"}
 )
 
 _LIKE_ESCAPE = "\\"
@@ -67,7 +66,6 @@ class CatalogEntry:
     id: str
     name: str
     muscle_group: str
-    equipment: str
     load_type: str
     bodyweight_percent: int | None
     side_count: int
@@ -88,7 +86,6 @@ def row_to_entry(row: sqlite3.Row) -> CatalogEntry:
         id=str(row["id"]),
         name=str(row["name"]),
         muscle_group=str(row["muscle_group"]),
-        equipment=str(row["equipment"]),
         load_type=str(row["load_type"]),
         bodyweight_percent=row["bodyweight_percent"],
         side_count=int(row["side_count"]),
@@ -105,9 +102,7 @@ def like_pattern(search: str) -> str:
     return f"%{escaped}%"
 
 
-def _filter_clause(
-    *, search: str | None, muscle_group: str | None, equipment: str | None
-) -> tuple[str, dict[str, Any]]:
+def _filter_clause(*, search: str | None, muscle_group: str | None) -> tuple[str, dict[str, Any]]:
     """Optional list-filter SQL fragment plus its bound parameters."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
@@ -117,9 +112,6 @@ def _filter_clause(
     if muscle_group is not None:
         clauses.append("muscle_group = :muscle_group")
         params["muscle_group"] = muscle_group
-    if equipment is not None:
-        clauses.append("equipment = :equipment")
-        params["equipment"] = equipment
     fragment = "".join(f" AND {clause}" for clause in clauses)
     return fragment, params
 
@@ -132,7 +124,6 @@ def list_entries(
     offset: int,
     search: str | None = None,
     muscle_group: str | None = None,
-    equipment: str | None = None,
 ) -> CatalogPage:
     """One stable-ordered page of the entries visible to the viewer."""
     if limit < 1:
@@ -141,7 +132,7 @@ def list_entries(
         raise ValueError(f"offset must be nonnegative; got {offset}")
     if offset > MAX_SAFE_INTEGER:
         raise ValueError(f"offset must not exceed {MAX_SAFE_INTEGER}; got {offset}")
-    where, params = _filter_clause(search=search, muscle_group=muscle_group, equipment=equipment)
+    where, params = _filter_clause(search=search, muscle_group=muscle_group)
     params["viewer_id"] = viewer_id
     columns = ", ".join(CATALOG_COLUMNS)
     with connect(database_path) as conn:
@@ -176,7 +167,6 @@ def create_custom_entry(
     owner_id: str,
     name: str,
     muscle_group: str,
-    equipment: str,
     load_type: str,
     bodyweight_percent: int | None,
     side_count: int,
@@ -191,15 +181,14 @@ def create_custom_entry(
     try:
         with connect(database_path) as conn, write_transaction(conn):
             conn.execute(
-                "INSERT INTO exercise_catalog (id, name, muscle_group, equipment, "
+                "INSERT INTO exercise_catalog (id, name, muscle_group, "
                 "load_type, bodyweight_percent, side_count, is_default, created_by) "
-                "VALUES (:id, :name, :muscle_group, :equipment, :load_type, "
+                "VALUES (:id, :name, :muscle_group, :load_type, "
                 ":bodyweight_percent, :side_count, 0, :created_by)",
                 {
                     "id": entry_id,
                     "name": name,
                     "muscle_group": muscle_group,
-                    "equipment": equipment,
                     "load_type": load_type,
                     "bodyweight_percent": bodyweight_percent,
                     "side_count": side_count,
@@ -214,7 +203,6 @@ def create_custom_entry(
         id=entry_id,
         name=name,
         muscle_group=muscle_group,
-        equipment=equipment,
         load_type=load_type,
         bodyweight_percent=bodyweight_percent,
         side_count=side_count,
@@ -259,7 +247,6 @@ def update_custom_entry(
             merged: dict[str, Any] = {
                 "name": current.name,
                 "muscle_group": current.muscle_group,
-                "equipment": current.equipment,
                 "load_type": current.load_type,
                 "bodyweight_percent": current.bodyweight_percent,
                 "side_count": current.side_count,

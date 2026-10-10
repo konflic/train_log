@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 from helpers import (
-    insert_catalog_entry,
     insert_exercise,
     insert_set,
     insert_user,
@@ -54,6 +53,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
         "0003_save_previous_performance_receipt",
         "0004_workout_sessions_and_training_plans",
         "0005_user_metabolism_profile",
+        "0006_simplify_exercise_catalog",
     ]
 
     with connect(database_path) as conn:
@@ -84,7 +84,7 @@ def test_migrate_from_empty_creates_strict_schema_and_seed(tmp_path: Path) -> No
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3, 4, 5]
+        assert versions == [1, 2, 3, 4, 5, 6]
 
         seed = conn.execute(
             "SELECT COUNT(*) AS n FROM exercise_catalog WHERE is_default = 1 AND created_by IS NULL"
@@ -253,7 +253,14 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
     # Representative data recorded while the database was one version behind.
     with connect(database_path) as conn, write_transaction(conn) as txn:
         insert_user(txn, bodyweight_default_kg=81, utc_offset_minutes=180)
-        insert_catalog_entry(txn, name="My Curl")
+        # Version 1 still has the equipment column and the old 'core' group;
+        # 0006 must drop the column and reclassify the row to 'abs'.
+        txn.execute(
+            "INSERT INTO exercise_catalog (id, name, muscle_group, equipment, "
+            "load_type, bodyweight_percent, side_count, is_default, created_by) "
+            "VALUES ('cat-custom-1', 'My Curl', 'core', 'dumbbell', "
+            "'split_weight', NULL, 2, 0, 'user-1')"
+        )
         insert_workout(txn, bodyweight_kg=80)
         insert_workout(
             txn,
@@ -264,7 +271,7 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         insert_exercise(txn, catalog_id="cat-custom-1")
         insert_set(txn, reps=8, weight_kg=12, done=1)
 
-    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4, 5]
+    assert [m.version for m in migrate.migrate(database_path)] == [2, 3, 4, 5, 6]
 
     with connect(database_path) as conn:
         user = conn.execute(
@@ -307,13 +314,20 @@ def test_upgrade_from_previous_migration_preserves_data(tmp_path: Path) -> None:
         assert indexes >= EXPECTED_INDEXES
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
-        # The new seed coexists with the pre-existing custom entry.
+        # The new seed coexists with the pre-existing custom entry, whose
+        # muscle group was reclassified by 0006.
+        catalog_row = conn.execute(
+            "SELECT muscle_group FROM exercise_catalog WHERE id = 'cat-custom-1'"
+        ).fetchone()
+        assert catalog_row is not None
+        assert catalog_row["muscle_group"] == "abs"
         names = {row["name"] for row in conn.execute("SELECT name FROM exercise_catalog")}
         assert "My Curl" in names
         assert "Pull-up" in names
+        assert "Crunch" in names
 
         versions = [
             int(row["version"])
             for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
         ]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5, 6]

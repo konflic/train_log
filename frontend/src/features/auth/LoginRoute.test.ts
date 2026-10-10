@@ -150,7 +150,7 @@ describe('LoginRoute', () => {
     const { unmount } = render(LoginRoute);
     await fillAndSubmit('user@example.test', 'password123');
     expect((await screen.findByRole('alert')).textContent).toContain(
-      'Too many attempts. Try again in 30 seconds.',
+      'Too many attempts, try again in 30 seconds',
     );
     unmount();
     cleanup();
@@ -190,7 +190,7 @@ describe('LoginRoute', () => {
       'new@example.test',
     );
     expect(screen.getByRole('status').textContent).toContain(
-      'Account created. Log in to continue.',
+      'Account created, log in to continue',
     );
   });
 });

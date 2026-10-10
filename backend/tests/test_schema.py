@@ -234,8 +234,6 @@ def test_catalog_rules(migrated_db: Path) -> None:
         with pytest.raises(sqlite3.IntegrityError), write_transaction(conn) as txn:
             insert_catalog_entry(txn, "c-mg", muscle_group="neck")
         with pytest.raises(sqlite3.IntegrityError), write_transaction(conn) as txn:
-            insert_catalog_entry(txn, "c-eq", equipment="robot")
-        with pytest.raises(sqlite3.IntegrityError), write_transaction(conn) as txn:
             insert_catalog_entry(txn, "c-lt", load_type="assisted")
         # Default entries have no owner; customs require one.
         with pytest.raises(sqlite3.IntegrityError), write_transaction(conn) as txn:

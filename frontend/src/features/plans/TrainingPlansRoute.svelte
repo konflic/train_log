@@ -261,7 +261,7 @@
 </h1>
 {#if !pickerOpen}
   <p class="mt-2 text-muted">
-    Saving or previewing a plan does not start a session.
+    Saving or previewing a plan does not start a session
   </p>
 {/if}
 {#if message}<p role="alert" class="mt-3 text-danger">{message}</p>{/if}
@@ -479,7 +479,7 @@
   >
     Create plan
   </button>
-  {#if plans.length === 0}<p class="mt-4">No training plans yet.</p>{/if}
+  {#if plans.length === 0}<p class="mt-4">No training plans yet</p>{/if}
   {#if activeSession.workoutId !== null}<p class="mt-4">
       An active session is ready to resume.
       <a

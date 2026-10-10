@@ -67,7 +67,7 @@ describe('describeFailure', () => {
 
   it('falls back to a generic message for anything else', () => {
     expect(describeFailure(new Error('boom'))).toBe(
-      'Something went wrong. Please try again.',
+      'Something went wrong, please try again',
     );
   });
 });
@@ -129,11 +129,11 @@ describe('mapFailureToForm', () => {
     const failure = mapFailureToForm(
       new ApiRequestError(makeProblem({ status: 429, retryAfterSeconds: 30 })),
     );
-    expect(failure.form).toBe('Too many attempts. Try again in 30 seconds.');
+    expect(failure.form).toBe('Too many attempts, try again in 30 seconds');
     const withoutHeader = mapFailureToForm(
       new ApiRequestError(makeProblem({ status: 429 })),
     );
-    expect(withoutHeader.form).toBe('Too many attempts. Try again later.');
+    expect(withoutHeader.form).toBe('Too many attempts, try again later');
   });
 
   it('keeps conflicts, network, and malformed failures at form level', () => {

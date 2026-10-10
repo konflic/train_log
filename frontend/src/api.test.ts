@@ -84,11 +84,10 @@ describe('request construction', () => {
       pageSize: 10,
       search: 'squat',
       muscle_group: 'legs',
-      equipment: 'barbell',
     });
     const { url, init } = lastCall();
     expect(url).toBe(
-      '/api/v1/exercises?page=2&pageSize=10&search=squat&muscle_group=legs&equipment=barbell',
+      '/api/v1/exercises?page=2&pageSize=10&search=squat&muscle_group=legs',
     );
     expect(init.method).toBe('GET');
     expect(init.credentials).toBe('same-origin');
@@ -223,8 +222,7 @@ describe('mutating request headers', () => {
     );
     await createExercise({
       name: 'New',
-      muscle_group: 'core',
-      equipment: 'band',
+      muscle_group: 'abs',
       load_type: 'single_weight',
     });
     expect(lastCall().url).toBe('/api/v1/exercises');

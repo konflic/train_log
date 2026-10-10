@@ -1,11 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import type { Equipment, Exercise, MuscleGroup } from '../../api';
+  import type { Exercise, MuscleGroup } from '../../api';
   import { listExercises } from '../../api';
   import { describeFailure, isAbortError } from '../../lib/failures';
   import {
-    equipmentLabels,
-    equipmentValues,
     loadTypeLabels,
     muscleGroupLabels,
     muscleGroupValues,
@@ -30,7 +28,6 @@
 
   let search = $state('');
   let muscleGroup = $state<MuscleGroup | ''>('');
-  let equipment = $state<Equipment | ''>('');
   let page = $state(1);
   let phase = $state<'loading' | 'ready' | 'error'>('loading');
   let items = $state<Exercise[]>([]);
@@ -54,7 +51,6 @@
           pageSize: PAGE_SIZE,
           search: search === '' ? undefined : search,
           muscle_group: muscleGroup || undefined,
-          equipment: equipment || undefined,
         },
         controller.signal,
       );
@@ -114,8 +110,8 @@
 
   <p class="text-sm text-muted">
     {replacement
-      ? 'Choose a replacement exercise.'
-      : `Choose an exercise to add to this ${target}.`}
+      ? 'Choose a replacement exercise'
+      : `Choose an exercise to add to this ${target}`}
   </p>
 
   <div>
@@ -133,39 +129,21 @@
     />
   </div>
 
-  <div class="flex flex-col gap-3 sm:flex-row">
-    <div class="flex-1">
-      <label for="workout-filter-muscle-group" class="block text-sm font-medium"
-        >Muscle group</label
-      >
-      <select
-        id="workout-filter-muscle-group"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        bind:value={muscleGroup}
-        onchange={resetPageAndLoad}
-      >
-        <option value="">All</option>
-        {#each muscleGroupValues as value (value)}
-          <option {value}>{muscleGroupLabels[value]}</option>
-        {/each}
-      </select>
-    </div>
-    <div class="flex-1">
-      <label for="workout-filter-equipment" class="block text-sm font-medium"
-        >Equipment</label
-      >
-      <select
-        id="workout-filter-equipment"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        bind:value={equipment}
-        onchange={resetPageAndLoad}
-      >
-        <option value="">All</option>
-        {#each equipmentValues as value (value)}
-          <option {value}>{equipmentLabels[value]}</option>
-        {/each}
-      </select>
-    </div>
+  <div>
+    <label for="workout-filter-muscle-group" class="block text-sm font-medium"
+      >Muscle group</label
+    >
+    <select
+      id="workout-filter-muscle-group"
+      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+      bind:value={muscleGroup}
+      onchange={resetPageAndLoad}
+    >
+      <option value="">All</option>
+      {#each muscleGroupValues as value (value)}
+        <option {value}>{muscleGroupLabels[value]}</option>
+      {/each}
+    </select>
   </div>
 
   {#if phase === 'loading'}
@@ -178,7 +156,7 @@
       onclick={() => void load()}>Retry</button
     >
   {:else if items.length === 0}
-    <p class="text-sm text-muted">No exercises match the current filters.</p>
+    <p class="text-sm text-muted">No exercises match the current filters</p>
   {:else}
     <ul class="flex flex-col gap-2">
       {#each items as entry (entry.id)}
@@ -191,9 +169,7 @@
           >
             <span class="block font-medium">{entry.name}</span>
             <span class="mt-1 block text-sm text-muted">
-              {muscleGroupLabels[entry.muscle_group]} · {equipmentLabels[
-                entry.equipment
-              ]} · {describeLoad(entry)}
+              {muscleGroupLabels[entry.muscle_group]} · {describeLoad(entry)}
             </span>
           </button>
         </li>

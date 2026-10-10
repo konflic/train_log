@@ -34,7 +34,6 @@ function entry(overrides: Partial<Exercise> = {}): Exercise {
     id: 'x-1',
     name: 'Sample',
     muscle_group: 'chest',
-    equipment: 'barbell',
     load_type: 'single_weight',
     bodyweight_percent: null,
     side_count: 1,
@@ -48,7 +47,6 @@ const pullUp = entry({
   id: 'pull-up',
   name: 'Pull-up',
   muscle_group: 'back',
-  equipment: 'bodyweight',
   load_type: 'bodyweight',
   bodyweight_percent: 100,
 });
@@ -56,7 +54,6 @@ const fullRow = entry({
   id: 'full-row',
   name: 'Full Body Row',
   muscle_group: 'full_body',
-  equipment: 'cable',
   load_type: 'split_weight',
   side_count: 2,
   is_default: true,
@@ -65,7 +62,6 @@ const customCurl = entry({
   id: 'custom-1',
   name: 'Custom Curl',
   muscle_group: 'arms',
-  equipment: 'dumbbell',
   load_type: 'split_weight',
   side_count: 2,
   is_default: false,
@@ -73,7 +69,6 @@ const customCurl = entry({
 const weightedDip = entry({
   id: 'custom-2',
   name: 'Weighted Dip',
-  equipment: 'machine',
   load_type: 'single_weight',
   bodyweight_percent: 30,
   is_default: false,
@@ -158,7 +153,6 @@ describe('CatalogRoute listing', () => {
         pageSize: 10,
         search: undefined,
         muscle_group: undefined,
-        equipment: undefined,
       },
       expect.any(AbortSignal),
     );
@@ -170,16 +164,14 @@ describe('CatalogRoute listing', () => {
     // Enum literals render through the local human-readable labels.
     expect(
       screen.getByText(
-        /Full body · Cable · Split weight \(per side\) · both sides per set/,
+        /Full body · Split weight \(per side\) · both sides per set/,
       ),
     ).toBeDefined();
     expect(
-      screen.getByText(
-        /Arms · Dumbbell · Split weight \(per side\) · both sides per set/,
-      ),
+      screen.getByText(/Arms · Split weight \(per side\) · both sides per set/),
     ).toBeDefined();
     expect(
-      screen.getByText(/Back · Bodyweight · Bodyweight · 100% bodyweight/),
+      screen.getByText(/Back · Bodyweight · 100% bodyweight/),
     ).toBeDefined();
     expect(screen.getAllByText('Default').length).toBe(3);
     expect(screen.getAllByText('Custom').length).toBe(2);
@@ -384,7 +376,6 @@ describe('ExerciseForm through the catalog screen', () => {
       expect(createExerciseMock).toHaveBeenCalledWith({
         name: 'Z Custom',
         muscle_group: 'chest',
-        equipment: 'barbell',
         load_type: 'bodyweight',
         bodyweight_percent: 65,
         side_count: 1,

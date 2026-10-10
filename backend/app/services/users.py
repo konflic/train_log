@@ -32,7 +32,9 @@ USER_COLUMNS = (
 )
 
 # Writable profile columns; everything else on a user row is server-controlled.
-PROFILE_COLUMNS = frozenset({"display_name", "bodyweight_default_kg", "utc_offset_minutes"})
+PROFILE_COLUMNS = frozenset(
+    {"display_name", "bodyweight_default_kg", "sex", "age", "utc_offset_minutes"}
+)
 
 
 class DuplicateEmailError(Exception):

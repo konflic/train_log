@@ -894,7 +894,7 @@ def workout_name(started_at: str, utc_offset_minutes: int) -> str:
         local_date = (parse_timestamp(started_at) + timedelta(minutes=utc_offset_minutes)).date()
     except OverflowError:
         local_date = date.max if utc_offset_minutes > 0 else date.min
-    return f"Workout on {local_date:%d.%m.%Y}"
+    return f"Workout on {local_date:%Y-%m-%d}"
 
 
 def save_workout(

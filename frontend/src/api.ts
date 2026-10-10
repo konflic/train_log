@@ -18,18 +18,8 @@ export type MuscleGroup =
   | 'legs'
   | 'shoulders'
   | 'arms'
-  | 'core'
+  | 'abs'
   | 'full_body'
-  | 'other';
-
-export type Equipment =
-  | 'barbell'
-  | 'dumbbell'
-  | 'kettlebell'
-  | 'machine'
-  | 'cable'
-  | 'bodyweight'
-  | 'band'
   | 'other';
 
 export type LoadType = 'single_weight' | 'split_weight' | 'bodyweight';
@@ -66,6 +56,8 @@ export interface LoginInput {
 export interface UpdateProfileInput {
   display_name?: string | null;
   bodyweight_default_kg?: number | null;
+  sex?: Sex | null;
+  age?: number | null;
   utc_offset_minutes?: number;
 }
 
@@ -73,7 +65,6 @@ export interface Exercise {
   id: string;
   name: string;
   muscle_group: MuscleGroup;
-  equipment: Equipment;
   load_type: LoadType;
   bodyweight_percent: number | null;
   side_count: number;
@@ -92,13 +83,11 @@ export interface ExerciseListQuery {
   pageSize?: number;
   search?: string;
   muscle_group?: MuscleGroup;
-  equipment?: Equipment;
 }
 
 export interface ExerciseCreateInput {
   name: string;
   muscle_group: MuscleGroup;
-  equipment: Equipment;
   load_type: LoadType;
   bodyweight_percent?: number | null;
   side_count?: number;
@@ -108,7 +97,6 @@ export interface ExerciseCreateInput {
 export interface ExerciseUpdateInput {
   name?: string;
   muscle_group?: MuscleGroup;
-  equipment?: Equipment;
   load_type?: LoadType;
   bodyweight_percent?: number | null;
   side_count?: number;
@@ -617,7 +605,6 @@ export function listExercises(
     ['pageSize', query.pageSize],
     ['search', query.search],
     ['muscle_group', query.muscle_group],
-    ['equipment', query.equipment],
   ]);
   return sendJson<ExercisePage>('GET', '/exercises', { query: params, signal });
 }

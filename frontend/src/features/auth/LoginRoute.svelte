@@ -25,7 +25,7 @@
   let submitting = $state(false);
   let errors = $state<FormFailure>(noErrors);
   let notice = $state<string | null>(
-    takeRegistrationNotice() ? 'Account created. Log in to continue.' : null,
+    takeRegistrationNotice() ? 'Account created, log in to continue' : null,
   );
   let headingRef = $state<HTMLElement | undefined>();
   let alertRef = $state<HTMLElement | undefined>();

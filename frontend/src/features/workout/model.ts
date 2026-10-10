@@ -116,7 +116,7 @@ export function copyDraftToNewWorkout(
       const snapshot =
         source.content.recorded_load_snapshots[exercise.id] ??
         source.content.provisional_load_snapshots[exercise.id];
-      if (!snapshot) throw new Error('Exercise load settings are unavailable.');
+      if (!snapshot) throw new Error('Exercise load settings are unavailable');
       return {
         ...exercise,
         order_index: orderIndex,
@@ -174,7 +174,7 @@ function copiedDraft(
     provisional[id] = snapshot;
     if (!current) {
       rawFields[catalogIssueKey(id)] =
-        'This exercise is no longer available. Remove or replace it.';
+        'This exercise is no longer available, remove or replace it';
     }
     const sets = sourceExercise.sets.map((set) => ({
       id: createDraftId(),
@@ -313,13 +313,13 @@ export function completionProgress(
  */
 export function finishBlocker(content: EditableWorkoutContent): string | null {
   if (content.exercises.length === 0)
-    return 'Add at least one exercise to finish this workout.';
+    return 'Add at least one exercise to workout';
   if (content.exercises.some((exercise) => exercise.sets.length === 0))
-    return 'Every exercise needs at least one set. Add a set or remove the exercise.';
+    return 'Every exercise needs at least one set, add a set or remove the exercise';
   const completion = completionProgress(content);
   const remaining = completion.totalSets - completion.completedSets;
   if (remaining > 0)
-    return `Finish or remove the ${remaining} incomplete ${remaining === 1 ? 'set' : 'sets'} before finishing this workout.`;
+    return `Finish or remove the ${remaining} incomplete ${remaining === 1 ? 'set' : 'sets'} before finishing this workout`;
   return null;
 }
 
@@ -331,7 +331,7 @@ export function setError(
   const snapshot =
     content.recorded_load_snapshots[exercise.id] ??
     content.provisional_load_snapshots[exercise.id];
-  if (!snapshot) return 'Exercise load settings are unavailable.';
+  if (!snapshot) return 'Exercise load settings are unavailable';
   const fields: Array<'reps' | 'weight_kg' | 'bw_percent_override' | 'rpe'> = [
     'reps',
     'weight_kg',
@@ -344,7 +344,7 @@ export function setError(
       return raw !== undefined && raw !== '' && strictInteger(raw) === null;
     })
   )
-    return 'Use whole numbers only.';
+    return 'Use whole numbers only';
   if (set.rpe !== null && (set.rpe < 1 || set.rpe > 10))
     return 'RPE must be from 1 to 10.';
   if (
@@ -353,30 +353,30 @@ export function setError(
       set.bw_percent_override < 1 ||
       set.bw_percent_override > 100)
   )
-    return 'Bodyweight percentage must be from 1 to 100 for this exercise.';
+    return 'Bodyweight percentage must be from 1 to 100 for this exercise';
   if (snapshot.load_type === 'bodyweight' && set.weight_kg !== null)
-    return 'Bodyweight exercises do not use an external weight.';
+    return 'Bodyweight exercises do not use an external weight';
   if (
     snapshot.load_type !== 'bodyweight' &&
     set.weight_kg !== null &&
     set.weight_kg < 0
   )
-    return 'Weight must be zero or greater.';
+    return 'Weight must be zero or greater';
   if (set.done && (set.reps === null || set.reps < 1))
-    return 'A completed set needs at least one rep.';
+    return 'A completed set needs at least one rep';
   if (set.done && snapshot.load_type !== 'bodyweight' && set.weight_kg === null)
-    return 'A completed weighted set needs a weight.';
+    return 'A completed weighted set needs a weight';
   if (
     snapshot.load_type === 'split_weight' &&
     snapshot.side_count === 1 &&
     set.side === 'bilateral'
   )
-    return 'Choose left or right for one-side sets.';
+    return 'Choose left or right for one-side sets';
   if (
     (snapshot.load_type !== 'split_weight' || snapshot.side_count === 2) &&
     set.side !== 'bilateral'
   )
-    return 'This set covers both sides.';
+    return 'This set covers both sides';
   return null;
 }
 
@@ -391,19 +391,19 @@ export function contentError(content: EditableWorkoutContent): string | null {
     bodyweightRaw !== '' &&
     strictInteger(bodyweightRaw) === null
   )
-    return 'Recorded bodyweight must be a whole number.';
+    return 'Recorded bodyweight must be a whole number';
   if (content.bodyweight_kg !== null && content.bodyweight_kg < 1)
-    return 'Recorded bodyweight must be greater than zero.';
+    return 'Recorded bodyweight must be greater than zero';
   if ((content.name?.length ?? 0) > 100 || (content.notes?.length ?? 0) > 2000)
-    return 'Workout text is too long.';
+    return 'Workout text is too long';
   if (content.exercises.length > MAX_EXERCISES)
-    return `A workout can contain at most ${MAX_EXERCISES} exercises.`;
+    return `A workout can contain at most ${MAX_EXERCISES} exercises`;
   let setCount = 0;
   for (const exercise of content.exercises) {
     if (exercise.notes !== null && exercise.notes.length > 300)
-      return 'Exercise notes are too long.';
+      return 'Exercise notes are too long';
     if (exercise.sets.length > MAX_SETS_PER_EXERCISE)
-      return `An exercise can contain at most ${MAX_SETS_PER_EXERCISE} sets.`;
+      return `An exercise can contain at most ${MAX_SETS_PER_EXERCISE} sets`;
     setCount += exercise.sets.length;
     for (const set of exercise.sets) {
       const error = setError(content, exercise, set);
@@ -411,6 +411,6 @@ export function contentError(content: EditableWorkoutContent): string | null {
     }
   }
   return setCount > MAX_SETS
-    ? `A workout can contain at most ${MAX_SETS} sets.`
+    ? `A workout can contain at most ${MAX_SETS} sets`
     : null;
 }

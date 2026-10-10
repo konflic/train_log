@@ -103,15 +103,18 @@ class LoginRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     """PATCH /auth/me input.
 
-    Absent fields are untouched; explicit `null` clears `display_name` and
-    `bodyweight_default_kg`. `utc_offset_minutes` is NOT NULL in storage, so
-    an explicit null is rejected. At least one field must be provided.
+    Absent fields are untouched; explicit `null` clears `display_name`,
+    `bodyweight_default_kg`, `sex`, and `age`. `utc_offset_minutes` is NOT
+    NULL in storage, so an explicit null is rejected. At least one field must
+    be provided.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     display_name: DisplayName | None = None
     bodyweight_default_kg: BodyweightKg | None = None
+    sex: Sex | None = None
+    age: Age | None = None
     utc_offset_minutes: UtcOffsetMinutes | None = None
 
     @field_validator("display_name")

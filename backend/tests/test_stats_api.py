@@ -488,7 +488,7 @@ def test_openapi_describes_the_summary_contract(alice: TestClient) -> None:
         "legs",
         "shoulders",
         "arms",
-        "core",
+        "abs",
         "full_body",
         "other",
     ]

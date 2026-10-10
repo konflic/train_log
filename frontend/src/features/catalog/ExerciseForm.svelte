@@ -3,7 +3,6 @@
   import {
     createExercise,
     updateExercise,
-    type Equipment,
     type Exercise,
     type ExerciseUpdateInput,
     type LoadType,
@@ -11,8 +10,6 @@
   } from '../../api';
   import { mapFailureToForm, type FormFailure } from '../../lib/failures';
   import {
-    equipmentLabels,
-    equipmentValues,
     loadTypeLabels,
     loadTypeValues,
     muscleGroupLabels,
@@ -40,8 +37,6 @@
   let name = $state(exercise?.name ?? '');
   /* svelte-ignore state_referenced_locally */
   let muscleGroup = $state<MuscleGroup>(exercise?.muscle_group ?? 'chest');
-  /* svelte-ignore state_referenced_locally */
-  let equipment = $state<Equipment>(exercise?.equipment ?? 'barbell');
   /* svelte-ignore state_referenced_locally */
   let loadType = $state<LoadType>(exercise?.load_type ?? 'single_weight');
   // Percent stays text until submit so fractional input is rejected, never
@@ -99,9 +94,6 @@
     if (muscleGroup !== exercise.muscle_group) {
       patch.muscle_group = muscleGroup;
     }
-    if (equipment !== exercise.equipment) {
-      patch.equipment = equipment;
-    }
     if (loadType !== exercise.load_type) {
       patch.load_type = loadType;
     }
@@ -130,7 +122,6 @@
         await createExercise({
           name: name.trim(),
           muscle_group: muscleGroup,
-          equipment,
           load_type: loadType,
           bodyweight_percent: parsedPercent(),
           side_count: sideCount,
@@ -202,37 +193,20 @@
       {/if}
     </div>
 
-    <div class="flex flex-col gap-4 sm:flex-row">
-      <div class="flex-1">
-        <label for="exercise-muscle-group" class="block text-sm font-medium"
-          >Muscle group</label
-        >
-        <select
-          id="exercise-muscle-group"
-          name="muscle_group"
-          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-          bind:value={muscleGroup}
-        >
-          {#each muscleGroupValues as value (value)}
-            <option {value}>{muscleGroupLabels[value]}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="flex-1">
-        <label for="exercise-equipment" class="block text-sm font-medium"
-          >Equipment</label
-        >
-        <select
-          id="exercise-equipment"
-          name="equipment"
-          class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-          bind:value={equipment}
-        >
-          {#each equipmentValues as value (value)}
-            <option {value}>{equipmentLabels[value]}</option>
-          {/each}
-        </select>
-      </div>
+    <div>
+      <label for="exercise-muscle-group" class="block text-sm font-medium"
+        >Muscle group</label
+      >
+      <select
+        id="exercise-muscle-group"
+        name="muscle_group"
+        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+        bind:value={muscleGroup}
+      >
+        {#each muscleGroupValues as value (value)}
+          <option {value}>{muscleGroupLabels[value]}</option>
+        {/each}
+      </select>
     </div>
 
     <div>

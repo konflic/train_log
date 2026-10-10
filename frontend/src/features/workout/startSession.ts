@@ -80,7 +80,7 @@ export async function startSession(
     draft.draft_id,
   );
   if (acknowledged === null)
-    throw new Error('The started session is unavailable.');
+    throw new Error('The started session is unavailable');
   return acknowledged;
 }
 

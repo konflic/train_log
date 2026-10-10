@@ -78,7 +78,7 @@
       onclick={() => void load()}>Retry</button
     >
   {:else if items.length === 0}
-    <p class="mt-2 text-sm text-muted">No finished workouts yet.</p>
+    <p class="mt-2 text-sm text-muted">No finished workouts yet</p>
   {:else}
     <ul class="mt-2 flex flex-col gap-2">
       {#each items as workout (workout.id)}
@@ -94,7 +94,7 @@
       {/each}
     </ul>
     {#if total > items.length}
-      <p class="mt-2 text-sm text-muted">{total} finished in total.</p>
+      <p class="mt-2 text-sm text-muted">{total} finished in total</p>
     {/if}
   {/if}
 </section>

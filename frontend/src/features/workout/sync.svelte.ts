@@ -67,7 +67,9 @@ export class WorkoutSyncController {
   private readonly currentUser: () => Promise<PublicUser>;
   private readonly now: () => string;
   private readonly writes = new SvelteSet<Promise<void>>();
-  private processing: Promise<void> | null = null;
+  // Reactive: `canFinish` reads it, so clearing it when a synchronization
+  // settles must re-evaluate dependent UI (the Finish button) immediately.
+  private processing = $state.raw<Promise<void> | null>(null);
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
   private online = typeof navigator === 'undefined' || navigator.onLine;
@@ -191,7 +193,7 @@ export class WorkoutSyncController {
     }
     if (this.editor.status === 'failed') {
       this.status = 'storage_error';
-      this.message = 'The latest visible edit is not safely stored yet.';
+      this.message = 'The latest visible edit is not safely stored yet';
       return null;
     }
     return previousStatus;
@@ -210,7 +212,7 @@ export class WorkoutSyncController {
         return;
       }
       this.message =
-        error instanceof Error ? error.message : 'Could not load server copy.';
+        error instanceof Error ? error.message : 'Could not load server copy';
       this.recoveryStatus = 'error';
     }
   }
@@ -224,7 +226,7 @@ export class WorkoutSyncController {
         current.workout_id,
         current.draft_id,
       );
-      if (!adopted) throw new Error('The server recovery copy is unavailable.');
+      if (!adopted) throw new Error('The server recovery copy is unavailable');
       await this.editor.rebase(adopted);
       this.serverCopy = null;
       this.recoveryStatus = 'idle';
@@ -284,7 +286,7 @@ export class WorkoutSyncController {
     if (this.destroyed) return;
     if (!this.online) {
       this.status = this.finishPending ? 'finish_pending' : 'offline';
-      this.message = 'Your work is stored locally. Reconnect to synchronize.';
+      this.message = 'Your work is stored locally, reconnect to synchronize';
       return;
     }
     try {
@@ -292,7 +294,7 @@ export class WorkoutSyncController {
       if (user.id !== this.accountId) {
         this.locked = true;
         this.status = 'authentication_required';
-        this.message = 'Sign in as the owner of this draft to continue.';
+        this.message = 'Sign in as the owner of this draft to continue';
         return;
       }
       if (this.status === 'authentication_required' && !this.finishPending) {
@@ -354,7 +356,7 @@ export class WorkoutSyncController {
     if (this.editor.status === 'failed') {
       this.locked = false;
       this.status = 'storage_error';
-      this.message = 'The finish is not safe until local storage succeeds.';
+      this.message = 'The finish is not safe until local storage succeeds';
       return;
     }
     try {
@@ -391,7 +393,7 @@ export class WorkoutSyncController {
       this.locked = false;
       this.status = 'offline';
       this.message =
-        'Reconnect to discard this workout. Until then it stays stored locally.';
+        'Reconnect to discard this workout, until then it stays stored locally';
       return;
     }
     try {
@@ -426,7 +428,7 @@ export class WorkoutSyncController {
     this.online = online;
     if (!online) {
       this.status = this.finishPending ? 'finish_pending' : 'offline';
-      this.message = 'Your work is stored locally. Reconnect to synchronize.';
+      this.message = 'Your work is stored locally, reconnect to synchronize';
     } else {
       void this.resume();
     }
@@ -536,7 +538,7 @@ export class WorkoutSyncController {
 
   private pause(error: unknown): void {
     this.message =
-      error instanceof Error ? error.message : 'Synchronization paused.';
+      error instanceof Error ? error.message : 'Synchronization paused';
     if (error instanceof ApiRequestError) {
       this.recoveryReason = error.problem.code;
     }

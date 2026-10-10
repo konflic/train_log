@@ -342,7 +342,6 @@ def test_delete_releases_a_guarded_catalog_reference(api_client: TestClient) -> 
         json={
             "name": "Custom Curl",
             "muscle_group": "arms",
-            "equipment": "dumbbell",
             "load_type": "split_weight",
             "side_count": 2,
         },

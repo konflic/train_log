@@ -27,7 +27,6 @@ from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_NUMBER, MAX_PAGE_SIZE
 from app.schemas.exercises import (
     MAX_SEARCH_LENGTH,
     CreateExerciseRequest,
-    Equipment,
     ExerciseListResponse,
     ExerciseResponse,
     MuscleGroup,
@@ -56,7 +55,6 @@ def _exercise_response(entry: CatalogEntry) -> ExerciseResponse:
             "id": entry.id,
             "name": entry.name,
             "muscle_group": entry.muscle_group,
-            "equipment": entry.equipment,
             "load_type": entry.load_type,
             "bodyweight_percent": entry.bodyweight_percent,
             "side_count": entry.side_count,
@@ -84,7 +82,6 @@ def list_exercises(
     page_size: PageSize = DEFAULT_PAGE_SIZE,
     search: SearchText | None = None,
     muscle_group: MuscleGroup | None = None,
-    equipment: Equipment | None = None,
 ) -> ExerciseListResponse:
     """Defaults plus the caller's customs, with optional search and filters."""
     result = catalog.list_entries(
@@ -94,7 +91,6 @@ def list_exercises(
         offset=(page - 1) * page_size,
         search=search,
         muscle_group=muscle_group,
-        equipment=equipment,
     )
     return ExerciseListResponse(
         items=[_exercise_response(entry) for entry in result.items],
@@ -115,7 +111,6 @@ def create_exercise(
             owner_id=user.id,
             name=payload.name,
             muscle_group=payload.muscle_group,
-            equipment=payload.equipment,
             load_type=payload.load_type,
             bodyweight_percent=payload.bodyweight_percent,
             side_count=payload.side_count,

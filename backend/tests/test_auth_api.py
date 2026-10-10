@@ -390,12 +390,20 @@ def test_patch_profile_updates_writable_fields(api_client: TestClient) -> None:
     register_and_login(api_client)
     response = api_client.patch(
         ME_URL,
-        json={"display_name": "  Ada  ", "bodyweight_default_kg": 81, "utc_offset_minutes": 180},
+        json={
+            "display_name": "  Ada  ",
+            "bodyweight_default_kg": 81,
+            "sex": "female",
+            "age": 34,
+            "utc_offset_minutes": 180,
+        },
     )
     assert response.status_code == 200
     body = response.json()
     assert body["display_name"] == "Ada"
     assert body["bodyweight_default_kg"] == 81
+    assert body["sex"] == "female"
+    assert body["age"] == 34
     assert body["utc_offset_minutes"] == 180
     stored = api_client.get(ME_URL).json()
     assert stored == body
@@ -406,11 +414,22 @@ def test_patch_profile_null_clears_optional_fields(api_client: TestClient) -> No
     api_client.patch(
         ME_URL, json={"display_name": "Ada", "bodyweight_default_kg": 81, "utc_offset_minutes": 60}
     )
-    response = api_client.patch(ME_URL, json={"display_name": None, "bodyweight_default_kg": None})
+    api_client.patch(ME_URL, json={"sex": "male", "age": 30})
+    response = api_client.patch(
+        ME_URL,
+        json={
+            "display_name": None,
+            "bodyweight_default_kg": None,
+            "sex": None,
+            "age": None,
+        },
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["display_name"] is None
     assert body["bodyweight_default_kg"] is None
+    assert body["sex"] is None
+    assert body["age"] is None
     # Absent fields stay untouched.
     assert body["utc_offset_minutes"] == 60
 
@@ -433,6 +452,12 @@ def test_patch_profile_null_clears_optional_fields(api_client: TestClient) -> No
         {"display_name": ""},
         {"display_name": "   "},
         {"display_name": "x" * 101},
+        {"sex": "other"},
+        {"sex": 5},
+        {"age": 0},
+        {"age": 121},
+        {"age": 30.5},
+        {"age": "30"},
         {"email": "other@example.com"},
         {"password": "another-strong-1"},
         {"role": "admin"},

@@ -27,7 +27,7 @@
       Training plans
     </h2>
     <p class="mt-1 text-sm text-muted">
-      Build reusable routines for your workouts.
+      Build reusable routines for your workouts
     </p>
     <a
       href="#/training-plans"

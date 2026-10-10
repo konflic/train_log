@@ -489,7 +489,6 @@ def test_profile_and_catalog_edits_do_not_change_reported_history(alice: TestCli
         json={
             "name": "Heavy Curl",
             "muscle_group": "arms",
-            "equipment": "dumbbell",
             "load_type": "split_weight",
             "bodyweight_percent": None,
             "side_count": 2,

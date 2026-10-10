@@ -46,6 +46,7 @@ vi.mock('./db', async (importOriginal) => {
   };
 });
 
+import packageInfo from '../package.json';
 import { ApiNetworkError, ApiRequestError, type PublicUser } from './api';
 import App from './App.svelte';
 import { session, takeIntendedRoute } from './features/auth/session.svelte';
@@ -267,7 +268,7 @@ describe('authenticated application shell', () => {
     navigateTo('#/settings');
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
 
-    expect(screen.getByText('Version 0.1.0')).toBeDefined();
+    expect(screen.getByText(`Version ${packageInfo.version}`)).toBeDefined();
     await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
 
     await waitFor(() => expect(window.location.hash).toBe('#/login'));

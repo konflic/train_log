@@ -2,20 +2,12 @@
   import { onDestroy, untrack } from 'svelte';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
   import { push, router } from 'svelte-spa-router';
-  import {
-    listExercises,
-    type Equipment,
-    type Exercise,
-    type MuscleGroup,
-  } from '../../api';
+  import { listExercises, type Exercise, type MuscleGroup } from '../../api';
   import ActionIcon from '../../components/ActionIcon.svelte';
   import { describeFailure, isAbortError } from '../../lib/failures';
   import { isUnauthorizedError, session } from '../auth/session.svelte';
   import ExerciseForm from './ExerciseForm.svelte';
   import {
-    equipmentLabels,
-    equipmentValues,
-    isEquipment,
     isMuscleGroup,
     loadTypeLabels,
     muscleGroupLabels,
@@ -28,7 +20,6 @@
   interface Filters {
     search: string;
     muscleGroup: MuscleGroup | null;
-    equipment: Equipment | null;
     page: number;
   }
 
@@ -36,13 +27,10 @@
     const params = new URLSearchParams(querystring ?? '');
     const rawPage = Number.parseInt(params.get('page') ?? '1', 10);
     const muscleGroup = params.get('muscle_group');
-    const equipment = params.get('equipment');
     return {
       search: params.get('search') ?? '',
       muscleGroup:
         muscleGroup !== null && isMuscleGroup(muscleGroup) ? muscleGroup : null,
-      equipment:
-        equipment !== null && isEquipment(equipment) ? equipment : null,
       page: Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1,
     };
   }
@@ -70,7 +58,6 @@
           pageSize: PAGE_SIZE,
           search: target.search === '' ? undefined : target.search,
           muscle_group: target.muscleGroup ?? undefined,
-          equipment: target.equipment ?? undefined,
         },
         controller.signal,
       );
@@ -142,7 +129,6 @@
   function setQuery(patch: {
     search?: string;
     muscle_group?: string;
-    equipment?: string;
     page?: number;
   }): void {
     const next = new SvelteURLSearchParams(router.querystring ?? '');
@@ -211,43 +197,23 @@
     />
   </div>
 
-  <div class="flex flex-col gap-3 sm:flex-row">
-    <div class="flex-1">
-      <label for="filter-muscle-group" class="block text-sm font-medium"
-        >Muscle group</label
-      >
-      <select
-        id="filter-muscle-group"
-        name="muscle_group"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        value={filters.muscleGroup ?? ''}
-        onchange={(event) =>
-          setQuery({ muscle_group: selectValue(event), page: undefined })}
-      >
-        <option value="">All</option>
-        {#each muscleGroupValues as value (value)}
-          <option {value}>{muscleGroupLabels[value]}</option>
-        {/each}
-      </select>
-    </div>
-    <div class="flex-1">
-      <label for="filter-equipment" class="block text-sm font-medium"
-        >Equipment</label
-      >
-      <select
-        id="filter-equipment"
-        name="equipment"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
-        value={filters.equipment ?? ''}
-        onchange={(event) =>
-          setQuery({ equipment: selectValue(event), page: undefined })}
-      >
-        <option value="">All</option>
-        {#each equipmentValues as value (value)}
-          <option {value}>{equipmentLabels[value]}</option>
-        {/each}
-      </select>
-    </div>
+  <div>
+    <label for="filter-muscle-group" class="block text-sm font-medium"
+      >Muscle group</label
+    >
+    <select
+      id="filter-muscle-group"
+      name="muscle_group"
+      class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3 py-2"
+      value={filters.muscleGroup ?? ''}
+      onchange={(event) =>
+        setQuery({ muscle_group: selectValue(event), page: undefined })}
+    >
+      <option value="">All</option>
+      {#each muscleGroupValues as value (value)}
+        <option {value}>{muscleGroupLabels[value]}</option>
+      {/each}
+    </select>
   </div>
 
   {#if !creating && editing === null}
@@ -282,7 +248,7 @@
     >
   {:else if items.length === 0}
     <p class="text-sm text-muted">
-      No exercises match the current search or filters.
+      No exercises match the current search or filters
     </p>
   {:else}
     <ul class="flex flex-col gap-2">
@@ -299,10 +265,7 @@
                 </span>
               </p>
               <p class="text-sm text-muted">
-                {muscleGroupLabels[entry.muscle_group]} · {equipmentLabels[
-                  entry.equipment
-                ]} ·
-                {describeLoad(entry)}
+                {muscleGroupLabels[entry.muscle_group]} · {describeLoad(entry)}
               </p>
             </div>
             {#if !entry.is_default}

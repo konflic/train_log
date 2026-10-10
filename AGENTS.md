@@ -6,6 +6,9 @@ defines the staged delivery and verification workflow.
 
 ## Project workflow
 
+- Bump the patch version (`frontend/package.json` + `package-lock.json` and
+  `backend/pyproject.toml`) by default for every change delivered, unless the
+  user explicitly asks for a different version treatment.
 - Update the implementation status in `IMPLEMENTATION.md` within each stage
   branch. The completion evidence and next-stage marker must be part of the same
   stage PR before it is merged, not a separate follow-up bookkeeping PR.

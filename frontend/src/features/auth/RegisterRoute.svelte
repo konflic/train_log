@@ -118,7 +118,7 @@
       role="status"
       class="mt-3 rounded-md border border-edge bg-surface px-3 py-2 text-sm"
     >
-      Account created for {registeredEmail}. Registration does not sign you in.
+      Account created for {registeredEmail}, registration does not sign you in
     </p>
     <button
       id="register-continue-login-button"
@@ -191,7 +191,7 @@
             : 'register-password-hint'}
         />
         <p id="register-password-hint" class="mt-1 text-xs text-muted">
-          At least 8 characters.
+          At least 8 characters
         </p>
         {#if errors.fields.password !== undefined}
           <p id="register-password-error" class="mt-1 text-sm text-danger">

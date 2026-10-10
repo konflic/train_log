@@ -158,8 +158,8 @@
     {:else if session.status === 'error'}
       <h1 tabindex="-1">Cannot reach the server</h1>
       <p class="mt-2 text-muted">
-        Your session could not be checked, so you were not signed out. Retry
-        when the connection is back.
+        Your session could not be checked, so you were not signed out, retry
+        when the connection is back
       </p>
       <button
         type="button"

@@ -74,7 +74,7 @@ describe('workout editor model', () => {
     expect(next.raw_fields['set.weight_kg']).toBe('12.5');
     expect(next.exercises[0].sets[0].weight_kg).toBeNull();
     expect(setError(next, next.exercises[0], next.exercises[0].sets[0])).toBe(
-      'Use whole numbers only.',
+      'Use whole numbers only',
     );
     expect(completionProgress(next)).toEqual({
       completedSets: 1,
@@ -99,7 +99,7 @@ describe('workout editor model', () => {
     invalid.exercises[0].sets[0].reps = null;
     expect(
       setError(invalid, invalid.exercises[0], invalid.exercises[0].sets[0]),
-    ).toBe('A completed set needs at least one rep.');
+    ).toBe('A completed set needs at least one rep');
   });
 
   it('separates exercises with all completed sets from in-progress exercises', () => {
@@ -122,14 +122,12 @@ describe('workout editor model', () => {
 
     const empty = content();
     empty.exercises = [];
-    expect(finishBlocker(empty)).toBe(
-      'Add at least one exercise to finish this workout.',
-    );
+    expect(finishBlocker(empty)).toBe('Add at least one exercise to workout');
 
     const withoutSets = content();
     withoutSets.exercises[0].sets = [];
     expect(finishBlocker(withoutSets)).toBe(
-      'Every exercise needs at least one set. Add a set or remove the exercise.',
+      'Every exercise needs at least one set, add a set or remove the exercise',
     );
 
     const incomplete = content();
@@ -139,7 +137,7 @@ describe('workout editor model', () => {
       done: false,
     });
     expect(finishBlocker(incomplete)).toBe(
-      'Finish or remove the 1 incomplete set before finishing this workout.',
+      'Finish or remove the 1 incomplete set before finishing this workout',
     );
     incomplete.exercises[0].sets.push({
       ...incomplete.exercises[0].sets[0],
@@ -147,7 +145,7 @@ describe('workout editor model', () => {
       done: false,
     });
     expect(finishBlocker(incomplete)).toBe(
-      'Finish or remove the 2 incomplete sets before finishing this workout.',
+      'Finish or remove the 2 incomplete sets before finishing this workout',
     );
   });
 
@@ -156,7 +154,7 @@ describe('workout editor model', () => {
     invalid.raw_fields['workout.bodyweight_kg'] = '80.5';
     invalid.bodyweight_kg = null;
     expect(contentError(invalid)).toBe(
-      'Recorded bodyweight must be a whole number.',
+      'Recorded bodyweight must be a whole number',
     );
     invalid.raw_fields['workout.bodyweight_kg'] = '80';
     invalid.bodyweight_kg = 80;
@@ -192,7 +190,6 @@ describe('workout editor model', () => {
             id: 'catalog',
             name: 'Current exercise',
             muscle_group: 'chest',
-            equipment: 'barbell',
             load_type: 'single_weight',
             bodyweight_percent: null,
             side_count: 1,
@@ -280,7 +277,6 @@ describe('workout editor model', () => {
             id: 'catalog',
             name: 'Changed exercise',
             muscle_group: 'chest',
-            equipment: 'bodyweight',
             load_type: 'bodyweight',
             bodyweight_percent: 100,
             side_count: 1,
@@ -292,7 +288,7 @@ describe('workout editor model', () => {
     );
 
     expect(contentError(copied.content)).toBe(
-      'Bodyweight exercises do not use an external weight.',
+      'Bodyweight exercises do not use an external weight',
     );
   });
 });

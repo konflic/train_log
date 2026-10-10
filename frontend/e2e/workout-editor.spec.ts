@@ -45,7 +45,7 @@ test.describe('workout editor', () => {
     await startFreestyle(page);
     await expect(page.locator('#workout-sync-status')).toHaveAttribute(
       'aria-label',
-      'Synced.',
+      'Synced',
     );
     await expect(page.locator('#workout-editor')).not.toContainText(
       /revision/i,
@@ -98,18 +98,18 @@ test.describe('workout editor', () => {
 
     await expect(page.locator('#workout-sync-status')).toHaveAttribute(
       'aria-label',
-      'Synced.',
+      'Synced',
     );
     await firstSet.getByLabel('Set 1 reps').fill('8');
     await firstSet.getByLabel('Set 1 weight in kilograms').fill('50');
     await expect(page.locator('#workout-sync-status')).toHaveAttribute(
       'aria-label',
-      'Not synced yet.',
+      'Not synced yet',
     );
     await page.waitForTimeout(400);
     await expect(page.locator('#workout-sync-status')).toHaveAttribute(
       'aria-label',
-      'Not synced yet.',
+      'Not synced yet',
     );
 
     await firstSet
@@ -117,7 +117,7 @@ test.describe('workout editor', () => {
       .click();
     await expect(page.locator('#workout-sync-status')).toHaveAttribute(
       'aria-label',
-      'Synced.',
+      'Synced',
     );
   });
 

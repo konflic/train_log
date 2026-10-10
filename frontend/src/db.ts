@@ -468,7 +468,7 @@ export function openDraftStorage(): Promise<DraftStorage> {
             cancelled = true;
             reject(
               new DraftStorageError(
-                'Local storage upgrade is blocked. Close other BaseFit tabs and retry.',
+                'Local storage upgrade is blocked, close other BaseFit tabs and retry',
               ),
             );
           },

@@ -66,7 +66,7 @@
     onclick={() => void load()}>Retry</button
   >
 {:else if items.length === 0}
-  <p class="mt-4 text-muted">No finished workouts yet.</p>
+  <p class="mt-4 text-muted">No finished workouts yet</p>
 {:else}
   <ul class="mt-4 flex flex-col gap-2">
     {#each items as workout (workout.id)}
