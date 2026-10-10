@@ -17,11 +17,13 @@
   let {
     replacement = false,
     disabled = false,
+    target = 'workout',
     onSelect,
     onBack,
   }: {
     replacement?: boolean;
     disabled?: boolean;
+    target?: 'workout' | 'plan';
     onSelect: (exercise: Exercise) => void;
     onBack: () => void;
   } = $props();
@@ -107,13 +109,13 @@
   <button
     type="button"
     class="inline-flex min-h-11 w-fit items-center text-sm font-medium text-primary"
-    onclick={onBack}>Back to workout</button
+    onclick={onBack}>Back to {target}</button
   >
 
   <p class="text-sm text-muted">
     {replacement
       ? 'Choose a replacement exercise.'
-      : 'Choose an exercise to add to this workout.'}
+      : `Choose an exercise to add to this ${target}.`}
   </p>
 
   <div>

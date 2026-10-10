@@ -46,6 +46,17 @@ const splitExercise: Exercise = {
   is_default: false,
 };
 
+const barbellExercise: Exercise = {
+  id: 'bench-press',
+  name: 'Bench Press',
+  muscle_group: 'chest',
+  equipment: 'barbell',
+  load_type: 'single_weight',
+  bodyweight_percent: null,
+  side_count: 1,
+  is_default: true,
+};
+
 const plan: TrainingPlan = {
   id: 'plan-1',
   name: 'Curl plan',
@@ -85,8 +96,8 @@ beforeEach(() => {
     utc_offset_minutes: 0,
   };
   listExercisesMock.mockReset().mockResolvedValue({
-    items: [splitExercise],
-    total: 1,
+    items: [splitExercise, barbellExercise],
+    total: 2,
     page: 1,
     page_size: 100,
   });
@@ -140,6 +151,9 @@ describe('TrainingPlansRoute', () => {
       target: { value: 'Right curl' },
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Add exercise' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: /Single-side curl/ }),
+    );
     await fireEvent.input(screen.getByLabelText('Bodyweight % override'), {
       target: { value: '60' },
     });
@@ -168,6 +182,74 @@ describe('TrainingPlansRoute', () => {
         ],
       }),
     );
+  });
+
+  it('manages sets with icon actions and replaces an exercise via the picker', async () => {
+    render(TrainingPlansRoute);
+    await screen.findByRole('button', { name: 'Create plan' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Create plan' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Add exercise' }));
+    expect(
+      screen.getByRole('heading', { name: 'Choose an exercise' }),
+    ).toBeDefined();
+    await fireEvent.click(
+      await screen.findByRole('button', { name: /Single-side curl/ }),
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Single-side curl' }),
+    ).toBeDefined();
+    expect(screen.getAllByPlaceholderText('Reps')).toHaveLength(1);
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Add set to Single-side curl' }),
+    );
+    expect(screen.getAllByPlaceholderText('Reps')).toHaveLength(2);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove set 2' }));
+    expect(screen.getAllByPlaceholderText('Reps')).toHaveLength(1);
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Replace Single-side curl' }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Choose a replacement' }),
+    ).toBeDefined();
+    await fireEvent.click(
+      await screen.findByRole('button', { name: /Bench Press/ }),
+    );
+
+    expect(screen.getByRole('heading', { name: 'Bench Press' })).toBeDefined();
+    expect(screen.getAllByPlaceholderText('Reps')).toHaveLength(1);
+    expect(screen.queryByLabelText('Side')).toBeNull();
+  });
+
+  it('removes a plan exercise only after confirmation', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(TrainingPlansRoute);
+    await screen.findByRole('button', { name: 'Edit' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Single-side curl' }),
+    );
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Remove Single-side curl from this plan?',
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Single-side curl' }),
+    ).toBeDefined();
+
+    confirm.mockReturnValue(true);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Single-side curl' }),
+    );
+    expect(
+      screen.queryByRole('heading', { name: 'Single-side curl' }),
+    ).toBeNull();
+    confirm.mockRestore();
   });
 
   it('keeps changed plan fields open when discard is cancelled', async () => {
