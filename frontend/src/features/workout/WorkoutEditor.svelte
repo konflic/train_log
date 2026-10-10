@@ -16,10 +16,10 @@
     MAX_SETS_PER_EXERCISE,
     catalogIssue,
     catalogIssueKey,
+    completionProgress,
     emptySet,
     exerciseProgress,
     fieldKey,
-    provisionalTotal,
     rawValue,
     setError,
     snapshotFor,
@@ -46,18 +46,11 @@
   let selectedNames = $state<Record<string, string>>({});
   let draggingExerciseId = $state<string | null>(null);
   let dropTargetExerciseId = $state<string | null>(null);
+  let dropPosition = $state<'before' | 'after'>('before');
 
   const content = $derived(editor.current!.content);
-  const total = $derived(provisionalTotal(content));
+  const completion = $derived(completionProgress(content));
   const locked = $derived(sync?.locked ?? false);
-  const inProgressExercises = $derived(
-    content.exercises.filter(
-      (exercise) => !exerciseProgress(exercise).complete,
-    ),
-  );
-  const completedExercises = $derived(
-    content.exercises.filter((exercise) => exerciseProgress(exercise).complete),
-  );
 
   function saveLocally(next: EditableWorkoutContent): void {
     if (sync) void sync.saveLocally(next);
@@ -182,22 +175,15 @@
     removeExercise(exercise.id);
   }
 
-  function moveExercise(index: number, direction: -1 | 1): void {
-    const next = structuredClone(content);
-    const target = index + direction;
-    if (target < 0 || target >= next.exercises.length) return;
-    [next.exercises[index], next.exercises[target]] = [
-      next.exercises[target],
-      next.exercises[index],
-    ];
-    syncChanges(next);
-  }
-
   function startExerciseDrag(event: DragEvent, exerciseId: string): void {
     if (locked) return;
     draggingExerciseId = exerciseId;
     event.dataTransfer?.setData('text/plain', exerciseId);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      const card = event.currentTarget as HTMLElement;
+      event.dataTransfer.setDragImage(card, card.clientWidth / 2, 24);
+    }
   }
 
   function allowExerciseDrop(event: DragEvent, exerciseId: string): void {
@@ -205,6 +191,12 @@
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     dropTargetExerciseId = exerciseId;
+    const target = event.currentTarget as HTMLElement;
+    dropPosition =
+      event.clientY <
+      target.getBoundingClientRect().top + target.clientHeight / 2
+        ? 'before'
+        : 'after';
   }
 
   function dropExercise(event: DragEvent, targetId: string): void {
@@ -224,13 +216,20 @@
     );
     if (sourceIndex < 0 || targetIndex < 0) return;
     const [exercise] = next.exercises.splice(sourceIndex, 1);
-    next.exercises.splice(targetIndex, 0, exercise);
+    const adjustedTargetIndex =
+      targetIndex - (sourceIndex < targetIndex ? 1 : 0);
+    next.exercises.splice(
+      adjustedTargetIndex + (dropPosition === 'after' ? 1 : 0),
+      0,
+      exercise,
+    );
     syncChanges(next);
   }
 
   function endExerciseDrag(): void {
     draggingExerciseId = null;
     dropTargetExerciseId = null;
+    dropPosition = 'before';
   }
 
   function addSet(exercise: SaveExerciseInput): void {
@@ -353,19 +352,6 @@
           ><ActionIcon name="refresh" /></button
         >
       {/if}
-      <button
-        id="workout-save-button"
-        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge px-3 disabled:opacity-40"
-        type="button"
-        aria-label="Save now"
-        title="Save now"
-        disabled={!sync ||
-          locked ||
-          sync.status === 'syncing' ||
-          sync.status === 'authentication_required' ||
-          sync.status === 'correction_required'}
-        onclick={() => void sync?.saveNow()}><ActionIcon name="save" /></button
-      >
       <span
         id="workout-sync-status"
         role="status"
@@ -409,73 +395,37 @@
       Started {formatRelativeTime(editor.current!.started_at) ??
         editor.current!.started_at}
     </p>
-    <div>
-      <label class="block text-sm font-medium" for="workout-name"
-        >Workout name</label
-      >
-      <input
-        id="workout-name"
-        class="mt-1 min-h-11 w-full rounded-md border border-edge bg-surface px-3"
-        maxlength="100"
-        disabled={locked}
-        value={content.name ?? ''}
-        oninput={(event) =>
-          saveLocally({
-            ...structuredClone(content),
-            name: event.currentTarget.value || null,
-          })}
-      />
-    </div>
+    <p class="font-semibold">{content.name ?? 'Workout'}</p>
     <p class="text-sm text-muted">
       Bodyweight snapshot:
       {content.bodyweight_kg === null
         ? 'not set'
-        : `${content.bodyweight_kg} kg`}. Change bodyweight in Settings for
-      future sessions.
+        : `${content.bodyweight_kg} kg`}.
     </p>
-    <section aria-labelledby="provisional-total">
-      <h2 id="provisional-total" class="font-semibold">
-        Provisional completed-set total
-      </h2>
-      <p class="mt-1">
-        {total.knownVolume === null
-          ? 'Unknown'
-          : `${total.knownVolume} kg·reps`} from
-        {total.completedSetCount} completed {total.completedSetCount === 1
-          ? 'set'
-          : 'sets'}.
-      </p>
-      {#if total.unknownSetCount > 0}<p class="text-sm text-muted">
-          {total.unknownSetCount} completed {total.unknownSetCount === 1
-            ? 'set has'
-            : 'sets have'} an unknown load.
-        </p>{/if}
-    </section>
+    <p aria-label="Workout completion">
+      {completion.percent}% completed ({completion.completedSets} of
+      {completion.totalSets}
+      {completion.totalSets === 1 ? 'set' : 'sets'})
+    </p>
   </div>
 
-  {#each [...inProgressExercises, ...completedExercises] as exercise, groupedIndex (exercise.id)}
-    {@const exerciseIndex = content.exercises.indexOf(exercise)}
+  {#each content.exercises as exercise (exercise.id)}
     {@const progress = exerciseProgress(exercise)}
-    {#if groupedIndex === 0 || groupedIndex === inProgressExercises.length}
-      <h2
-        id={progress.complete ? 'completed-exercises' : 'in-progress-exercises'}
-        class="font-semibold"
-      >
-        {progress.complete ? 'Completed' : 'In progress'}
-        <span class="text-sm font-normal text-muted">
-          ({progress.complete
-            ? completedExercises.length
-            : inProgressExercises.length})
-        </span>
-      </h2>
-    {/if}
     {@const snapshot = snapshotOf(exercise.id)}
     <section
       id={`workout-exercise-${exercise.id}`}
-      class="rounded-lg border border-edge bg-surface p-4"
+      class="rounded-lg border border-edge bg-surface p-4 transition-opacity"
       class:border-primary={dropTargetExerciseId === exercise.id}
       class:ring-2={dropTargetExerciseId === exercise.id}
+      class:opacity-50={draggingExerciseId === exercise.id}
       aria-label={`${exerciseName(exercise)} editor`}
+      aria-roledescription={expandedExerciseId === exercise.id
+        ? undefined
+        : 'Draggable exercise card'}
+      draggable={!locked && expandedExerciseId !== exercise.id}
+      title={expandedExerciseId === exercise.id ? undefined : 'Drag to reorder'}
+      ondragstart={(event) => startExerciseDrag(event, exercise.id)}
+      ondragend={endExerciseDrag}
       ondragover={(event) => allowExerciseDrop(event, exercise.id)}
       ondrop={(event) => dropExercise(event, exercise.id)}
     >
@@ -492,33 +442,14 @@
         >
           <h3 class="font-semibold">{exerciseName(exercise)}</h3>
           <p class="text-sm text-muted">
-            {progress.completedSets} / {progress.totalSets}
+            {progress.completedSets} / {progress.totalSets}{progress.complete
+              ? ' · Completed'
+              : ''}
           </p>
         </button>
         {#if expandedExerciseId === exercise.id}<div
             class="flex shrink-0 gap-2"
           >
-            <button
-              id={`workout-exercise-move-up-${exercise.id}`}
-              type="button"
-              class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
-              disabled={locked || exerciseIndex === 0}
-              aria-label={`Move ${exerciseName(exercise)} up`}
-              title={`Move ${exerciseName(exercise)} up`}
-              onclick={() => moveExercise(exerciseIndex, -1)}
-              ><ActionIcon name="up" /></button
-            >
-            <button
-              id={`workout-exercise-move-down-${exercise.id}`}
-              type="button"
-              class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-edge disabled:opacity-40"
-              disabled={locked ||
-                exerciseIndex === content.exercises.length - 1}
-              aria-label={`Move ${exerciseName(exercise)} down`}
-              title={`Move ${exerciseName(exercise)} down`}
-              onclick={() => moveExercise(exerciseIndex, 1)}
-              ><ActionIcon name="down" /></button
-            >
             <button
               id={`workout-exercise-remove-${exercise.id}`}
               type="button"
@@ -529,19 +460,7 @@
               onclick={() => confirmRemoveExercise(exercise)}
               ><ActionIcon name="remove" /></button
             >
-          </div>{:else}
-          <button
-            id={`workout-exercise-drag-${exercise.id}`}
-            type="button"
-            draggable={!locked}
-            class="inline-flex min-h-11 min-w-11 shrink-0 cursor-grab items-center justify-center rounded-md border border-edge active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
-            disabled={locked}
-            aria-label={`Drag ${exerciseName(exercise)} to reorder`}
-            title={`Drag ${exerciseName(exercise)} to reorder`}
-            ondragstart={(event) => startExerciseDrag(event, exercise.id)}
-            ondragend={endExerciseDrag}><ActionIcon name="drag" /></button
-          >
-        {/if}
+          </div>{/if}
       </div>
       {#if expandedExerciseId === exercise.id}
         {@const lastSet = exercise.sets.at(-1)}

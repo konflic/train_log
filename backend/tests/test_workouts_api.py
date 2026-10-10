@@ -142,7 +142,7 @@ def test_create_returns_authoritative_detail(api_client: TestClient) -> None:
     assert set(body) == DETAIL_FIELDS
     assert body["id"] == payload["id"]
     assert UUID_RE.fullmatch(body["id"])
-    assert body["name"] is None
+    assert body["name"] == "Workout on 01.01.2026"
     assert body["started_at"] == STARTED_AT
     assert body["ended_at"] is None  # active
     assert body["notes"] is None
@@ -153,6 +153,16 @@ def test_create_returns_authoritative_detail(api_client: TestClient) -> None:
     assert body["session_type"] == "freestyle"
     assert body["source_plan_id"] is None
     assert body["exercises"] == []
+
+
+def test_create_names_the_workout_for_the_profile_local_date(api_client: TestClient) -> None:
+    register_and_login(api_client)
+    assert update_profile(api_client, utc_offset_minutes=60).status_code == 200
+
+    response = create_workout(api_client, started_at="2026-01-01T23:30:00Z")
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "Workout on 02.01.2026"
 
 
 def test_create_records_null_bodyweight_when_profile_unknown(

@@ -27,7 +27,6 @@
 
 <svelte:head><title>Start session · BaseFit</title></svelte:head>
 <h1 tabindex="-1">Choose session type</h1>
-<p class="mt-2 text-muted">Browsing this screen does not start a workout.</p>
 {#if message}<p role="alert" class="mt-3 text-danger">{message}</p>{/if}
 {#if activeSession.workoutId !== null}
   <p class="mt-4">
@@ -38,21 +37,32 @@
     >
   </p>
 {:else}
-  <div class="mt-5 grid gap-3">
+  <div class="mt-5 grid gap-4">
     <button
       type="button"
       id="start-freestyle-session-button"
-      class="min-h-11 rounded-lg bg-primary px-4 text-left font-medium text-primary-content disabled:opacity-40"
+      class="min-h-32 rounded-lg bg-primary p-5 text-left text-primary-content disabled:opacity-40"
       disabled={busy}
+      aria-label="Freestyle session"
+      aria-describedby="freestyle-session-description"
       onclick={() => void startFreestyle()}
     >
-      Freestyle session
+      <span class="block text-lg font-semibold">Freestyle session</span>
+      <span id="freestyle-session-description" class="mt-2 block text-sm"
+        >Build a workout exercise by exercise as you go.</span
+      >
     </button>
     <a
       id="start-plan-session-link"
       href="#/training-plans"
-      class="flex min-h-11 items-center rounded-lg border border-edge px-4 font-medium"
-      >Plan session</a
+      class="min-h-32 rounded-lg border border-edge p-5"
+      aria-label="Plan session"
+      aria-describedby="plan-session-description"
     >
+      <span class="block text-lg font-semibold">Plan session</span>
+      <span id="plan-session-description" class="mt-2 block text-sm text-muted"
+        >Start from a saved plan with its exercises and set targets.</span
+      >
+    </a>
   </div>
 {/if}

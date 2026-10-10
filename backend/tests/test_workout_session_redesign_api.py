@@ -177,7 +177,7 @@ def test_start_from_plan_copies_an_independent_unfinished_graph(
     started = api_client.post(WORKOUTS, json=request)
     assert started.status_code == 201
     session = started.json()
-    assert session["name"] == plan["name"]
+    assert session["name"] == "Workout on 01.02.2026"
     assert session["source_plan_id"] == plan["id"]
     assert session["exercises"][0]["id"] != plan["exercises"][0]["id"]
     copied_set = session["exercises"][0]["sets"][0]
@@ -194,7 +194,7 @@ def test_start_from_plan_copies_an_independent_unfinished_graph(
         == 204
     )
     preserved = api_client.get(f"{WORKOUTS}/{session['id']}").json()
-    assert preserved["name"] == "Pull day"
+    assert preserved["name"] == "Workout on 01.02.2026"
     assert preserved["exercises"] == session["exercises"]
     retry = api_client.post(WORKOUTS, json=request)
     assert retry.status_code == 200

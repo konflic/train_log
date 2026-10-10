@@ -121,7 +121,7 @@ test.describe('workout editor', () => {
     );
   });
 
-  test('reorders compact exercise cards by dragging their handles', async ({
+  test('reorders compact exercise cards by dragging the card itself', async ({
     page,
   }) => {
     await gotoSignedIn(page);
@@ -131,9 +131,7 @@ test.describe('workout editor', () => {
     const backSquat = await addExercise(page, 'Back Squat');
     await backSquat.locator('[id^="workout-exercise-toggle-"]').click();
 
-    await benchPress
-      .getByRole('button', { name: 'Drag Bench Press to reorder' })
-      .dragTo(page.getByLabel('Back Squat editor'));
+    await benchPress.dragTo(page.getByLabel('Back Squat editor'));
 
     await expect(
       page.locator('#workout-editor > section').first(),

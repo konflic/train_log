@@ -49,6 +49,17 @@ describe('SessionChooser', () => {
     expect(
       screen.getByRole('link', { name: 'Plan session' }).getAttribute('href'),
     ).toBe('#/training-plans');
+    expect(
+      screen.getByText('Build a workout exercise by exercise as you go.'),
+    ).toBeDefined();
+    expect(
+      screen.getByText(
+        'Start from a saved plan with its exercises and set targets.',
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryByText('Browsing this screen does not start a workout.'),
+    ).toBeNull();
   });
 
   it('starts freestyle only after the explicit action and resumes that identity', async () => {

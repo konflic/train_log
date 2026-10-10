@@ -6,11 +6,11 @@ import type {
 } from '../../db';
 import {
   catalogIssue,
+  completionProgress,
   copyDraftToNewWorkout,
   fieldKey,
   contentError,
   exerciseProgress,
-  provisionalTotal,
   setError,
   strictInteger,
   updateInteger,
@@ -68,25 +68,31 @@ describe('workout editor model', () => {
       expect(strictInteger(value)).toBeNull();
   });
 
-  it('retains invalid raw text and makes the corresponding set unknown', () => {
+  it('retains invalid raw text and reports its completion progress', () => {
     const next = updateInteger(content(), 'set', 'weight_kg', '12.5');
     expect(next.raw_fields['set.weight_kg']).toBe('12.5');
     expect(next.exercises[0].sets[0].weight_kg).toBeNull();
     expect(setError(next, next.exercises[0], next.exercises[0].sets[0])).toBe(
       'Use whole numbers only.',
     );
-    expect(provisionalTotal(next)).toEqual({
-      knownVolume: null,
-      unknownSetCount: 1,
-      completedSetCount: 1,
+    expect(completionProgress(next)).toEqual({
+      completedSets: 1,
+      totalSets: 1,
+      percent: 100,
     });
   });
 
-  it('reports known volume and completed-set requirements honestly', () => {
-    expect(provisionalTotal(content())).toEqual({
-      knownVolume: 400,
-      unknownSetCount: 0,
-      completedSetCount: 1,
+  it('calculates completion percentage from completed and planned sets', () => {
+    const partial = content();
+    partial.exercises[0].sets.push({
+      ...partial.exercises[0].sets[0],
+      id: 'next',
+      done: false,
+    });
+    expect(completionProgress(partial)).toEqual({
+      completedSets: 1,
+      totalSets: 2,
+      percent: 50,
     });
     const invalid = content();
     invalid.exercises[0].sets[0].reps = null;

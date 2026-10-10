@@ -10,7 +10,6 @@ import {
   type LoadSnapshot,
   type WorkoutDraft,
 } from '../../db';
-import { calculateSetLoad } from '../../lib/numbers';
 
 export const MAX_EXERCISES = 25;
 export const MAX_SETS_PER_EXERCISE = 20;
@@ -264,16 +263,16 @@ export function updateInteger(
   return next;
 }
 
-export interface ProvisionalTotal {
-  knownVolume: number | null;
-  unknownSetCount: number;
-  completedSetCount: number;
-}
-
 export interface ExerciseProgress {
   completedSets: number;
   totalSets: number;
   complete: boolean;
+}
+
+export interface CompletionProgress {
+  completedSets: number;
+  totalSets: number;
+  percent: number;
 }
 
 export function exerciseProgress(
@@ -288,45 +287,22 @@ export function exerciseProgress(
   };
 }
 
-export function provisionalTotal(
+export function completionProgress(
   content: EditableWorkoutContent,
-): ProvisionalTotal {
-  let known = 0;
-  let knownCount = 0;
-  let unknown = 0;
-  let completed = 0;
-  for (const exercise of content.exercises) {
-    const snapshot =
-      content.recorded_load_snapshots[exercise.id] ??
-      content.provisional_load_snapshots[exercise.id];
-    if (!snapshot) continue;
-    for (const set of exercise.sets) {
-      if (!set.done) continue;
-      completed += 1;
-      const percent = set.bw_percent_override ?? snapshot.bodyweight_percent;
-      try {
-        const values = calculateSetLoad({
-          reps: set.reps,
-          weightKg: set.weight_kg,
-          loadType: snapshot.load_type,
-          sideCount: snapshot.side_count,
-          bodyweightKg: content.bodyweight_kg,
-          bodyweightPercent: percent,
-        });
-        if (values.volume_kg_reps === null) unknown += 1;
-        else {
-          known += values.volume_kg_reps;
-          knownCount += 1;
-        }
-      } catch {
-        unknown += 1;
-      }
-    }
-  }
+): CompletionProgress {
+  const totalSets = content.exercises.reduce(
+    (total, exercise) => total + exercise.sets.length,
+    0,
+  );
+  const completedSets = content.exercises.reduce(
+    (total, exercise) => total + exercise.sets.filter((set) => set.done).length,
+    0,
+  );
   return {
-    knownVolume: knownCount === 0 && unknown > 0 ? null : known,
-    unknownSetCount: unknown,
-    completedSetCount: completed,
+    completedSets,
+    totalSets,
+    percent:
+      totalSets === 0 ? 0 : Math.round((completedSets / totalSets) * 100),
   };
 }
 

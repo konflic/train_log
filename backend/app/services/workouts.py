@@ -70,7 +70,7 @@ from app.db import connect, write_transaction
 from app.numbers import MAX_SAFE_INTEGER, NumericRangeError, calculate_set_load, integer_delta
 from app.schemas.common import LoadType
 from app.schemas.workouts import SaveSetRequest, SaveWorkoutRequest, Side
-from app.timestamps import now_timestamp, to_timestamp
+from app.timestamps import now_timestamp, parse_timestamp, to_timestamp
 
 WORKOUT_COLUMNS = (
     "id",
@@ -888,6 +888,15 @@ def save_request_hash(*, owner_id: str, workout_id: str, payload: SaveWorkoutReq
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def workout_name(started_at: str, utc_offset_minutes: int) -> str:
+    """Return the fixed display name for a session in the owner's local date."""
+    try:
+        local_date = (parse_timestamp(started_at) + timedelta(minutes=utc_offset_minutes)).date()
+    except OverflowError:
+        local_date = date.max if utc_offset_minutes > 0 else date.min
+    return f"Workout on {local_date:%d.%m.%Y}"
+
+
 def save_workout(
     database_path: str | Path,
     *,
@@ -1149,22 +1158,25 @@ def create_workout(
                     plan_sets[str(item["plan_exercise_id"])].append(item)
 
         profile = conn.execute(
-            "SELECT bodyweight_default_kg FROM users WHERE id = :owner_id",
+            "SELECT bodyweight_default_kg, utc_offset_minutes FROM users WHERE id = :owner_id",
             {"owner_id": owner_id},
         ).fetchone()
         bodyweight_kg = profile["bodyweight_default_kg"] if profile is not None else None
+        utc_offset_minutes = int(profile["utc_offset_minutes"]) if profile is not None else 0
+        name = workout_name(started_at, utc_offset_minutes)
         try:
             conn.execute(
                 "INSERT INTO workouts (id, user_id, name, started_at, ended_at, "
                 "notes, bodyweight_kg, revision, create_request_hash, "
                 "last_save_id, last_save_hash, created_at, updated_at, session_type, "
                 "source_plan_id) "
-                "VALUES (:id, :user_id, NULL, :started_at, NULL, NULL, "
+                "VALUES (:id, :user_id, :name, :started_at, NULL, NULL, "
                 ":bodyweight_kg, 0, :create_request_hash, NULL, NULL, :now, :now, "
                 ":session_type, :source_plan_id)",
                 {
                     "id": workout_id,
                     "user_id": owner_id,
+                    "name": name,
                     "started_at": started_at,
                     "bodyweight_kg": bodyweight_kg,
                     "create_request_hash": request_hash,
@@ -1193,9 +1205,6 @@ def create_workout(
                 raise CreateConflictError(workout_id) from exc
             return row_to_workout(existing), False
         if plan is not None:
-            conn.execute(
-                "UPDATE workouts SET name = ? WHERE id = ?", (str(plan["name"]), workout_id)
-            )
             for plan_exercise in plan_exercises:
                 exercise_id = str(uuid.uuid4())
                 conn.execute(
