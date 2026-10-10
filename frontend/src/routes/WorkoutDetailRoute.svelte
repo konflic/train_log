@@ -18,6 +18,7 @@
     detailTotal,
     durationSeconds,
     exerciseLabel,
+    exerciseTotal,
     percentageDelta,
     setLoad,
   } from '../features/history/history';
@@ -126,12 +127,8 @@
   >
   <h1 tabindex="-1" class="mt-2">{detail.name ?? 'Unnamed workout'}</h1>
   <dl
-    class="mt-4 grid gap-3 rounded-lg border border-edge bg-surface p-4 text-sm sm:grid-cols-2"
+    class="mt-4 grid gap-2 rounded-lg border border-edge bg-surface p-3 text-sm sm:grid-cols-2"
   >
-    <div>
-      <dt class="text-muted">Started</dt>
-      <dd>{display(detail.started_at)}</dd>
-    </div>
     <div>
       <dt class="text-muted">Finished</dt>
       <dd>{display(detail.ended_at)}</dd>
@@ -145,6 +142,14 @@
       </dd>
     </div>
     <div>
+      <dt class="text-muted">Total volume</dt>
+      <dd>
+        {total.knownVolume === null
+          ? 'Unknown'
+          : `${total.knownVolume} kg`}{total.complete ? '' : '+'}
+      </dd>
+    </div>
+    <div>
       <dt class="text-muted">Recorded bodyweight</dt>
       <dd>
         {detail.bodyweight_kg === null
@@ -153,18 +158,6 @@
       </dd>
     </div>
   </dl>
-  <section
-    class="mt-4 rounded-lg border border-edge bg-surface p-4"
-    aria-labelledby="workout-total"
-  >
-    <h2 id="workout-total" class="font-semibold">Completed-set total</h2>
-    <p>
-      {total.knownVolume === null ? 'Unknown' : `${total.knownVolume} kg`} from
-      {total.completedSetCount} completed sets{total.complete
-        ? '.'
-        : `; ${total.unknownLoadSetCount} loads unknown`}
-    </p>
-  </section>
   {#if detail.notes}<section
       class="mt-4 rounded-lg border border-edge bg-surface p-4"
     >
@@ -173,13 +166,24 @@
     </section>{/if}
   <div class="mt-4 flex flex-col gap-4">
     {#each detail.exercises as exercise (exercise.id)}
+      {@const exerciseSummary = exerciseTotal(detail, exercise)}
       <section
-        class="exercise-card rounded-lg border border-edge bg-surface p-4"
+        class="exercise-card rounded-lg border border-edge bg-surface p-3"
       >
         <div
           class="exercise-card__header flex items-start justify-between gap-2"
         >
-          <h2 class="font-semibold">{exerciseLabel(exercise, catalog)}</h2>
+          <div>
+            <h2 class="font-semibold">{exerciseLabel(exercise, catalog)}</h2>
+            <p class="text-sm text-muted">
+              {exerciseSummary.volume === null
+                ? 'Unknown volume'
+                : `${exerciseSummary.volume} kg${exerciseSummary.unknownVolumeCount ? '+' : ''}`}
+              · 1RM {exerciseSummary.bestOneRepMax === null
+                ? '—'
+                : `${exerciseSummary.bestOneRepMax} kg`}
+            </p>
+          </div>
           <a
             class="exercise-card__info-link inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-edge"
             href="#/exercises/{exercise.catalog_id}"
@@ -192,10 +196,10 @@
         {#if exercise.notes}<p class="mt-1 text-sm text-muted">
             {exercise.notes}
           </p>{/if}
-        <ul class="mt-3 flex flex-col gap-2">
+        <ul class="mt-2 flex flex-col gap-1">
           {#each exercise.sets as set (set.id)}
             {@const load = setLoad(detail, exercise, set)}
-            <li class="rounded-md border border-edge p-3">
+            <li class="rounded-md border border-edge p-2">
               <p class="font-medium">
                 Set {set.set_index + 1}: {set.reps === null
                   ? '—'
@@ -203,9 +207,7 @@
                   ? exercise.load_type === 'bodyweight'
                     ? 'Bodyweight'
                     : 'Unknown weight'
-                  : `${set.weight_kg} kg`} · {set.done
-                  ? 'Completed'
-                  : 'Not completed'}
+                  : `${set.weight_kg} kg`}
               </p>
               {#if set.done}<p class="mt-1 text-sm text-muted">
                   Effective load {load.effective_load_kg === null

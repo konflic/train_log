@@ -117,6 +117,10 @@ describe('HomeRoute reads', () => {
           ended_at: startedAt,
           bodyweight_kg: null,
           revision: 0,
+          session_type: null,
+          source_plan_id: null,
+          total_volume_kg_reps: 1200,
+          volume_complete: true,
         },
       ],
       total: 1,
@@ -127,7 +131,9 @@ describe('HomeRoute reads', () => {
     expect((await screen.findAllByRole('status')).length).toBeGreaterThan(0);
 
     expect(await screen.findByText('Leg day')).toBeDefined();
-    expect(screen.getAllByText(/^Started \d+ hrs ago$/).length).toBe(1);
+    expect(screen.getAllByText(/^Finished \d+ hrs ago · 1200 kg$/).length).toBe(
+      1,
+    );
     expect(screen.getByText('Signed in as Ada')).toBeDefined();
   });
 

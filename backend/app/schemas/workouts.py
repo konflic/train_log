@@ -373,6 +373,8 @@ class WorkoutSummaryResponse(BaseModel):
     revision: int
     session_type: WorkoutSessionType | None
     source_plan_id: str | None
+    total_volume_kg_reps: int | None
+    volume_complete: bool
 
 
 class WorkoutDetailResponse(BaseModel):

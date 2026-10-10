@@ -14,8 +14,14 @@
   let message = $state<string | null>(null);
   let controller: AbortController | null = null;
   let requestId = 0;
-  function localTime(workout: WorkoutSummary): string {
-    return formatRelativeTime(workout.started_at) ?? workout.started_at;
+  function finishedTime(workout: WorkoutSummary): string {
+    if (workout.ended_at === null) return 'Not finished';
+    return formatRelativeTime(workout.ended_at) ?? workout.ended_at;
+  }
+
+  function volume(workout: WorkoutSummary): string {
+    if (workout.total_volume_kg_reps === null) return 'Unknown volume';
+    return `${workout.total_volume_kg_reps} kg${workout.volume_complete ? '' : '+'}`;
   }
 
   async function load(): Promise<void> {
@@ -73,9 +79,11 @@
       <li>
         <a
           href={`#/history/${workout.id}`}
-          class="block min-h-11 rounded-lg border border-edge bg-surface p-4"
+          class="block min-h-11 rounded-lg border border-edge bg-surface p-3"
           ><p class="font-medium">{workout.name ?? 'Unnamed workout'}</p>
-          <p class="text-sm text-muted">Started {localTime(workout)}</p></a
+          <p class="text-sm text-muted">
+            Finished {finishedTime(workout)} · {volume(workout)}
+          </p></a
         >
       </li>
     {/each}

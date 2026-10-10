@@ -1340,6 +1340,64 @@ def list_workouts(
     return WorkoutPage(items=[row_to_workout(row) for row in rows], total=int(total_row["total"]))
 
 
+def workout_summary_totals(
+    database_path: str | Path,
+    *,
+    user_id: str,
+    workout_ids: Sequence[str],
+) -> dict[str, tuple[int | None, bool]]:
+    """Return completed-set volume and completeness for one history page."""
+    if not workout_ids:
+        return {}
+    placeholders = ", ".join(f":workout_{index}" for index in range(len(workout_ids)))
+    params: dict[str, Any] = {"user_id": user_id}
+    params.update({f"workout_{index}": workout_id for index, workout_id in enumerate(workout_ids)})
+    totals = {workout_id: {"completed": 0, "unknown": 0, "volume": 0} for workout_id in workout_ids}
+    with connect(database_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT w.id AS workout_id, w.bodyweight_kg, e.load_type,
+                   e.side_count, e.bodyweight_percent, s.reps, s.weight_kg,
+                   s.bw_percent_override, s.done
+            FROM workouts AS w
+            JOIN exercises AS e ON e.workout_id = w.id
+            JOIN sets AS s ON s.exercise_id = e.id
+            WHERE w.user_id = :user_id AND w.id IN ({placeholders})
+            """,
+            params,
+        ).fetchall()
+    for row in rows:
+        if not bool(row["done"]):
+            continue
+        total = totals[str(row["workout_id"])]
+        total["completed"] += 1
+        load = calculate_set_load(
+            reps=row["reps"],
+            weight_kg=row["weight_kg"],
+            load_type=cast(LoadType, row["load_type"]),
+            side_count=int(row["side_count"]),
+            bodyweight_kg=row["bodyweight_kg"],
+            bodyweight_percent=(
+                row["bw_percent_override"]
+                if row["bw_percent_override"] is not None
+                else row["bodyweight_percent"]
+            ),
+        )
+        if load.volume_kg_reps is None:
+            total["unknown"] += 1
+        else:
+            total["volume"] += load.volume_kg_reps
+    return {
+        workout_id: (
+            None
+            if values["completed"] and values["unknown"] == values["completed"]
+            else values["volume"],
+            values["unknown"] == 0,
+        )
+        for workout_id, values in totals.items()
+    }
+
+
 def _row_to_set(row: sqlite3.Row) -> SetRecord:
     return SetRecord(
         id=str(row["id"]),

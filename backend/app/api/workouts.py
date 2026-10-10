@@ -206,7 +206,12 @@ def _exercise_response(
     )
 
 
-def _summary_response(record: workouts.WorkoutRecord) -> WorkoutSummaryResponse:
+def _summary_response(
+    record: workouts.WorkoutRecord,
+    *,
+    total_volume_kg_reps: int | None,
+    volume_complete: bool,
+) -> WorkoutSummaryResponse:
     return WorkoutSummaryResponse(
         id=record.id,
         name=record.name,
@@ -216,6 +221,8 @@ def _summary_response(record: workouts.WorkoutRecord) -> WorkoutSummaryResponse:
         revision=record.revision,
         session_type=cast(WorkoutSessionType | None, record.session_type),
         source_plan_id=record.source_plan_id,
+        total_volume_kg_reps=total_volume_kg_reps,
+        volume_complete=volume_complete,
     )
 
 
@@ -263,8 +270,20 @@ def list_workouts(
         # Date filters are the caller's local calendar dates (PLAN.md §4).
         utc_offset_minutes=user.utc_offset_minutes,
     )
+    totals = workouts.workout_summary_totals(
+        _settings(request).database_path,
+        user_id=user.id,
+        workout_ids=[record.id for record in result.items],
+    )
     return WorkoutListResponse(
-        items=[_summary_response(record) for record in result.items],
+        items=[
+            _summary_response(
+                record,
+                total_volume_kg_reps=totals[record.id][0],
+                volume_complete=totals[record.id][1],
+            )
+            for record in result.items
+        ],
         total=result.total,
         page=page,
         page_size=page_size,

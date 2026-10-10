@@ -13,6 +13,12 @@ export interface DetailTotal {
   complete: boolean;
 }
 
+export interface ExerciseTotal {
+  volume: number | null;
+  bestOneRepMax: number | null;
+  unknownVolumeCount: number;
+}
+
 export function durationSeconds(detail: WorkoutDetail): number | null {
   if (detail.ended_at === null) return null;
   const started = Date.parse(detail.started_at);
@@ -65,6 +71,32 @@ export function detailTotal(detail: WorkoutDetail): DetailTotal {
     knownVolume: completedSetCount === unknownLoadSetCount ? null : knownVolume,
     unknownLoadSetCount,
     complete: unknownLoadSetCount === 0,
+  };
+}
+
+export function exerciseTotal(
+  detail: WorkoutDetail,
+  exercise: ExerciseNode,
+): ExerciseTotal {
+  let volume = 0;
+  let unknownVolumeCount = 0;
+  let bestOneRepMax: number | null = null;
+  for (const set of exercise.sets) {
+    if (!set.done) continue;
+    const load = setLoad(detail, exercise, set);
+    if (load.volume_kg_reps === null) unknownVolumeCount += 1;
+    else volume += load.volume_kg_reps;
+    if (load.estimated_1rm_kg !== null) {
+      bestOneRepMax = Math.max(
+        bestOneRepMax ?? load.estimated_1rm_kg,
+        load.estimated_1rm_kg,
+      );
+    }
+  }
+  return {
+    volume: unknownVolumeCount > 0 && volume === 0 ? null : volume,
+    bestOneRepMax,
+    unknownVolumeCount,
   };
 }
 

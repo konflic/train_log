@@ -163,6 +163,8 @@ export interface WorkoutSummary {
   revision: number;
   session_type?: WorkoutSessionType | null;
   source_plan_id?: string | null;
+  total_volume_kg_reps: number | null;
+  volume_complete: boolean;
 }
 
 export interface WorkoutPage {

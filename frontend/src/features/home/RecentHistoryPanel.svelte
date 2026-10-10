@@ -45,8 +45,14 @@
     }
   }
 
-  function startedAt(workout: WorkoutSummary): string {
-    return formatRelativeTime(workout.started_at) ?? workout.started_at;
+  function finishedAt(workout: WorkoutSummary): string {
+    if (workout.ended_at === null) return 'Not finished';
+    return formatRelativeTime(workout.ended_at) ?? workout.ended_at;
+  }
+
+  function volume(workout: WorkoutSummary): string {
+    if (workout.total_volume_kg_reps === null) return 'Unknown volume';
+    return `${workout.total_volume_kg_reps} kg${workout.volume_complete ? '' : '+'}`;
   }
 
   onMount(() => {
@@ -88,7 +94,9 @@
             class="block min-h-11 rounded-md border border-edge px-3 py-2"
           >
             <p class="font-medium">{workout.name ?? 'Unnamed workout'}</p>
-            <p class="text-sm text-muted">Started {startedAt(workout)}</p>
+            <p class="text-sm text-muted">
+              Finished {finishedAt(workout)} · {volume(workout)}
+            </p>
           </a>
         </li>
       {/each}

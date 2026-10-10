@@ -55,6 +55,10 @@
 }
 
 @layer base {
+  h1 {
+    @apply text-3xl font-bold tracking-tight;
+  }
+
   body {
     @apply bg-page text-content;
     font-family:

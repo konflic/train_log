@@ -17,7 +17,8 @@ Detailed contract: [`implementation/stage-13-history-settings-logout.md`](implem
 
 Implement the remaining user-facing Phase 1 features:
 
-- Finished-workout history and read-only detail with previous-performance comparisons.
+- Finished-workout history and read-only detail with previous-performance comparisons,
+  compact cards, finish-time and volume summaries, and per-exercise best 1RM.
 - Settings for theme, display name, bodyweight, UTC offset, and logout.
 - Revision-checked deletion with recovery for conflicts and uncertain responses.
 - Logout that synchronizes or explicitly discards all account-local pending work.

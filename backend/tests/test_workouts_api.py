@@ -54,6 +54,8 @@ SUMMARY_FIELDS = {
     "revision",
     "session_type",
     "source_plan_id",
+    "total_volume_kg_reps",
+    "volume_complete",
 }
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "code", "request_id"}
 
